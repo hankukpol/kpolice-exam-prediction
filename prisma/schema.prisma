@@ -1,0 +1,148 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum ExamType {
+  PUBLIC
+  CAREER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum BonusType {
+  NONE
+  VETERAN_5
+  VETERAN_10
+  HERO_3
+  HERO_5
+}
+
+model User {
+  id          Int          @id @default(autoincrement())
+  name        String
+  email       String       @unique
+  password    String
+  role        Role         @default(USER)
+  createdAt   DateTime     @default(now())
+  submissions Submission[]
+  comments    Comment[]
+}
+
+model Exam {
+  id          Int          @id @default(autoincrement())
+  name        String
+  year        Int
+  round       Int
+  examDate    DateTime
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  answerKeys  AnswerKey[]
+  submissions Submission[]
+  comments    Comment[]
+
+  @@unique([year, round])
+}
+
+model Region {
+  id                 Int          @id @default(autoincrement())
+  name               String       @unique
+  recruitCount       Int
+  recruitCountCareer Int
+  submissions        Submission[]
+}
+
+model Subject {
+  id               Int            @id @default(autoincrement())
+  name             String
+  questionCount    Int
+  pointPerQuestion Float
+  maxScore         Float
+  examType         ExamType
+  answerKeys       AnswerKey[]
+  userAnswers      UserAnswer[]
+  subjectScores    SubjectScore[]
+
+  @@unique([name, examType])
+}
+
+model AnswerKey {
+  id             Int     @id @default(autoincrement())
+  examId         Int
+  subjectId      Int
+  questionNumber Int
+  correctAnswer  Int
+  isConfirmed    Boolean @default(false)
+  exam           Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject        Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([examId, subjectId, questionNumber])
+}
+
+model Submission {
+  id            Int            @id @default(autoincrement())
+  examId        Int
+  userId        Int
+  regionId      Int
+  examType      ExamType
+  gender        Gender
+  totalScore    Float
+  bonusType     BonusType      @default(NONE)
+  bonusRate     Float          @default(0)
+  finalScore    Float
+  createdAt     DateTime       @default(now())
+  exam          Exam           @relation(fields: [examId], references: [id], onDelete: Restrict)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  region        Region         @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  userAnswers   UserAnswer[]
+  subjectScores SubjectScore[]
+
+  @@unique([userId, examId, examType])
+}
+
+model UserAnswer {
+  id             Int        @id @default(autoincrement())
+  submissionId   Int
+  subjectId      Int
+  questionNumber Int
+  selectedAnswer Int
+  isCorrect      Boolean
+  submission     Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  subject        Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([submissionId, subjectId, questionNumber])
+}
+
+model SubjectScore {
+  id           Int        @id @default(autoincrement())
+  submissionId Int
+  subjectId    Int
+  rawScore     Float
+  isFailed     Boolean
+  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  subject      Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@unique([submissionId, subjectId])
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  examId    Int
+  userId    Int
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
