@@ -4,6 +4,10 @@ import { ExamType, Gender } from "@prisma/client";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import DifficultySelector, { type DifficultyRating } from "@/components/exam/DifficultySelector";
+import OmrInputModeToggle, { type OmrInputMode } from "@/components/exam/OmrInputModeToggle";
+import QuickOmrInput from "@/components/exam/QuickOmrInput";
+import RadioOmrInput from "@/components/exam/RadioOmrInput";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +16,9 @@ import { Label } from "@/components/ui/label";
 type BonusVeteran = 0 | 5 | 10;
 type BonusHero = 0 | 3 | 5;
 type AnswersBySubject = Record<string, Record<number, number | null>>;
+type DifficultyBySubject = Record<string, DifficultyRating>;
+
+const OMR_INPUT_MODE_STORAGE_KEY = "exam.omr.input-mode";
 
 interface ExamSummary {
   id: number;
@@ -51,6 +58,11 @@ interface SubmissionResponse {
   submissionId: number;
 }
 
+interface ExamInputPageProps {
+  embedded?: boolean;
+  onSubmitted?: (submissionId: number) => void;
+}
+
 function createEmptyAnswers(subjects: SubjectInfo[]): AnswersBySubject {
   const next: AnswersBySubject = {};
   for (const subject of subjects) {
@@ -59,6 +71,14 @@ function createEmptyAnswers(subjects: SubjectInfo[]): AnswersBySubject {
       byQuestion[questionNo] = null;
     }
     next[subject.name] = byQuestion;
+  }
+  return next;
+}
+
+function createEmptyDifficulty(subjects: SubjectInfo[]): DifficultyBySubject {
+  const next: DifficultyBySubject = {};
+  for (const subject of subjects) {
+    next[subject.name] = "NORMAL";
   }
   return next;
 }
@@ -76,7 +96,18 @@ function getRecruitCount(region: RegionInfo, examType: ExamType): number {
   return region.recruitCount;
 }
 
-export default function ExamInputPage() {
+function getDefaultInputMode(): OmrInputMode {
+  if (typeof window === "undefined") return "radio";
+
+  const isTouchDevice = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  const isNarrowScreen = window.innerWidth < 768;
+  return isTouchDevice || isNarrowScreen ? "radio" : "quick";
+}
+
+export default function ExamInputPage({
+  embedded = false,
+  onSubmitted,
+}: ExamInputPageProps = {}) {
   const router = useRouter();
   const { data: session, status } = useSession();
   const { showErrorToast } = useToast();
@@ -93,8 +124,14 @@ export default function ExamInputPage() {
   const [veteranPercent, setVeteranPercent] = useState<BonusVeteran>(0);
   const [heroPercent, setHeroPercent] = useState<BonusHero>(0);
   const [activeSubjectIndex, setActiveSubjectIndex] = useState(0);
+  const [inputMode, setInputMode] = useState<OmrInputMode>("radio");
+  const [quickFocusToken, setQuickFocusToken] = useState(0);
 
   const [answerStore, setAnswerStore] = useState<Record<ExamType, AnswersBySubject>>({
+    [ExamType.PUBLIC]: {},
+    [ExamType.CAREER]: {},
+  });
+  const [difficultyStore, setDifficultyStore] = useState<Record<ExamType, DifficultyBySubject>>({
     [ExamType.PUBLIC]: {},
     [ExamType.CAREER]: {},
   });
@@ -116,10 +153,15 @@ export default function ExamInputPage() {
         }
 
         if (!isMounted) return;
+
         setMeta(data);
         setAnswerStore({
           [ExamType.PUBLIC]: createEmptyAnswers(data.subjectGroups.PUBLIC),
           [ExamType.CAREER]: createEmptyAnswers(data.subjectGroups.CAREER),
+        });
+        setDifficultyStore({
+          [ExamType.PUBLIC]: createEmptyDifficulty(data.subjectGroups.PUBLIC),
+          [ExamType.CAREER]: createEmptyDifficulty(data.subjectGroups.CAREER),
         });
       } catch (error) {
         if (!isMounted) return;
@@ -148,8 +190,33 @@ export default function ExamInputPage() {
     setActiveSubjectIndex(0);
   }, [examType]);
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(OMR_INPUT_MODE_STORAGE_KEY);
+      if (saved === "quick" || saved === "radio") {
+        setInputMode(saved);
+      } else {
+        setInputMode(getDefaultInputMode());
+      }
+    } catch {
+      setInputMode(getDefaultInputMode());
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(OMR_INPUT_MODE_STORAGE_KEY, inputMode);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [inputMode]);
+
   const currentSubject = subjects[activeSubjectIndex] ?? null;
   const currentAnswers = useMemo(() => answerStore[examType] ?? {}, [answerStore, examType]);
+  const currentDifficulty = useMemo(
+    () => difficultyStore[examType] ?? {},
+    [difficultyStore, examType]
+  );
 
   const progressBySubject = useMemo(() => {
     return subjects.map((subject) => {
@@ -181,16 +248,29 @@ export default function ExamInputPage() {
   const isCareerRecruitCountMissing =
     examType === ExamType.CAREER && selectedRegion !== null && recruitCount !== null && recruitCount < 1;
 
-  function setAnswer(subjectName: string, questionNo: number, answer: number) {
+  function setAnswer(subjectName: string, questionNo: number, answer: number | null) {
     setAnswerStore((previous) => {
       const typeAnswers = previous[examType] ?? {};
       const subjectAnswers = { ...(typeAnswers[subjectName] ?? {}) };
-      subjectAnswers[questionNo] = subjectAnswers[questionNo] === answer ? null : answer;
+      subjectAnswers[questionNo] = answer;
       return {
         ...previous,
         [examType]: {
           ...typeAnswers,
           [subjectName]: subjectAnswers,
+        },
+      };
+    });
+  }
+
+  function setDifficulty(subjectName: string, rating: DifficultyRating) {
+    setDifficultyStore((previous) => {
+      const typeDifficulty = previous[examType] ?? {};
+      return {
+        ...previous,
+        [examType]: {
+          ...typeDifficulty,
+          [subjectName]: rating,
         },
       };
     });
@@ -210,6 +290,16 @@ export default function ExamInputPage() {
     }
   }
 
+  function handleRequestNextSubjectInQuickMode() {
+    setActiveSubjectIndex((previousIndex) => {
+      const nextIndex = Math.min(previousIndex + 1, subjects.length - 1);
+      if (nextIndex !== previousIndex) {
+        setQuickFocusToken((token) => token + 1);
+      }
+      return nextIndex;
+    });
+  }
+
   async function handleSubmit() {
     if (!meta?.activeExam) {
       setErrorMessage("활성 시험이 없습니다.");
@@ -221,15 +311,21 @@ export default function ExamInputPage() {
       return;
     }
 
+    const normalizedExamNumber = examNumber.trim();
+    if (!normalizedExamNumber) {
+      setErrorMessage("응시번호는 필수 입력 항목입니다.");
+      return;
+    }
+
     if (isCareerRecruitCountMissing) {
-      setErrorMessage("선택한 지역의 경행경채 모집인원이 설정되지 않았습니다. 관리자에게 문의해주세요.");
+      setErrorMessage("선택한 지역의 경행경채 모집인원이 설정되지 않았습니다. 관리자에게 문의해 주세요.");
       return;
     }
 
     const unansweredCount = totalProgress.total - totalProgress.filled;
     if (unansweredCount > 0) {
       const confirmed = window.confirm(
-        `미입력 문항이 ${unansweredCount}개 있습니다.\\n미입력 문항은 오답 처리됩니다.\\n그래도 제출하시겠습니까?`
+        `미입력 문항이 ${unansweredCount}개 있습니다.\n미입력 문항은 오답 처리됩니다.\n그래도 제출하시겠습니까?`
       );
       if (!confirmed) {
         return;
@@ -251,6 +347,11 @@ export default function ExamInputPage() {
       }
     }
 
+    const difficulty = subjects.map((subject) => ({
+      subjectName: subject.name,
+      rating: currentDifficulty[subject.name] ?? "NORMAL",
+    }));
+
     setIsSubmitting(true);
     setErrorMessage("");
     try {
@@ -262,10 +363,11 @@ export default function ExamInputPage() {
           examType,
           gender,
           regionId,
-          examNumber: examNumber.trim() || null,
+          examNumber: normalizedExamNumber,
           veteranPercent,
           heroPercent,
           answers,
+          difficulty,
         }),
       });
 
@@ -275,8 +377,13 @@ export default function ExamInputPage() {
       }
 
       sessionStorage.setItem("latestSubmissionId", String(data.submissionId));
-      router.push(`/exam/result?submissionId=${data.submissionId}`);
-      router.refresh();
+
+      if (embedded && onSubmitted) {
+        onSubmitted(data.submissionId);
+      } else {
+        router.push(`/exam/result?submissionId=${data.submissionId}`);
+        router.refresh();
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "답안 제출 중 오류가 발생했습니다.";
       setErrorMessage(message);
@@ -359,7 +466,7 @@ export default function ExamInputPage() {
               value={regionId}
               onChange={(event) => setRegionId(Number(event.target.value) || "")}
             >
-              <option value="">지역 선택</option>
+              <option value="">지역을 선택하세요</option>
               {meta.regions.map((region) => (
                 <option key={region.id} value={region.id}>
                   {region.name}
@@ -381,19 +488,21 @@ export default function ExamInputPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="examNumber">응시번호 (선택)</Label>
+            <Label htmlFor="examNumber">응시번호 (필수)</Label>
             <Input
               id="examNumber"
               value={examNumber}
               onChange={(event) => setExamNumber(event.target.value)}
               placeholder="응시번호 입력"
+              required
             />
+            <p className="text-xs text-slate-500">수험표에 기재된 응시번호를 정확히 입력해 주세요.</p>
           </div>
         </div>
 
         <div className="mt-6 rounded-lg border border-slate-200 p-4">
           <h2 className="text-sm font-semibold text-slate-900">가산점</h2>
-          <p className="mt-1 text-xs text-slate-500">취업지원과 의사상자는 동시 적용할 수 없습니다.</p>
+          <p className="mt-1 text-xs text-slate-500">취업지원과 의사상자 가산점은 동시에 적용할 수 없습니다.</p>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <fieldset className="space-y-2">
@@ -436,14 +545,30 @@ export default function ExamInputPage() {
       <section className="rounded-xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">OMR 답안 입력</h2>
         <p className="mt-1 text-sm text-slate-600">
-          {examType === ExamType.PUBLIC ? "공채" : "경행경채"} · 총 100문항
+          {examType === ExamType.PUBLIC ? "공채" : "경행경채"} ·
+          {inputMode === "quick"
+            ? " 키보드 숫자 입력(1~4)으로 빠르게 답안을 입력하세요."
+            : " 문항별 ①②③④ 버튼을 눌러 답안을 입력하세요."}
         </p>
+        <div className="mt-4">
+          <OmrInputModeToggle
+            value={inputMode}
+            onChange={(nextMode) => {
+              setInputMode(nextMode);
+              if (nextMode === "quick") {
+                setQuickFocusToken((token) => token + 1);
+              }
+            }}
+          />
+        </div>
 
         <div className="mt-5 flex flex-wrap gap-2">
           {subjects.map((subject, index) => {
             const progress = progressBySubject.find((item) => item.subjectName === subject.name);
             const filled = progress?.filled ?? 0;
             const completed = filled === subject.questionCount;
+                const rating = currentDifficulty[subject.name] ?? "NORMAL";
+
             return (
               <button
                 key={subject.name}
@@ -463,6 +588,11 @@ export default function ExamInputPage() {
                 >
                   {filled}/{subject.questionCount}
                 </span>
+                {rating ? (
+                  <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                    {rating === "EASY" ? "쉬움" : rating === "NORMAL" ? "보통" : "어려움"}
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -470,51 +600,34 @@ export default function ExamInputPage() {
 
         {currentSubject ? (
           <div className="mt-4 rounded-lg border border-slate-200 p-4">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="font-semibold text-slate-900">
                 {currentSubject.name} ({currentSubject.questionCount}문항)
               </h3>
-              <p className="text-sm text-slate-500">
-                미입력{" "}
-                {currentSubject.questionCount -
-                  (progressBySubject.find((item) => item.subjectName === currentSubject.name)?.filled ?? 0)}
-                문항
-              </p>
+              <DifficultySelector
+                subjectName={currentSubject.name}
+                value={currentDifficulty[currentSubject.name] ?? "NORMAL"}
+                onChange={(next) => setDifficulty(currentSubject.name, next)}
+              />
             </div>
 
-            <div className="space-y-2">
-              {Array.from({ length: currentSubject.questionCount }, (_, index) => {
-                const questionNo = index + 1;
-                const selectedAnswer = currentAnswers[currentSubject.name]?.[questionNo] ?? null;
-
-                return (
-                  <div
-                    key={questionNo}
-                    className={`flex items-center gap-3 rounded-md border p-2 ${
-                      selectedAnswer === null ? "border-rose-200 bg-rose-50/60" : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <span className="w-9 text-sm font-semibold text-slate-700">{questionNo}</span>
-                    <div className="flex flex-wrap gap-2">
-                      {[1, 2, 3, 4].map((choice) => (
-                        <button
-                          key={choice}
-                          type="button"
-                          className={`h-10 w-10 rounded-full border text-sm font-semibold transition md:h-9 md:w-9 ${
-                            selectedAnswer === choice
-                              ? "border-blue-700 bg-blue-700 text-white"
-                              : "border-slate-300 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50"
-                          }`}
-                          onClick={() => setAnswer(currentSubject.name, questionNo, choice)}
-                        >
-                          {choice}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+            {inputMode === "radio" ? (
+              <RadioOmrInput
+                subjectName={currentSubject.name}
+                questionCount={currentSubject.questionCount}
+                answers={currentAnswers[currentSubject.name] ?? {}}
+                onAnswerChange={(questionNo, answer) => setAnswer(currentSubject.name, questionNo, answer)}
+              />
+            ) : (
+              <QuickOmrInput
+                subjectName={currentSubject.name}
+                questionCount={currentSubject.questionCount}
+                answers={currentAnswers[currentSubject.name] ?? {}}
+                onAnswerChange={(questionNo, answer) => setAnswer(currentSubject.name, questionNo, answer)}
+                focusToken={quickFocusToken}
+                onRequestNextSubject={handleRequestNextSubjectInQuickMode}
+              />
+            )}
           </div>
         ) : null}
 

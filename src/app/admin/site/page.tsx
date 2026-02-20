@@ -1,6 +1,7 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -69,11 +70,8 @@ export default function AdminSitePage() {
   const [notices, setNotices] = useState<NoticeItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingBasic, setIsSavingBasic] = useState(false);
-  const [isSavingBanner, setIsSavingBanner] = useState(false);
   const [isSavingSystem, setIsSavingSystem] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
-
-  const [bannerFile, setBannerFile] = useState<File | null>(null);
 
   const [editingNoticeId, setEditingNoticeId] = useState<number | null>(null);
   const [noticeTitle, setNoticeTitle] = useState("");
@@ -182,74 +180,6 @@ export default function AdminSitePage() {
       });
     } finally {
       setIsSavingBasic(false);
-    }
-  }
-
-  async function handleSaveBannerSettings() {
-    setIsSavingBanner(true);
-    setNotice(null);
-
-    try {
-      let bannerImageUrl = settings["site.bannerImageUrl"] as string | null;
-
-      if (bannerFile) {
-        const formData = new FormData();
-        formData.append("file", bannerFile);
-
-        const uploadResponse = await fetch("/api/admin/site/upload", {
-          method: "POST",
-          body: formData,
-        });
-        const uploadData = (await uploadResponse.json()) as { success?: boolean; url?: string; error?: string };
-        if (!uploadResponse.ok || !uploadData.success || !uploadData.url) {
-          throw new Error(uploadData.error ?? "배너 이미지 업로드에 실패했습니다.");
-        }
-
-        bannerImageUrl = uploadData.url;
-      }
-
-      await saveSettings(
-        {
-          "site.bannerImageUrl": bannerImageUrl,
-          "site.bannerLink": (settings["site.bannerLink"] as string | null) ?? null,
-        },
-        "배너 설정이 저장되었습니다."
-      );
-      setBannerFile(null);
-      await loadSettings();
-    } catch (error) {
-      setNotice({
-        type: "error",
-        message: error instanceof Error ? error.message : "배너 설정 저장에 실패했습니다.",
-      });
-    } finally {
-      setIsSavingBanner(false);
-    }
-  }
-
-  async function handleDeleteBanner() {
-    const confirmed = window.confirm("배너 이미지를 삭제하시겠습니까?");
-    if (!confirmed) return;
-
-    setIsSavingBanner(true);
-    setNotice(null);
-    try {
-      await saveSettings(
-        {
-          "site.bannerImageUrl": null,
-          "site.bannerLink": null,
-        },
-        "배너 설정이 삭제되었습니다."
-      );
-      setBannerFile(null);
-      await loadSettings();
-    } catch (error) {
-      setNotice({
-        type: "error",
-        message: error instanceof Error ? error.message : "배너 삭제에 실패했습니다.",
-      });
-    } finally {
-      setIsSavingBanner(false);
     }
   }
 
@@ -378,11 +308,6 @@ export default function AdminSitePage() {
     }
   }
 
-  function handleBannerFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    setBannerFile(file);
-  }
-
   if (isLoading) {
     return <p className="text-sm text-slate-600">사이트 관리 데이터를 불러오는 중입니다...</p>;
   }
@@ -391,7 +316,14 @@ export default function AdminSitePage() {
     <div className="space-y-6">
       <header>
         <h1 className="text-xl font-semibold text-slate-900">사이트 관리</h1>
-        <p className="mt-1 text-sm text-slate-600">메인 문구, 배너, 공지사항, 점검 모드를 관리합니다.</p>
+        <p className="mt-1 text-sm text-slate-600">메인 문구, 공지사항, 점검 모드를 관리합니다.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          배너 이미지는{" "}
+          <Link href="/admin/banners" className="font-semibold text-slate-800 underline">
+            배너 관리
+          </Link>
+          에서 관리하세요.
+        </p>
       </header>
 
       {notice ? (
@@ -460,52 +392,6 @@ export default function AdminSitePage() {
         <Button type="button" onClick={handleSaveBasicSettings} disabled={isSavingBasic}>
           {isSavingBasic ? "저장 중..." : "기본 설정 저장"}
         </Button>
-      </section>
-
-      <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
-        <h2 className="text-base font-semibold text-slate-900">배너 관리</h2>
-
-        <div className="space-y-2">
-          <p className="text-sm text-slate-700">현재 배너</p>
-          {settings["site.bannerImageUrl"] ? (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={String(settings["site.bannerImageUrl"])}
-                alt="현재 배너"
-                className="max-h-44 rounded-lg border border-slate-200 object-contain"
-              />
-            </>
-          ) : (
-            <p className="rounded-md border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
-              설정된 배너가 없습니다.
-            </p>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="banner-link">배너 링크</Label>
-          <Input
-            id="banner-link"
-            value={String(settings["site.bannerLink"] ?? "")}
-            onChange={(event) => updateSettingString("site.bannerLink", event.target.value)}
-            placeholder="https://example.com"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="banner-file">이미지 업로드 (jpg, png, webp / 2MB 이하)</Label>
-          <Input id="banner-file" type="file" accept=".jpg,.jpeg,.png,.webp" onChange={handleBannerFileChange} />
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={handleSaveBannerSettings} disabled={isSavingBanner}>
-            {isSavingBanner ? "저장 중..." : "배너 저장"}
-          </Button>
-          <Button type="button" variant="outline" onClick={handleDeleteBanner} disabled={isSavingBanner}>
-            배너 삭제
-          </Button>
-        </div>
       </section>
 
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">

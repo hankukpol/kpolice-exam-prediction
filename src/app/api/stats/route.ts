@@ -1,6 +1,7 @@
 import { ExamType, Gender } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
+import { getDifficultyStats } from "@/lib/difficulty";
 import { prisma } from "@/lib/prisma";
 import { consumeFixedWindowRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-ip";
@@ -20,6 +21,40 @@ function toCount(value: bigint | number | null | undefined): number {
   if (typeof value === "bigint") return Number(value);
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return 0;
+}
+
+function toScore(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+
+  if (value && typeof value === "object") {
+    const asString = String(value);
+    const parsed = Number(asString);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function roundOne(value: number): number {
+  return Number(value.toFixed(1));
+}
+
+interface RegionAggregate {
+  regionId: number;
+  regionName: string;
+  publicCount: number;
+  careerCount: number;
+  total: number;
+  avgTotalScore: number;
+  avgFinalScore: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -68,8 +103,11 @@ export async function GET(request: NextRequest) {
     byExamTypeRaw,
     byGenderRaw,
     byRegionRaw,
+    byRegionAverageRaw,
     regions,
     submissionsByDateRaw,
+    scoreDistributionRaw,
+    difficulty,
   ] = await Promise.all([
     prisma.submission.count({
       where: { examId: exam.id },
@@ -95,6 +133,17 @@ export async function GET(request: NextRequest) {
         _all: true,
       },
     }),
+    prisma.submission.groupBy({
+      by: ["regionId"],
+      where: { examId: exam.id },
+      _count: {
+        _all: true,
+      },
+      _avg: {
+        totalScore: true,
+        finalScore: true,
+      },
+    }),
     prisma.region.findMany({
       orderBy: { name: "asc" },
     }),
@@ -105,6 +154,14 @@ export async function GET(request: NextRequest) {
       GROUP BY DATE(createdAt)
       ORDER BY DATE(createdAt)
     `,
+    prisma.$queryRaw<Array<{ bucket: bigint | number; count: bigint | number }>>`
+      SELECT LEAST(FLOOR(GREATEST(finalScore, 0) / 10), 24) AS bucket, COUNT(*) AS count
+      FROM Submission
+      WHERE examId = ${exam.id}
+      GROUP BY bucket
+      ORDER BY bucket
+    `,
+    getDifficultyStats(exam.id),
   ]);
 
   const regionNameById = new Map(regions.map((region) => [region.id, region.name] as const));
@@ -125,10 +182,7 @@ export async function GET(request: NextRequest) {
     byGender[item.gender] = item._count._all;
   }
 
-  const byRegionMap = new Map<
-    number,
-    { regionId: number; regionName: string; publicCount: number; careerCount: number; total: number }
-  >();
+  const byRegionMap = new Map<number, RegionAggregate>();
 
   for (const item of byRegionRaw) {
     const existing = byRegionMap.get(item.regionId) ?? {
@@ -137,6 +191,8 @@ export async function GET(request: NextRequest) {
       publicCount: 0,
       careerCount: 0,
       total: 0,
+      avgTotalScore: 0,
+      avgFinalScore: 0,
     };
 
     if (item.examType === ExamType.PUBLIC) {
@@ -148,10 +204,51 @@ export async function GET(request: NextRequest) {
     byRegionMap.set(item.regionId, existing);
   }
 
+  for (const item of byRegionAverageRaw) {
+    const existing = byRegionMap.get(item.regionId) ?? {
+      regionId: item.regionId,
+      regionName: regionNameById.get(item.regionId) ?? "알 수 없음",
+      publicCount: 0,
+      careerCount: 0,
+      total: 0,
+      avgTotalScore: 0,
+      avgFinalScore: 0,
+    };
+
+    existing.total = item._count._all;
+    existing.avgTotalScore = roundOne(toScore(item._avg.totalScore));
+    existing.avgFinalScore = roundOne(toScore(item._avg.finalScore));
+    byRegionMap.set(item.regionId, existing);
+  }
+
   const submissionsByDate = submissionsByDateRaw.map((item) => ({
     date: item.date,
     count: toCount(item.count),
   }));
+
+  const scoreDistributionMap = new Map<number, number>();
+  for (const item of scoreDistributionRaw) {
+    const bucket = toCount(item.bucket);
+    if (bucket < 0 || bucket > 24) {
+      continue;
+    }
+    scoreDistributionMap.set(bucket, toCount(item.count));
+  }
+
+  const scoreDistribution = Array.from({ length: 25 }, (_, index) => {
+    const start = index * 10;
+    const end = start + 10;
+    const label = `${start}~${end}`;
+
+    return {
+      bucket: index,
+      label,
+      start,
+      end,
+      count: scoreDistributionMap.get(index) ?? 0,
+      isCutoffRange: start < 100,
+    };
+  });
 
   return NextResponse.json({
     exam: {
@@ -173,5 +270,7 @@ export async function GET(request: NextRequest) {
     },
     byRegion: Array.from(byRegionMap.values()).sort((a, b) => b.total - a.total),
     submissionsByDate,
+    scoreDistribution,
+    difficulty,
   });
 }

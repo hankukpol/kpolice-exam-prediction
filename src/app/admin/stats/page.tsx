@@ -1,6 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { Button } from "@/components/ui/button";
 
 const ADMIN_EXAM_API = "/api/admin/exam";
 const STATS_API = "/api/stats";
@@ -19,11 +32,46 @@ interface RegionStat {
   publicCount: number;
   careerCount: number;
   total: number;
+  avgTotalScore: number;
+  avgFinalScore: number;
 }
 
 interface DateStat {
   date: string;
   count: number;
+}
+
+interface ScoreDistributionItem {
+  bucket: number;
+  label: string;
+  start: number;
+  end: number;
+  count: number;
+  isCutoffRange: boolean;
+}
+
+interface DifficultySubjectStat {
+  subjectId: number;
+  subjectName: string;
+  examType: "PUBLIC" | "CAREER";
+  responses: number;
+  easy: number;
+  normal: number;
+  hard: number;
+  dominantLabel: "쉬움" | "보통" | "어려움";
+}
+
+interface DifficultyStatSummary {
+  examId: number;
+  examName: string;
+  totalResponses: number;
+  overall: {
+    easy: number;
+    normal: number;
+    hard: number;
+    dominantLabel: "쉬움" | "보통" | "어려움";
+  };
+  subjects: DifficultySubjectStat[];
 }
 
 interface StatsResponse {
@@ -46,10 +94,12 @@ interface StatsResponse {
   };
   byRegion: RegionStat[];
   submissionsByDate: DateStat[];
+  scoreDistribution: ScoreDistributionItem[];
+  difficulty: DifficultyStatSummary | null;
 }
 
 type NoticeState = {
-  type: "error";
+  type: "success" | "error";
   message: string;
 } | null;
 
@@ -59,16 +109,89 @@ function formatDate(dateText: string): string {
   return parsed.toLocaleDateString("ko-KR");
 }
 
+function formatScore(value: number): string {
+  return value.toFixed(1);
+}
+
+function escapeCsvCell(value: string | number): string {
+  const raw = String(value);
+  if (raw.includes(",") || raw.includes('"') || raw.includes("\n")) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+}
+
+function buildStatsCsvContent(stats: StatsResponse): string {
+  const lines: string[] = [];
+  lines.push("구분,항목,값");
+  lines.push(`${escapeCsvCell("시험")},${escapeCsvCell("시험명")},${escapeCsvCell(stats.exam.name)}`);
+  lines.push(`${escapeCsvCell("시험")},${escapeCsvCell("시험차수")},${escapeCsvCell(`${stats.exam.year}년 ${stats.exam.round}차`)}`);
+  lines.push(`${escapeCsvCell("참여현황")},${escapeCsvCell("총 참여자")},${escapeCsvCell(stats.totalParticipants)}`);
+  lines.push(`${escapeCsvCell("참여현황")},${escapeCsvCell("공채")},${escapeCsvCell(stats.byExamType.PUBLIC)}`);
+  lines.push(`${escapeCsvCell("참여현황")},${escapeCsvCell("경행경채")},${escapeCsvCell(stats.byExamType.CAREER)}`);
+  lines.push(`${escapeCsvCell("성별")},${escapeCsvCell("남성")},${escapeCsvCell(stats.byGender.MALE)}`);
+  lines.push(`${escapeCsvCell("성별")},${escapeCsvCell("여성")},${escapeCsvCell(stats.byGender.FEMALE)}`);
+  lines.push("");
+
+  lines.push("지역별 통계,,,,,");
+  lines.push("지역,공채,경행경채,합계,평균 원점수,평균 최종점수");
+  for (const row of stats.byRegion) {
+    lines.push(
+      [
+        row.regionName,
+        row.publicCount,
+        row.careerCount,
+        row.total,
+        formatScore(row.avgTotalScore),
+        formatScore(row.avgFinalScore),
+      ]
+        .map(escapeCsvCell)
+        .join(",")
+    );
+  }
+  lines.push("");
+
+  lines.push("일자별 제출 추이,,");
+  lines.push("일자,제출 건수");
+  for (const row of stats.submissionsByDate) {
+    lines.push([row.date, row.count].map(escapeCsvCell).join(","));
+  }
+  lines.push("");
+
+  lines.push("점수 분포,,");
+  lines.push("점수 구간,인원 수");
+  for (const row of stats.scoreDistribution) {
+    lines.push([row.label, row.count].map(escapeCsvCell).join(","));
+  }
+  lines.push("");
+
+  lines.push("체감 난이도,,,,,");
+  lines.push("과목,응답수,쉬움(%),보통(%),어려움(%),대표");
+  if (stats.difficulty?.subjects?.length) {
+    for (const row of stats.difficulty.subjects) {
+      const name = row.examType === "CAREER" ? `${row.subjectName}(경행경채)` : row.subjectName;
+      lines.push(
+        [name, row.responses, row.easy, row.normal, row.hard, row.dominantLabel]
+          .map(escapeCsvCell)
+          .join(",")
+      );
+    }
+  }
+
+  return lines.join("\r\n");
+}
+
 export default function AdminStatsPage() {
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDownloadingCsv, setIsDownloadingCsv] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
 
   const recentDateStats = useMemo(() => {
     if (!stats?.submissionsByDate) return [];
-    return [...stats.submissionsByDate].slice(-10);
+    return [...stats.submissionsByDate].slice(-14);
   }, [stats]);
 
   const loadExamOptions = useCallback(async () => {
@@ -138,11 +261,53 @@ export default function AdminStatsPage() {
     })();
   }, [selectedExamId]);
 
+  function handleDownloadCsv() {
+    if (!stats) {
+      setNotice({ type: "error", message: "다운로드할 통계 데이터가 없습니다." });
+      return;
+    }
+
+    setIsDownloadingCsv(true);
+    try {
+      const csvContent = buildStatsCsvContent(stats);
+      const blob = new Blob(["\uFEFF" + csvContent], {
+        type: "text/csv;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const today = new Date();
+      const dateText = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(
+        today.getDate()
+      ).padStart(2, "0")}`;
+      const safeExamName = stats.exam.name.replace(/[\\/:*?"<>|]/g, "_");
+      anchor.href = url;
+      anchor.download = `합격예측_통계_${safeExamName}_${dateText}.csv`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+
+      setNotice({ type: "success", message: "CSV 파일 다운로드가 시작되었습니다." });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "CSV 다운로드 중 오류가 발생했습니다.",
+      });
+    } finally {
+      setIsDownloadingCsv(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold text-slate-900">참여 통계</h1>
-        <p className="mt-1 text-sm text-slate-600">시험별 참여 현황을 유형, 성별, 지역 기준으로 확인합니다.</p>
+      <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">참여 통계</h1>
+          <p className="mt-1 text-sm text-slate-600">시험별 참여 현황을 유형, 성별, 지역 기준으로 확인합니다.</p>
+        </div>
+        <Button type="button" variant="outline" onClick={handleDownloadCsv} disabled={!stats || isDownloadingCsv}>
+          {isDownloadingCsv ? "CSV 생성 중..." : "CSV 다운로드"}
+        </Button>
       </header>
 
       <section className="space-y-2">
@@ -166,7 +331,13 @@ export default function AdminStatsPage() {
       </section>
 
       {notice ? (
-        <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <p
+          className={`rounded-md px-3 py-2 text-sm ${
+            notice.type === "success"
+              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border border-rose-200 bg-rose-50 text-rose-700"
+          }`}
+        >
           {notice.message}
         </p>
       ) : null}
@@ -198,6 +369,55 @@ export default function AdminStatsPage() {
             </div>
           </section>
 
+          <section className="grid gap-4 xl:grid-cols-2">
+            <div className="rounded-lg border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold text-slate-900">일자별 제출 추이</h2>
+              <div className="mt-3 h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={recentDateStats}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} dot={{ r: 2 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="mt-3 space-y-1 text-xs text-slate-600">
+                {recentDateStats.length === 0 ? (
+                  <p>최근 제출 데이터가 없습니다.</p>
+                ) : (
+                  recentDateStats.map((item) => (
+                    <div key={item.date} className="flex items-center justify-between">
+                      <span>{item.date}</span>
+                      <span className="font-semibold text-slate-900">{item.count}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 p-4">
+              <h2 className="text-sm font-semibold text-slate-900">점수 분포 히스토그램 (최종점수 기준)</h2>
+              <div className="mt-3 h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={stats.scoreDistribution}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={2} />
+                    <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="count">
+                      {stats.scoreDistribution.map((item) => (
+                        <Cell key={`score-bin-${item.bucket}`} fill={item.isCutoffRange ? "#ef4444" : "#2563eb"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">과락 구간(100점 미만)은 빨간색으로 표시됩니다.</p>
+            </div>
+          </section>
+
           <section className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border border-slate-200 p-4">
               <h2 className="text-sm font-semibold text-slate-900">성별 참여</h2>
@@ -212,43 +432,26 @@ export default function AdminStatsPage() {
                 </div>
               </div>
             </div>
-
-            <div className="rounded-lg border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-slate-900">최근 일자별 제출</h2>
-              <div className="mt-3 space-y-2">
-                {recentDateStats.length === 0 ? (
-                  <p className="text-sm text-slate-600">최근 제출 데이터가 없습니다.</p>
-                ) : (
-                  recentDateStats.map((item) => (
-                    <div
-                      key={item.date}
-                      className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm"
-                    >
-                      <span className="text-slate-700">{item.date}</span>
-                      <span className="font-semibold text-slate-900">{item.count}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
           </section>
 
           <section className="space-y-3">
             <h2 className="text-base font-semibold text-slate-900">지역별 참여</h2>
             <div className="overflow-x-auto rounded-lg border border-slate-200">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <table className="min-w-[860px] w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-4 py-3">지역</th>
                     <th className="px-4 py-3">공채</th>
                     <th className="px-4 py-3">경행경채</th>
                     <th className="px-4 py-3">합계</th>
+                    <th className="px-4 py-3">평균 원점수</th>
+                    <th className="px-4 py-3">평균 최종점수</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {stats.byRegion.length === 0 ? (
                     <tr>
-                      <td className="px-4 py-4 text-slate-600" colSpan={4}>
+                      <td className="px-4 py-4 text-slate-600" colSpan={6}>
                         지역별 데이터가 없습니다.
                       </td>
                     </tr>
@@ -259,12 +462,74 @@ export default function AdminStatsPage() {
                         <td className="px-4 py-3 text-slate-700">{region.publicCount}</td>
                         <td className="px-4 py-3 text-slate-700">{region.careerCount}</td>
                         <td className="px-4 py-3 font-semibold text-slate-900">{region.total}</td>
+                        <td className="px-4 py-3 text-slate-700">{formatScore(region.avgTotalScore)}</td>
+                        <td className="px-4 py-3 text-slate-700">{formatScore(region.avgFinalScore)}</td>
                       </tr>
                     ))
                   )}
                 </tbody>
               </table>
             </div>
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-base font-semibold text-slate-900">체감 난이도 현황</h2>
+            {!stats.difficulty || stats.difficulty.totalResponses < 1 ? (
+              <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600">
+                난이도 응답 데이터가 없습니다.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-700">
+                  전체 응답:{" "}
+                  <span className="font-semibold text-slate-900">
+                    {stats.difficulty.totalResponses.toLocaleString("ko-KR")}건
+                  </span>
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                  <table className="min-w-[760px] w-full divide-y divide-slate-200 text-sm">
+                    <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-4 py-3">과목</th>
+                        <th className="px-4 py-3">응답수</th>
+                        <th className="px-4 py-3">쉬움</th>
+                        <th className="px-4 py-3">보통</th>
+                        <th className="px-4 py-3">어려움</th>
+                        <th className="px-4 py-3">대표</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {stats.difficulty.subjects.length === 0 ? (
+                        <tr>
+                          <td className="px-4 py-4 text-slate-600" colSpan={6}>
+                            과목별 난이도 데이터가 없습니다.
+                          </td>
+                        </tr>
+                      ) : (
+                        stats.difficulty.subjects.map((subject) => (
+                          <tr key={subject.subjectId} className="bg-white">
+                            <td className="px-4 py-3 font-medium text-slate-900">
+                              {subject.subjectName}
+                              {subject.examType === "CAREER" ? (
+                                <span className="ml-1 text-xs font-medium text-sky-700">(경행경채)</span>
+                              ) : null}
+                            </td>
+                            <td className="px-4 py-3 text-slate-700">{subject.responses}</td>
+                            <td className="px-4 py-3 text-slate-700">{subject.easy}%</td>
+                            <td className="px-4 py-3 text-slate-700">{subject.normal}%</td>
+                            <td className="px-4 py-3 text-slate-700">{subject.hard}%</td>
+                            <td className="px-4 py-3 font-semibold text-slate-900">{subject.dominantLabel}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-xs text-slate-500">
+                  ※ 경행경채 과목(범죄학)은 경행경채 응시자 응답만 집계됩니다.
+                </p>
+              </div>
+            )}
           </section>
         </>
       )}

@@ -21,6 +21,13 @@ type NormalizedAnswerRow = {
   answer: number;
 };
 
+type ExistingAnswerRow = {
+  subjectId: number;
+  questionNumber: number;
+  correctAnswer: number;
+  isConfirmed: boolean;
+};
+
 interface SubjectMeta {
   id: number;
   name: string;
@@ -68,6 +75,10 @@ function parseAnswerNumber(value: unknown): number | null {
 
 function normalizeSubjectName(name: string): string {
   return name.replace(/\s+/g, "").trim().toLowerCase();
+}
+
+function buildAnswerKey(subjectId: number, questionNumber: number): string {
+  return `${subjectId}:${questionNumber}`;
 }
 
 function parseCsvLine(line: string): string[] {
@@ -340,6 +351,53 @@ export async function POST(request: NextRequest) {
     }
     const normalizedRows = normalized.data;
 
+    const existingAnswerKeys = await prisma.answerKey.findMany({
+      where: {
+        examId,
+        subjectId: { in: subjects.map((subject) => subject.id) },
+      },
+      select: {
+        subjectId: true,
+        questionNumber: true,
+        correctAnswer: true,
+        isConfirmed: true,
+      },
+    });
+
+    const existingByKey = new Map<string, ExistingAnswerRow>();
+    for (const row of existingAnswerKeys) {
+      existingByKey.set(buildAnswerKey(row.subjectId, row.questionNumber), row);
+    }
+
+    let changedQuestions = 0;
+    for (const row of normalizedRows) {
+      const key = buildAnswerKey(row.subjectId, row.questionNumber);
+      const existing = existingByKey.get(key);
+      if (!existing) {
+        changedQuestions += 1;
+        continue;
+      }
+
+      if (existing.correctAnswer !== row.answer || existing.isConfirmed !== isConfirmed) {
+        changedQuestions += 1;
+      }
+    }
+
+    if (existingAnswerKeys.length !== normalizedRows.length) {
+      changedQuestions += Math.abs(existingAnswerKeys.length - normalizedRows.length);
+    }
+
+    if (changedQuestions < 1) {
+      return NextResponse.json({
+        success: true,
+        savedCount: normalizedRows.length,
+        isConfirmed,
+        changedQuestions: 0,
+        rescoredCount: 0,
+        message: "변경된 정답이 없어 재채점을 생략했습니다.",
+      });
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.answerKey.deleteMany({
         where: {
@@ -366,6 +424,7 @@ export async function POST(request: NextRequest) {
         success: true,
         savedCount: normalizedRows.length,
         isConfirmed,
+        changedQuestions,
         rescoredCount,
       },
       { status: 201 }

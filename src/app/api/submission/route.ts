@@ -25,6 +25,8 @@ const BAD_REQUEST_ERROR_PATTERNS = [
   "과목",
   "채용유형",
   "성별",
+  "응시번호",
+  "체감 난이도",
   "지역",
   "최소",
   "동시에 적용",
@@ -37,11 +39,20 @@ interface SubmissionRequestBody {
   gender?: unknown;
   regionId?: unknown;
   examNumber?: unknown;
+  difficulty?: unknown;
   bonusType?: unknown;
   veteranPercent?: unknown;
   heroPercent?: unknown;
   answers?: unknown;
 }
+
+type DifficultyRatingValue = "EASY" | "NORMAL" | "HARD";
+
+const ALLOWED_DIFFICULTY_RATINGS: ReadonlySet<DifficultyRatingValue> = new Set([
+  "EASY",
+  "NORMAL",
+  "HARD",
+]);
 
 function parsePositiveInt(value: unknown): number | null {
   if (typeof value === "number") {
@@ -85,6 +96,59 @@ function parseExamNumber(value: unknown): string | null {
   const normalized = value.trim();
   if (!normalized) return null;
   return normalized.slice(0, 50);
+}
+
+function parseDifficulty(
+  value: unknown
+): Array<{
+  subjectName: string;
+  rating: DifficultyRatingValue;
+}> {
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error("체감 난이도 형식이 올바르지 않습니다.");
+  }
+
+  const deduped = new Map<
+    string,
+    {
+      subjectName: string;
+      rating: DifficultyRatingValue;
+    }
+  >();
+
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      throw new Error("체감 난이도 항목 형식이 올바르지 않습니다.");
+    }
+
+    const subjectNameRaw = (item as { subjectName?: unknown }).subjectName;
+    const ratingRaw = (item as { rating?: unknown }).rating;
+
+    const subjectName = typeof subjectNameRaw === "string" ? subjectNameRaw.trim() : "";
+    if (!subjectName) {
+      continue;
+    }
+
+    if (typeof ratingRaw !== "string") {
+      throw new Error("체감 난이도 값이 올바르지 않습니다.");
+    }
+
+    const normalizedRating = ratingRaw.trim().toUpperCase() as DifficultyRatingValue;
+    if (!ALLOWED_DIFFICULTY_RATINGS.has(normalizedRating)) {
+      throw new Error("체감 난이도 값은 EASY, NORMAL, HARD만 가능합니다.");
+    }
+
+    deduped.set(normalizeSubjectName(subjectName), {
+      subjectName,
+      rating: normalizedRating,
+    });
+  }
+
+  return Array.from(deduped.values());
 }
 
 function normalizeSubjectName(name: string): string {
@@ -199,6 +263,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "최소 1개 이상의 답안을 입력해 주세요." }, { status: 400 });
     }
 
+    const difficulty = parseDifficulty(body.difficulty);
+
     const requestedExamId = parsePositiveInt(body.examId);
     const exam = requestedExamId
       ? await prisma.exam.findUnique({
@@ -246,6 +312,10 @@ export async function POST(request: Request) {
     }
 
     const examNumber = parseExamNumber(body.examNumber);
+    if (!examNumber) {
+      return NextResponse.json({ error: "응시번호는 필수 입력 항목입니다." }, { status: 400 });
+    }
+
     const bonusType = resolveBonusType(body);
     const bonusRate = getBonusPercent(bonusType);
     const recruitCount = getRegionRecruitCount(region, examType);
@@ -309,6 +379,39 @@ export async function POST(request: Request) {
         })),
       });
 
+      if (difficulty.length > 0) {
+        const subjectIdByName = new Map(
+          scoreResult.scores.map((score) => [normalizeSubjectName(score.subjectName), score.subjectId] as const)
+        );
+
+        const difficultyData = difficulty
+          .map((item) => {
+            const subjectId = subjectIdByName.get(normalizeSubjectName(item.subjectName));
+            if (!subjectId) return null;
+
+            return {
+              submissionId: savedSubmission.id,
+              subjectId,
+              rating: item.rating,
+            };
+          })
+          .filter(
+            (
+              row
+            ): row is {
+              submissionId: number;
+              subjectId: number;
+              rating: DifficultyRatingValue;
+            } => row !== null
+          );
+
+        if (difficultyData.length > 0) {
+          await tx.difficultyRating.createMany({
+            data: difficultyData,
+          });
+        }
+      }
+
       return savedSubmission;
     });
 
@@ -319,6 +422,20 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const targetRaw = error.meta?.target;
+      const target = Array.isArray(targetRaw)
+        ? targetRaw.map((item) => String(item))
+        : typeof targetRaw === "string"
+          ? [targetRaw]
+          : [];
+
+      if (target.some((item) => item.includes("examNumber"))) {
+        return NextResponse.json(
+          { error: "해당 지역에 동일한 응시번호가 이미 존재합니다. 응시번호를 확인해 주세요." },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json(
         { error: "이미 해당 시험에 제출한 기록이 있습니다." },
         { status: 409 }

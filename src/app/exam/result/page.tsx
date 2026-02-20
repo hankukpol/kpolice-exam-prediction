@@ -65,6 +65,10 @@ interface ResultResponse {
   };
 }
 
+interface ExamResultPageProps {
+  embedded?: boolean;
+}
+
 function formatBonusType(type: ResultResponse["submission"]["bonusType"]): string {
   switch (type) {
     case "VETERAN_5":
@@ -87,7 +91,7 @@ function formatRankingBasis(basis: ResultResponse["statistics"]["rankingBasis"])
   return "전체 참여자 기준";
 }
 
-export default function ExamResultPage() {
+export default function ExamResultPage({ embedded = false }: ExamResultPageProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { showErrorToast } = useToast();
@@ -117,7 +121,12 @@ export default function ExamResultPage() {
 
         if (!response.ok) {
           if (response.status === 404) {
-            router.replace("/exam/input");
+            if (embedded) {
+              setResult(null);
+              setErrorMessage("아직 제출된 성적이 없습니다. 먼저 OMR 답안을 제출해 주세요.");
+            } else {
+              router.replace("/exam/input");
+            }
             return;
           }
           throw new Error(data.error ?? "성적 정보를 불러오지 못했습니다.");
@@ -142,7 +151,7 @@ export default function ExamResultPage() {
     return () => {
       isMounted = false;
     };
-  }, [router, searchParams, showErrorToast]);
+  }, [embedded, router, searchParams, showErrorToast]);
 
   const chartData = useMemo(() => {
     if (!result) return [];
@@ -185,9 +194,7 @@ export default function ExamResultPage() {
           {result.submission.examYear}년 {result.submission.examRound}차 ·{" "}
           {result.submission.examType === "PUBLIC" ? "공채" : "경행경채"} · {result.submission.regionName}
         </p>
-        {result.submission.examNumber ? (
-          <p className="mt-1 text-xs text-slate-500">응시번호: {result.submission.examNumber}</p>
-        ) : null}
+        <p className="mt-1 text-xs text-slate-500">응시번호: {result.submission.examNumber ?? "-"}</p>
 
         <div className="mt-5 h-[320px] w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -307,11 +314,13 @@ export default function ExamResultPage() {
         </div>
       </section>
 
-      <div className="flex justify-end">
-        <Button type="button" variant="outline" onClick={() => router.push("/exam/prediction")}>
-          합격예측 분석 보기
-        </Button>
-      </div>
+      {!embedded ? (
+        <div className="flex justify-end">
+          <Button type="button" variant="outline" onClick={() => router.push("/exam/prediction")}>
+            합격예측 분석 보기
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

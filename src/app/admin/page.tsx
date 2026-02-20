@@ -1,4 +1,5 @@
 import Link from "next/link";
+import DashboardSubmissionTrendChart from "@/components/admin/DashboardSubmissionTrendChart";
 import { prisma } from "@/lib/prisma";
 
 export default async function AdminDashboardPage() {
@@ -9,6 +10,7 @@ export default async function AdminDashboardPage() {
   let totalUsers = 0;
   let regionsWithoutCareerRecruitCount = 0;
   let activeExamAnswerKeyCount = 0;
+  let submissionTrend: Array<{ date: string; count: number }> = [];
   let hasStatsError = false;
 
   try {
@@ -57,6 +59,22 @@ export default async function AdminDashboardPage() {
           examId: dbActiveExam.id,
         },
       });
+
+      const trendRaw = await prisma.$queryRaw<Array<{ date: string; count: bigint | number }>>`
+        SELECT DATE_FORMAT(createdAt, '%Y-%m-%d') AS date, COUNT(*) AS count
+        FROM Submission
+        WHERE examId = ${dbActiveExam.id}
+        GROUP BY DATE(createdAt)
+        ORDER BY DATE(createdAt)
+      `;
+
+      submissionTrend = trendRaw
+        .map((item) => ({
+          date: item.date,
+          count: typeof item.count === "bigint" ? Number(item.count) : Number(item.count),
+        }))
+        .filter((item) => Number.isFinite(item.count))
+        .slice(-10);
     }
   } catch (error) {
     console.error("관리자 대시보드 통계 조회 중 오류가 발생했습니다.", error);
@@ -124,6 +142,8 @@ export default async function AdminDashboardPage() {
         </div>
       </div>
 
+      {!hasStatsError ? <DashboardSubmissionTrendChart data={submissionTrend} /> : null}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Link
           href="/admin/exams"
@@ -165,15 +185,31 @@ export default async function AdminDashboardPage() {
           href="/admin/site"
           className="rounded-lg border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
         >
-          <p className="text-sm font-semibold text-slate-900">5. 사이트 관리</p>
-          <p className="mt-1 text-sm text-slate-600">메인 문구, 배너, 공지사항, 점검 모드를 관리합니다.</p>
+          <p className="text-sm font-semibold text-slate-900">5. 사이트 설정</p>
+          <p className="mt-1 text-sm text-slate-600">메인 문구, 공지사항, 점검 모드를 관리합니다.</p>
+        </Link>
+
+        <Link
+          href="/admin/banners"
+          className="rounded-lg border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
+        >
+          <p className="text-sm font-semibold text-slate-900">6. 배너 관리</p>
+          <p className="mt-1 text-sm text-slate-600">상/중/하단 배너 이미지를 업로드하고 표시 상태를 설정합니다.</p>
+        </Link>
+
+        <Link
+          href="/admin/events"
+          className="rounded-lg border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
+        >
+          <p className="text-sm font-semibold text-slate-900">7. 이벤트 관리</p>
+          <p className="mt-1 text-sm text-slate-600">랜딩 페이지의 이벤트 섹션 카드와 표시 순서를 운영합니다.</p>
         </Link>
 
         <Link
           href="/admin/users"
           className="rounded-lg border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
         >
-          <p className="text-sm font-semibold text-slate-900">6. 사용자 관리</p>
+          <p className="text-sm font-semibold text-slate-900">8. 사용자 관리</p>
           <p className="mt-1 text-sm text-slate-600">권한 조정, 비밀번호 초기화, 계정 삭제를 수행합니다.</p>
         </Link>
 
@@ -181,7 +217,7 @@ export default async function AdminDashboardPage() {
           href="/admin/comments"
           className="rounded-lg border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
         >
-          <p className="text-sm font-semibold text-slate-900">7. 댓글 관리</p>
+          <p className="text-sm font-semibold text-slate-900">9. 댓글 관리</p>
           <p className="mt-1 text-sm text-slate-600">부적절 댓글을 개별 또는 일괄 삭제합니다.</p>
         </Link>
 
@@ -189,7 +225,7 @@ export default async function AdminDashboardPage() {
           href="/admin/submissions"
           className="rounded-lg border border-slate-200 p-4 transition hover:border-slate-300 hover:bg-slate-50"
         >
-          <p className="text-sm font-semibold text-slate-900">8. 제출 현황</p>
+          <p className="text-sm font-semibold text-slate-900">10. 제출 현황</p>
           <p className="mt-1 text-sm text-slate-600">제출 내역 상세와 답안 정보를 조회합니다.</p>
         </Link>
       </div>

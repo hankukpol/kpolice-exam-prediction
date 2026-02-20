@@ -25,6 +25,10 @@ interface CommentsResponse {
   comments: CommentItem[];
 }
 
+interface ExamCommentsPageProps {
+  embedded?: boolean;
+}
+
 const COMMENT_LIMIT = 20;
 const MAX_COMMENT_LENGTH = 500;
 
@@ -60,7 +64,7 @@ function mergeComments(current: CommentItem[], incoming: CommentItem[], prepend:
   return Array.from(map.values()).sort((a, b) => b.id - a.id);
 }
 
-export default function ExamCommentsPage() {
+export default function ExamCommentsPage({ embedded = false }: ExamCommentsPageProps = {}) {
   const router = useRouter();
   const { showErrorToast } = useToast();
 
@@ -98,7 +102,11 @@ export default function ExamCommentsPage() {
 
         if (!response.ok) {
           if (response.status === 401) {
-            router.replace("/login?callbackUrl=/exam/comments");
+            if (embedded) {
+              setErrorMessage("로그인이 필요합니다.");
+            } else {
+              router.replace("/login?callbackUrl=/exam/comments");
+            }
             return;
           }
           throw new Error(data.error ?? "댓글을 불러오지 못했습니다.");
@@ -125,7 +133,7 @@ export default function ExamCommentsPage() {
         setIsLoadingMore(false);
       }
     },
-    [router, showErrorToast]
+    [embedded, router, showErrorToast]
   );
 
   useEffect(() => {

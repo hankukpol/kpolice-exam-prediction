@@ -66,6 +66,10 @@ interface PredictionPageResponse {
   updatedAt: string;
 }
 
+interface ExamPredictionPageProps {
+  embedded?: boolean;
+}
+
 function formatScore(value: number | null): string {
   if (value === null) return "-";
   return value.toFixed(2);
@@ -90,7 +94,7 @@ function buildPageNumbers(page: number, totalPages: number): number[] {
     .sort((a, b) => a - b);
 }
 
-export default function ExamPredictionPage() {
+export default function ExamPredictionPage({ embedded = false }: ExamPredictionPageProps = {}) {
   const router = useRouter();
   const { showErrorToast } = useToast();
 
@@ -120,12 +124,20 @@ export default function ExamPredictionPage() {
 
         if (!response.ok) {
           if (response.status === 401) {
-            router.replace("/login?callbackUrl=/exam/prediction");
+            if (embedded) {
+              setErrorMessage("로그인이 필요합니다.");
+            } else {
+              router.replace("/login?callbackUrl=/exam/prediction");
+            }
             return;
           }
 
           if (response.status === 404) {
-            router.replace("/exam/input");
+            if (embedded) {
+              setErrorMessage("합격예측을 위한 제출 데이터가 없습니다. 먼저 답안을 제출해 주세요.");
+            } else {
+              router.replace("/exam/input");
+            }
             return;
           }
 
@@ -145,7 +157,7 @@ export default function ExamPredictionPage() {
         setIsRefreshing(false);
       }
     },
-    [router, showErrorToast]
+    [embedded, router, showErrorToast]
   );
 
   useEffect(() => {
