@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Button } from "@/components/ui/button";
@@ -76,6 +76,7 @@ export default function ExamCommentsPage() {
   const [errorMessage, setErrorMessage] = useState("");
 
   const latestCommentId = comments.length > 0 ? comments[0].id : null;
+  const latestCommentIdRef = useRef<number | null>(latestCommentId);
   const remainingChars = useMemo(() => MAX_COMMENT_LENGTH - content.length, [content.length]);
 
   const fetchComments = useCallback(
@@ -89,7 +90,7 @@ export default function ExamCommentsPage() {
       setErrorMessage("");
 
       try {
-        const response = await fetch(`/exam/api/comments?page=${targetPage}&limit=${COMMENT_LIMIT}`, {
+        const response = await fetch(`/api/comments?page=${targetPage}&limit=${COMMENT_LIMIT}`, {
           method: "GET",
           cache: "no-store",
         });
@@ -124,17 +125,20 @@ export default function ExamCommentsPage() {
         setIsLoadingMore(false);
       }
     },
-    [router]
+    [router, showErrorToast]
   );
+
+  useEffect(() => {
+    latestCommentIdRef.current = latestCommentId;
+  }, [latestCommentId]);
 
   const pollNewComments = useCallback(async () => {
     setIsPolling(true);
 
     try {
-      const query = latestCommentId
-        ? `after=${latestCommentId}`
-        : `page=1&limit=${COMMENT_LIMIT}`;
-      const response = await fetch(`/exam/api/comments?${query}`, {
+      const currentLatestCommentId = latestCommentIdRef.current;
+      const query = currentLatestCommentId ? `after=${currentLatestCommentId}` : `page=1&limit=${COMMENT_LIMIT}`;
+      const response = await fetch(`/api/comments?${query}`, {
         method: "GET",
         cache: "no-store",
       });
@@ -144,7 +148,7 @@ export default function ExamCommentsPage() {
         return;
       }
 
-      if (!latestCommentId && data.pagination) {
+      if (!currentLatestCommentId && data.pagination) {
         setPage(data.pagination.page);
         setTotalCount(data.pagination.totalCount);
         setTotalPages(data.pagination.totalPages);
@@ -152,7 +156,7 @@ export default function ExamCommentsPage() {
 
       if (data.comments.length > 0) {
         setComments((prev) => mergeComments(prev, data.comments, true));
-        if (latestCommentId) {
+        if (currentLatestCommentId) {
           setTotalCount((prev) => prev + data.comments.length);
         }
       }
@@ -161,7 +165,7 @@ export default function ExamCommentsPage() {
     } finally {
       setIsPolling(false);
     }
-  }, [latestCommentId]);
+  }, []);
 
   useEffect(() => {
     void fetchComments(1);
@@ -190,7 +194,7 @@ export default function ExamCommentsPage() {
     setIsSubmitting(true);
 
     try {
-      const response = await fetch("/exam/api/comments", {
+      const response = await fetch("/api/comments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -216,8 +220,13 @@ export default function ExamCommentsPage() {
   }
 
   async function handleDeleteComment(commentId: number) {
+    const confirmed = window.confirm("댓글을 삭제하시겠습니까?");
+    if (!confirmed) {
+      return;
+    }
+
     try {
-      const response = await fetch(`/exam/api/comments?id=${commentId}`, {
+      const response = await fetch(`/api/comments?id=${commentId}`, {
         method: "DELETE",
       });
       const data = (await response.json()) as { success?: boolean; error?: string };

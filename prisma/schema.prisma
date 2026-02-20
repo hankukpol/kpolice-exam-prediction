@@ -98,6 +98,7 @@ model Submission {
   regionId      Int
   examType      ExamType
   gender        Gender
+  examNumber    String?
   totalScore    Float
   bonusType     BonusType      @default(NONE)
   bonusRate     Float          @default(0)
@@ -109,7 +110,7 @@ model Submission {
   userAnswers   UserAnswer[]
   subjectScores SubjectScore[]
 
-  @@unique([userId, examId, examType])
+  @@unique([userId, examId])
 }
 
 model UserAnswer {

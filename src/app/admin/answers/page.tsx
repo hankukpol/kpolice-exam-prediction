@@ -1,11 +1,11 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
-const ADMIN_EXAM_API = "/exam/api/admin/exam";
-const ADMIN_ANSWERS_API = "/exam/api/admin/answers";
+const ADMIN_EXAM_API = "/api/admin/exam";
+const ADMIN_ANSWERS_API = "/api/admin/answers";
 
 interface ExamItem {
   id: number;
@@ -66,7 +66,7 @@ export default function AdminAnswersPage() {
   );
   const currentAnswerCount = useMemo(() => Object.keys(answerMap).length, [answerMap]);
 
-  async function loadExamOptions() {
+  const loadExamOptions = useCallback(async () => {
     const response = await fetch(ADMIN_EXAM_API, { method: "GET", cache: "no-store" });
     const data = (await response.json()) as { exams?: ExamItem[]; error?: string };
     if (!response.ok) {
@@ -75,11 +75,14 @@ export default function AdminAnswersPage() {
 
     const examList = data.exams ?? [];
     setExams(examList);
-    if (!selectedExamId && examList.length > 0) {
+    setSelectedExamId((current) => {
+      if (current || examList.length === 0) {
+        return current;
+      }
       const activeExam = examList.find((exam) => exam.isActive) ?? examList[0];
-      setSelectedExamId(activeExam.id);
-    }
-  }
+      return activeExam.id;
+    });
+  }, []);
 
   async function loadAnswers(
     examId: number,
@@ -126,7 +129,7 @@ export default function AdminAnswersPage() {
         setIsLoading(false);
       }
     })();
-  }, []);
+  }, [loadExamOptions]);
 
   useEffect(() => {
     if (!selectedExamId) return;

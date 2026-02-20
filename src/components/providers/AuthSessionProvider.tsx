@@ -8,5 +8,5 @@ interface AuthSessionProviderProps {
 }
 
 export default function AuthSessionProvider({ children }: AuthSessionProviderProps) {
-  return <SessionProvider basePath="/exam/api/auth">{children}</SessionProvider>;
+  return <SessionProvider basePath="/api/auth">{children}</SessionProvider>;
 }

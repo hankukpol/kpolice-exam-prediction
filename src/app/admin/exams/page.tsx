@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const ADMIN_EXAM_API = "/exam/api/admin/exam";
+const ADMIN_EXAM_API = "/api/admin/exam";
 
 interface ExamItem {
   id: number;

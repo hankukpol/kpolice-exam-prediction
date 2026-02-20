@@ -25,7 +25,7 @@ export default function Header() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => signOut({ callbackUrl: "/exam/login" })}
+              onClick={() => signOut({ callbackUrl: "/login" })}
             >
               로그아웃
             </Button>

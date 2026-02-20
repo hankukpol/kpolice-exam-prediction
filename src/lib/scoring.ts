@@ -1,4 +1,5 @@
 ﻿import { BonusType, ExamType, Prisma } from "@prisma/client";
+import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 
 const RESCORE_BATCH_SIZE = 100;
@@ -234,7 +235,7 @@ function scoreByAnswerMap(params: {
     const rawScore = roundScore(correctCount * subject.pointPerQuestion);
     const bonusScore = roundScore(subject.maxScore * bonusRate);
     const finalScore = roundScore(rawScore + bonusScore);
-    const cutoffScore = roundScore(subject.maxScore * 0.4);
+    const cutoffScore = roundScore(subject.maxScore * SUBJECT_CUTOFF_RATE);
     const isCutoff = rawScore < cutoffScore;
 
     if (isCutoff) {

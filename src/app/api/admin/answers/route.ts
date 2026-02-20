@@ -296,13 +296,19 @@ export async function POST(request: NextRequest) {
       const body = (await request.json()) as {
         examId?: number;
         examType?: string;
-        isConfirmed?: boolean;
+        isConfirmed?: unknown;
         answers?: RawAnswerRow[];
       };
 
       examId = parsePositiveInt(body.examId);
       examType = parseExamType(body.examType ?? null);
-      isConfirmed = body.isConfirmed ?? false;
+      if (body.isConfirmed === undefined) {
+        isConfirmed = false;
+      } else if (typeof body.isConfirmed === "boolean") {
+        isConfirmed = body.isConfirmed;
+      } else {
+        return NextResponse.json({ error: "isConfirmed는 boolean이어야 합니다." }, { status: 400 });
+      }
       rawRows = Array.isArray(body.answers) ? body.answers : [];
     }
 

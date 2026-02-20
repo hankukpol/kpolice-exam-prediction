@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { validateRegisterInput } from "@/lib/validations";
@@ -42,6 +43,13 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ message: "회원가입이 완료되었습니다." }, { status: 201 });
   } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return NextResponse.json({ message: "이미 등록된 연락처입니다." }, { status: 409 });
+    }
+
     console.error("회원가입 처리 중 오류가 발생했습니다.", error);
     return NextResponse.json(
       { message: "회원가입 처리 중 오류가 발생했습니다." },

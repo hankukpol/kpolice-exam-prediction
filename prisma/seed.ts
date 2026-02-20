@@ -3,25 +3,27 @@ import { ExamType, PrismaClient, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+// recruitCountCareer is seeded with the same values as recruitCount by default.
+// Update these values to official CAREER quotas for each region before production use.
 const regions = [
-  { name: "서울", recruitCount: 715, recruitCountCareer: 0 },
-  { name: "부산", recruitCount: 213, recruitCountCareer: 0 },
-  { name: "대구", recruitCount: 92, recruitCountCareer: 0 },
-  { name: "인천", recruitCount: 175, recruitCountCareer: 0 },
-  { name: "광주", recruitCount: 37, recruitCountCareer: 0 },
-  { name: "대전", recruitCount: 51, recruitCountCareer: 0 },
-  { name: "울산", recruitCount: 22, recruitCountCareer: 0 },
-  { name: "세종", recruitCount: 10, recruitCountCareer: 0 },
-  { name: "경기남부", recruitCount: 609, recruitCountCareer: 0 },
-  { name: "경기북부", recruitCount: 128, recruitCountCareer: 0 },
-  { name: "강원", recruitCount: 140, recruitCountCareer: 0 },
-  { name: "충북", recruitCount: 121, recruitCountCareer: 0 },
-  { name: "충남", recruitCount: 152, recruitCountCareer: 0 },
-  { name: "전북", recruitCount: 137, recruitCountCareer: 0 },
-  { name: "전남", recruitCount: 176, recruitCountCareer: 0 },
-  { name: "경북", recruitCount: 181, recruitCountCareer: 0 },
-  { name: "경남", recruitCount: 196, recruitCountCareer: 0 },
-  { name: "제주", recruitCount: 47, recruitCountCareer: 0 },
+  { name: "서울", recruitCount: 715, recruitCountCareer: 715 },
+  { name: "부산", recruitCount: 213, recruitCountCareer: 213 },
+  { name: "대구", recruitCount: 92, recruitCountCareer: 92 },
+  { name: "인천", recruitCount: 175, recruitCountCareer: 175 },
+  { name: "광주", recruitCount: 37, recruitCountCareer: 37 },
+  { name: "대전", recruitCount: 51, recruitCountCareer: 51 },
+  { name: "울산", recruitCount: 22, recruitCountCareer: 22 },
+  { name: "세종", recruitCount: 10, recruitCountCareer: 10 },
+  { name: "경기남부", recruitCount: 609, recruitCountCareer: 609 },
+  { name: "경기북부", recruitCount: 128, recruitCountCareer: 128 },
+  { name: "강원", recruitCount: 140, recruitCountCareer: 140 },
+  { name: "충북", recruitCount: 121, recruitCountCareer: 121 },
+  { name: "충남", recruitCount: 152, recruitCountCareer: 152 },
+  { name: "전북", recruitCount: 137, recruitCountCareer: 137 },
+  { name: "전남", recruitCount: 176, recruitCountCareer: 176 },
+  { name: "경북", recruitCount: 181, recruitCountCareer: 181 },
+  { name: "경남", recruitCount: 196, recruitCountCareer: 196 },
+  { name: "제주", recruitCount: 47, recruitCountCareer: 47 },
 ];
 
 const subjects = [

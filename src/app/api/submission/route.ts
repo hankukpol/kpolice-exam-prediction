@@ -1,4 +1,4 @@
-import { BonusType, ExamType, Gender } from "@prisma/client";
+import { BonusType, ExamType, Gender, Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
@@ -12,6 +12,24 @@ import {
 } from "@/lib/scoring";
 
 export const runtime = "nodejs";
+
+const BAD_REQUEST_ERROR_PATTERNS = [
+  "정답키",
+  "올바르지",
+  "유효하지 않은",
+  "유효한",
+  "중복",
+  "가산점",
+  "문항",
+  "답안",
+  "과목",
+  "채용유형",
+  "성별",
+  "지역",
+  "최소",
+  "동시에 적용",
+  "가능합니다",
+];
 
 interface SubmissionRequestBody {
   examId?: unknown;
@@ -61,6 +79,18 @@ function parsePercent(value: unknown): number {
   return 0;
 }
 
+function parseExamNumber(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim();
+  if (!normalized) return null;
+  return normalized.slice(0, 50);
+}
+
+function normalizeSubjectName(name: string): string {
+  return name.replace(/\s+/g, "").trim();
+}
+
 function parseAnswers(value: unknown): AnswerInput[] {
   if (!Array.isArray(value)) {
     throw new Error("답안 데이터 형식이 올바르지 않습니다.");
@@ -92,7 +122,7 @@ function parseAnswers(value: unknown): AnswerInput[] {
       throw new Error(`${subjectName} ${questionNo}번 답안은 1~4만 가능합니다.`);
     }
 
-    const duplicateKey = `${subjectName}:${questionNo}`;
+    const duplicateKey = `${normalizeSubjectName(subjectName)}:${questionNo}`;
     if (seen.has(duplicateKey)) {
       throw new Error(`${subjectName} ${questionNo}번 문항이 중복 제출되었습니다.`);
     }
@@ -113,7 +143,7 @@ function getRegionRecruitCount(
   examType: ExamType
 ): number {
   if (examType === ExamType.CAREER) {
-    return region.recruitCountCareer > 0 ? region.recruitCountCareer : region.recruitCount;
+    return region.recruitCountCareer;
   }
   return region.recruitCount;
 }
@@ -129,6 +159,10 @@ function resolveBonusType(body: SubmissionRequestBody): BonusType {
   const veteranPercent = parsePercent(body.veteranPercent);
   const heroPercent = parsePercent(body.heroPercent);
   return getBonusTypeFromPercent(veteranPercent, heroPercent);
+}
+
+function inferErrorStatus(message: string): number {
+  return BAD_REQUEST_ERROR_PATTERNS.some((pattern) => message.includes(pattern)) ? 400 : 500;
 }
 
 export async function POST(request: Request) {
@@ -181,6 +215,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "제출 가능한 시험이 없습니다." }, { status: 404 });
     }
 
+    const existingSubmission = await prisma.submission.findFirst({
+      where: {
+        userId,
+        examId: exam.id,
+      },
+      select: {
+        id: true,
+      },
+    });
+    if (existingSubmission) {
+      return NextResponse.json(
+        { error: "이미 해당 시험에 제출한 기록이 있습니다." },
+        { status: 409 }
+      );
+    }
+
     const region = await prisma.region.findUnique({
       where: { id: regionId },
       select: {
@@ -195,9 +245,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "선택한 지역을 찾을 수 없습니다." }, { status: 404 });
     }
 
+    const examNumber = parseExamNumber(body.examNumber);
     const bonusType = resolveBonusType(body);
     const bonusRate = getBonusPercent(bonusType);
     const recruitCount = getRegionRecruitCount(region, examType);
+    if (!Number.isInteger(recruitCount) || recruitCount < 1) {
+      const message =
+        examType === ExamType.CAREER
+          ? "선택한 지역의 경행경채 모집인원이 설정되지 않았습니다. 관리자에게 문의해주세요."
+          : "선택한 지역의 모집인원이 올바르지 않습니다.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
 
     if ((bonusType === BonusType.HERO_3 || bonusType === BonusType.HERO_5) && recruitCount < 10) {
       return NextResponse.json(
@@ -215,41 +273,19 @@ export async function POST(request: Request) {
     });
 
     const submission = await prisma.$transaction(async (tx) => {
-      const savedSubmission = await tx.submission.upsert({
-        where: {
-          userId_examId_examType: {
-            userId,
-            examId: exam.id,
-            examType,
-          },
-        },
-        update: {
-          regionId: region.id,
-          gender,
-          totalScore: scoreResult.totalScore,
-          bonusType,
-          bonusRate,
-          finalScore: scoreResult.finalScore,
-        },
-        create: {
+      const savedSubmission = await tx.submission.create({
+        data: {
           examId: exam.id,
           userId,
           regionId: region.id,
           examType,
           gender,
+          examNumber,
           totalScore: scoreResult.totalScore,
           bonusType,
           bonusRate,
           finalScore: scoreResult.finalScore,
         },
-      });
-
-      await tx.userAnswer.deleteMany({
-        where: { submissionId: savedSubmission.id },
-      });
-
-      await tx.subjectScore.deleteMany({
-        where: { submissionId: savedSubmission.id },
       });
 
       if (scoreResult.userAnswers.length > 0) {
@@ -282,8 +318,14 @@ export async function POST(request: Request) {
       result: scoreResult,
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json(
+        { error: "이미 해당 시험에 제출한 기록이 있습니다." },
+        { status: 409 }
+      );
+    }
     const message = error instanceof Error ? error.message : "답안 제출 처리 중 오류가 발생했습니다.";
-    const status = message.includes("정답키") || message.includes("올바르지") ? 400 : 500;
+    const status = inferErrorStatus(message);
 
     if (status === 500) {
       console.error("답안 제출 처리 중 오류가 발생했습니다.", error);

@@ -4,10 +4,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { maskKoreanName } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
+import { consumeFixedWindowRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/request-ip";
 
 export const runtime = "nodejs";
 
 const MAX_COMMENT_LENGTH = 500;
+const COMMENT_POST_WINDOW_MS = 60 * 1000;
+const COMMENT_POST_LIMIT_PER_USER = 5;
+const COMMENT_POST_LIMIT_PER_IP = 20;
 
 interface CommentPayload {
   content?: unknown;
@@ -220,6 +225,43 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const clientIp = getClientIp(request);
+    const userRateLimit = consumeFixedWindowRateLimit({
+      namespace: "comments-post-user",
+      key: String(userId),
+      limit: COMMENT_POST_LIMIT_PER_USER,
+      windowMs: COMMENT_POST_WINDOW_MS,
+    });
+    if (!userRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "댓글 등록 요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(userRateLimit.retryAfterSec),
+          },
+        }
+      );
+    }
+
+    const ipRateLimit = consumeFixedWindowRateLimit({
+      namespace: "comments-post-ip",
+      key: clientIp,
+      limit: COMMENT_POST_LIMIT_PER_IP,
+      windowMs: COMMENT_POST_WINDOW_MS,
+    });
+    if (!ipRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "댓글 등록 요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(ipRateLimit.retryAfterSec),
+          },
+        }
+      );
+    }
+
     const body = (await request.json()) as CommentPayload;
     const content = typeof body.content === "string" ? body.content.trim() : "";
 

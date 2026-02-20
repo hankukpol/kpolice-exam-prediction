@@ -81,11 +81,13 @@ export default function ToastProvider({ children }: ToastProviderProps) {
   );
 
   useEffect(() => {
+    const timeoutMap = timeoutRef.current;
+
     return () => {
-      for (const timeoutId of timeoutRef.current.values()) {
+      for (const timeoutId of timeoutMap.values()) {
         clearTimeout(timeoutId);
       }
-      timeoutRef.current.clear();
+      timeoutMap.clear();
     };
   }, []);
 

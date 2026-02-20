@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-const ADMIN_EXAM_API = "/exam/api/admin/exam";
-const STATS_API = "/exam/api/stats";
+const ADMIN_EXAM_API = "/api/admin/exam";
+const STATS_API = "/api/stats";
 
 interface ExamItem {
   id: number;
@@ -71,7 +71,7 @@ export default function AdminStatsPage() {
     return [...stats.submissionsByDate].slice(-10);
   }, [stats]);
 
-  async function loadExamOptions() {
+  const loadExamOptions = useCallback(async () => {
     const response = await fetch(ADMIN_EXAM_API, { method: "GET", cache: "no-store" });
     const data = (await response.json()) as { exams?: ExamItem[]; error?: string };
     if (!response.ok) {
@@ -81,11 +81,14 @@ export default function AdminStatsPage() {
     const examList = data.exams ?? [];
     setExams(examList);
 
-    if (!selectedExamId && examList.length > 0) {
+    setSelectedExamId((current) => {
+      if (current || examList.length === 0) {
+        return current;
+      }
       const activeExam = examList.find((exam) => exam.isActive) ?? examList[0];
-      setSelectedExamId(activeExam.id);
-    }
-  }
+      return activeExam.id;
+    });
+  }, []);
 
   async function loadStats(examId: number) {
     const response = await fetch(`${STATS_API}?examId=${examId}`, {
@@ -114,7 +117,7 @@ export default function AdminStatsPage() {
         setIsLoading(false);
       }
     })();
-  }, []);
+  }, [loadExamOptions]);
 
   useEffect(() => {
     if (!selectedExamId) return;

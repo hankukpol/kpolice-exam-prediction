@@ -71,7 +71,7 @@ function progressColor(percentage: number): string {
 
 function getRecruitCount(region: RegionInfo, examType: ExamType): number {
   if (examType === ExamType.CAREER) {
-    return region.recruitCountCareer > 0 ? region.recruitCountCareer : region.recruitCount;
+    return region.recruitCountCareer;
   }
   return region.recruitCount;
 }
@@ -106,7 +106,7 @@ export default function ExamInputPage() {
       setIsMetaLoading(true);
       setErrorMessage("");
       try {
-        const response = await fetch("/exam/api/exams?active=true", {
+        const response = await fetch("/api/exams?active=true", {
           method: "GET",
           cache: "no-store",
         });
@@ -137,7 +137,7 @@ export default function ExamInputPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [showErrorToast]);
 
   const subjects = useMemo(() => {
     if (!meta) return [];
@@ -178,6 +178,8 @@ export default function ExamInputPage() {
   }, [meta, regionId]);
 
   const recruitCount = selectedRegion ? getRecruitCount(selectedRegion, examType) : null;
+  const isCareerRecruitCountMissing =
+    examType === ExamType.CAREER && selectedRegion !== null && recruitCount !== null && recruitCount < 1;
 
   function setAnswer(subjectName: string, questionNo: number, answer: number) {
     setAnswerStore((previous) => {
@@ -219,6 +221,11 @@ export default function ExamInputPage() {
       return;
     }
 
+    if (isCareerRecruitCountMissing) {
+      setErrorMessage("선택한 지역의 경행경채 모집인원이 설정되지 않았습니다. 관리자에게 문의해주세요.");
+      return;
+    }
+
     const unansweredCount = totalProgress.total - totalProgress.filled;
     if (unansweredCount > 0) {
       const confirmed = window.confirm(
@@ -247,7 +254,7 @@ export default function ExamInputPage() {
     setIsSubmitting(true);
     setErrorMessage("");
     try {
-      const response = await fetch("/exam/api/submission", {
+      const response = await fetch("/api/submission", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -361,7 +368,9 @@ export default function ExamInputPage() {
             </select>
             {selectedRegion ? (
               <p className="text-xs text-slate-500">
-                {selectedRegion.name}: {recruitCount?.toLocaleString("ko-KR")}명 모집
+                {isCareerRecruitCountMissing
+                  ? `${selectedRegion.name}: 경행경채 모집인원 미설정`
+                  : `${selectedRegion.name}: ${recruitCount?.toLocaleString("ko-KR")}명`}
               </p>
             ) : null}
           </div>

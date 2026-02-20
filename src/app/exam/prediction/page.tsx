@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,7 @@ export default function ExamPredictionPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const pageRef = useRef(page);
 
   const fetchPrediction = useCallback(
     async (targetPage: number, silent = false) => {
@@ -111,7 +112,7 @@ export default function ExamPredictionPage() {
       setErrorMessage("");
 
       try {
-        const response = await fetch(`/exam/api/prediction?page=${targetPage}&limit=20`, {
+        const response = await fetch(`/api/prediction?page=${targetPage}&limit=20`, {
           method: "GET",
           cache: "no-store",
         });
@@ -144,7 +145,7 @@ export default function ExamPredictionPage() {
         setIsRefreshing(false);
       }
     },
-    [router]
+    [router, showErrorToast]
   );
 
   useEffect(() => {
@@ -152,12 +153,16 @@ export default function ExamPredictionPage() {
   }, [fetchPrediction, page]);
 
   useEffect(() => {
+    pageRef.current = page;
+  }, [page]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
-      void fetchPrediction(page, true);
+      void fetchPrediction(pageRef.current, true);
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [fetchPrediction, page]);
+  }, [fetchPrediction]);
 
   const pageNumbers = useMemo(() => {
     if (!prediction) return [];

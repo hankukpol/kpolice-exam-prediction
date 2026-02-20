@@ -1,4 +1,5 @@
-import { ExamType } from "@prisma/client";
+import { ExamType, Prisma } from "@prisma/client";
+import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 
 const SMALL_RECRUIT_PASS_COUNTS: Record<number, number> = {
@@ -9,7 +10,10 @@ const SMALL_RECRUIT_PASS_COUNTS: Record<number, number> = {
   5: 10,
 };
 
-const SCORE_COMPARE_EPSILON = 1e-9;
+const SCORE_KEY_SCALE = 1000000;
+const ESTIMATED_APPLICANTS_MULTIPLIER = parseEstimatedApplicantsMultiplier(
+  process.env.ESTIMATED_APPLICANTS_MULTIPLIER
+);
 
 export const PREDICTION_DISCLAIMER =
   "본 서비스는 참여자 데이터 기반 예측이며, 실제 합격 결과와 다를 수 있습니다.";
@@ -79,11 +83,9 @@ export interface PredictionResult {
   updatedAt: string;
 }
 
-interface RankedParticipant {
-  submissionId: number;
-  userId: number;
-  name: string;
+interface ScoreBand {
   score: number;
+  count: number;
   rank: number;
 }
 
@@ -107,12 +109,12 @@ function toSafeNumber(value: number): number {
   return Number(value.toFixed(2));
 }
 
-function isSameScore(a: number, b: number): boolean {
-  return Math.abs(a - b) <= SCORE_COMPARE_EPSILON;
-}
-
 function toExamTypeLabel(examType: ExamType): string {
   return examType === ExamType.CAREER ? "경행경채" : "공채";
+}
+
+function toScoreKey(score: number): number {
+  return Math.round(score * SCORE_KEY_SCALE);
 }
 
 export function maskKoreanName(name: string): string {
@@ -142,7 +144,7 @@ function getRecruitCount(
   examType: ExamType
 ): number {
   if (examType === ExamType.CAREER) {
-    return region.recruitCountCareer > 0 ? region.recruitCountCareer : region.recruitCount;
+    return region.recruitCountCareer;
   }
   return region.recruitCount;
 }
@@ -160,8 +162,8 @@ function getMaxRankByMultiple(recruitCount: number, multiple: number): number {
   return Math.max(1, Math.floor(recruitCount * multiple));
 }
 
-function getMinScoreWithinRank(participants: RankedParticipant[], maxRank: number): number | null {
-  const selected = participants.filter((participant) => participant.rank <= maxRank);
+function getMinScoreWithinRank(scoreBands: ScoreBand[], maxRank: number): number | null {
+  const selected = scoreBands.filter((band) => band.rank <= maxRank);
   if (selected.length === 0) {
     return null;
   }
@@ -169,43 +171,15 @@ function getMinScoreWithinRank(participants: RankedParticipant[], maxRank: numbe
   return selected[selected.length - 1].score;
 }
 
-function getMaxScoreWithinRank(participants: RankedParticipant[], minRank: number): number | null {
-  const selected = participants.find((participant) => participant.rank >= minRank);
+function getMaxScoreWithinRank(scoreBands: ScoreBand[], minRank: number): number | null {
+  const selected = scoreBands.find((band) => band.rank >= minRank);
   return selected ? selected.score : null;
 }
 
-function rankParticipants(
-  participants: Array<{
-    id: number;
-    userId: number;
-    finalScore: number;
-    user: { name: string };
-  }>
-): RankedParticipant[] {
-  const sorted = [...participants].sort((a, b) => {
-    if (!isSameScore(b.finalScore, a.finalScore)) {
-      return b.finalScore - a.finalScore;
-    }
-    return a.id - b.id;
-  });
-
-  let currentRank = 0;
-  let previousScore: number | null = null;
-
-  return sorted.map((participant, index) => {
-    if (previousScore === null || !isSameScore(participant.finalScore, previousScore)) {
-      currentRank = index + 1;
-      previousScore = participant.finalScore;
-    }
-
-    return {
-      submissionId: participant.id,
-      userId: participant.userId,
-      name: participant.user.name,
-      score: toSafeNumber(participant.finalScore),
-      rank: currentRank,
-    };
-  });
+function countByRankRange(scoreBands: ScoreBand[], minExclusive: number, maxInclusive: number): number {
+  return scoreBands
+    .filter((band) => band.rank > minExclusive && band.rank <= maxInclusive)
+    .reduce((sum, band) => sum + band.count, 0);
 }
 
 function parsePage(value: number | undefined): number {
@@ -237,6 +211,42 @@ function toLevel(
     minMultiple: minMultiple === null ? null : toSafeNumber(minMultiple),
     maxMultiple: maxMultiple === null ? null : toSafeNumber(maxMultiple),
     isCurrent,
+  };
+}
+
+function buildScoreBands(
+  rows: Array<{
+    finalScore: number;
+    _count: { _all: number };
+  }>
+): ScoreBand[] {
+  let processed = 0;
+
+  return rows.map((row) => {
+    const score = toSafeNumber(row.finalScore);
+    const count = row._count._all;
+    const rank = processed + 1;
+    processed += count;
+
+    return { score, count, rank };
+  });
+}
+
+function buildPopulationWhere(submission: {
+  examId: number;
+  regionId: number;
+  examType: ExamType;
+}): Prisma.SubmissionWhereInput {
+  return {
+    examId: submission.examId,
+    regionId: submission.regionId,
+    examType: submission.examType,
+    subjectScores: {
+      some: {},
+      none: {
+        isFailed: true,
+      },
+    },
   };
 }
 
@@ -334,6 +344,12 @@ export async function calculatePrediction(
   }
 
   const recruitCount = getRecruitCount(submission.region, submission.examType);
+  if (submission.examType === ExamType.CAREER && recruitCount < 1) {
+    throw new PredictionError(
+      "경행경채 모집인원이 설정되지 않았습니다. 관리자에게 문의해주세요.",
+      400
+    );
+  }
   if (!Number.isInteger(recruitCount) || recruitCount < 1) {
     throw new PredictionError("선발인원 정보가 올바르지 않습니다.", 500);
   }
@@ -345,63 +361,53 @@ export async function calculatePrediction(
   const likelyMaxRank = getMaxRankByMultiple(recruitCount, likelyMultiple);
   const challengeMaxRank = getMaxRankByMultiple(recruitCount, challengeMultiple);
 
-  const participants = await prisma.submission.findMany({
-    where: {
-      examId: submission.examId,
-      regionId: submission.regionId,
-      examType: submission.examType,
-      subjectScores: {
-        some: {},
-        none: {
-          isFailed: true,
-        },
-      },
+  const populationWhere = buildPopulationWhere(submission);
+
+  const scoreBandRows = await prisma.submission.groupBy({
+    by: ["finalScore"],
+    where: populationWhere,
+    _count: {
+      _all: true,
     },
-    select: {
-      id: true,
-      userId: true,
-      finalScore: true,
-      user: {
-        select: {
-          name: true,
-        },
-      },
+    orderBy: {
+      finalScore: "desc",
     },
   });
 
-  if (participants.length === 0) {
+  if (scoreBandRows.length === 0) {
     throw new PredictionError("합격예측을 위한 참여 데이터가 아직 없습니다.", 404);
   }
 
-  const rankedParticipants = rankParticipants(participants);
-  const totalParticipants = rankedParticipants.length;
-  const myParticipant = rankedParticipants.find((participant) => participant.submissionId === submission.id);
+  const scoreBands = buildScoreBands(
+    scoreBandRows.map((row) => ({
+      finalScore: Number(row.finalScore),
+      _count: { _all: row._count._all },
+    }))
+  );
 
-  if (!myParticipant) {
+  const rankByScore = new Map(scoreBands.map((band) => [toScoreKey(band.score), band.rank] as const));
+  const totalParticipants = scoreBands.reduce((sum, band) => sum + band.count, 0);
+  if (totalParticipants < 1) {
+    throw new PredictionError("합격예측을 위한 참여 데이터가 아직 없습니다.", 404);
+  }
+  const isLowSampleSize = totalParticipants < Math.max(10, Math.ceil(recruitCount * 0.2));
+
+  const myScore = toSafeNumber(submission.finalScore);
+  const myRank = rankByScore.get(toScoreKey(myScore));
+  if (!myRank) {
     throw new PredictionError("합격예측 대상 데이터가 없습니다.", 404);
   }
 
-  const myRank = myParticipant.rank;
-  const myScore = toSafeNumber(submission.finalScore);
   const myMultiple = myRank / recruitCount;
   const predictionGrade = classifyGrade(myMultiple, passMultiple);
+  const passLineScore = getMinScoreWithinRank(scoreBands, passCount);
 
-  const passCandidates = rankedParticipants.filter((participant) => participant.rank <= passCount);
-  const passLineScore = passCandidates.length > 0 ? passCandidates[passCandidates.length - 1].score : null;
-
-  const sureCount = rankedParticipants.filter((participant) => participant.rank <= recruitCount).length;
-  const likelyCount = rankedParticipants.filter(
-    (participant) => participant.rank > recruitCount && participant.rank <= likelyMaxRank
-  ).length;
-  const possibleCount = rankedParticipants.filter(
-    (participant) => participant.rank > likelyMaxRank && participant.rank <= passCount
-  ).length;
-  const challengeCount = rankedParticipants.filter(
-    (participant) => participant.rank > passCount && participant.rank <= challengeMaxRank
-  ).length;
-  const belowChallengeCount = rankedParticipants.filter(
-    (participant) => participant.rank > challengeMaxRank
-  ).length;
+  const sureCount = countByRankRange(scoreBands, 0, recruitCount);
+  const likelyCount = countByRankRange(scoreBands, recruitCount, likelyMaxRank);
+  const possibleCount = countByRankRange(scoreBands, likelyMaxRank, passCount);
+  const challengeCount = countByRankRange(scoreBands, passCount, challengeMaxRank);
+  const aboveChallengeCount = countByRankRange(scoreBands, 0, challengeMaxRank);
+  const belowChallengeCount = Math.max(0, totalParticipants - aboveChallengeCount);
 
   const myLevelKey: PyramidLevelKey =
     myMultiple <= 1
@@ -419,8 +425,8 @@ export async function calculatePrediction(
       "sure",
       "확실권",
       sureCount,
-      getMinScoreWithinRank(rankedParticipants, recruitCount),
-      getMaxScoreWithinRank(rankedParticipants, 1),
+      getMinScoreWithinRank(scoreBands, recruitCount),
+      getMaxScoreWithinRank(scoreBands, 1),
       null,
       1,
       myLevelKey === "sure"
@@ -429,8 +435,8 @@ export async function calculatePrediction(
       "likely",
       "유력권",
       likelyCount,
-      getMinScoreWithinRank(rankedParticipants, likelyMaxRank),
-      getMaxScoreWithinRank(rankedParticipants, recruitCount + 1),
+      getMinScoreWithinRank(scoreBands, likelyMaxRank),
+      getMaxScoreWithinRank(scoreBands, recruitCount + 1),
       1,
       likelyMultiple,
       myLevelKey === "likely"
@@ -439,8 +445,8 @@ export async function calculatePrediction(
       "possible",
       "가능권",
       possibleCount,
-      getMinScoreWithinRank(rankedParticipants, passCount),
-      getMaxScoreWithinRank(rankedParticipants, likelyMaxRank + 1),
+      getMinScoreWithinRank(scoreBands, passCount),
+      getMaxScoreWithinRank(scoreBands, likelyMaxRank + 1),
       likelyMultiple,
       passMultiple,
       myLevelKey === "possible"
@@ -449,8 +455,8 @@ export async function calculatePrediction(
       "challenge",
       "도전권",
       challengeCount,
-      getMinScoreWithinRank(rankedParticipants, challengeMaxRank),
-      getMaxScoreWithinRank(rankedParticipants, passCount + 1),
+      getMinScoreWithinRank(scoreBands, challengeMaxRank),
+      getMaxScoreWithinRank(scoreBands, passCount + 1),
       passMultiple,
       challengeMultiple,
       myLevelKey === "challenge"
@@ -460,7 +466,7 @@ export async function calculatePrediction(
       "도전권 이하",
       belowChallengeCount,
       null,
-      getMaxScoreWithinRank(rankedParticipants, challengeMaxRank + 1),
+      getMaxScoreWithinRank(scoreBands, challengeMaxRank + 1),
       challengeMultiple,
       null,
       myLevelKey === "belowChallenge"
@@ -469,17 +475,45 @@ export async function calculatePrediction(
 
   const totalPages = Math.max(1, Math.ceil(totalParticipants / limit));
   const safePage = Math.min(page, totalPages);
-  const startIndex = (safePage - 1) * limit;
-  const endIndex = startIndex + limit;
+  const skip = (safePage - 1) * limit;
 
-  const competitorItems: PredictionCompetitor[] = rankedParticipants.slice(startIndex, endIndex).map((item) => ({
-    submissionId: item.submissionId,
-    userId: item.userId,
-    rank: item.rank,
-    score: item.score,
-    maskedName: maskKoreanName(item.name),
-    isMine: item.submissionId === submission.id,
-  }));
+  const pagedParticipants = await prisma.submission.findMany({
+    where: populationWhere,
+    orderBy: [{ finalScore: "desc" }, { id: "asc" }],
+    skip,
+    take: limit,
+    select: {
+      id: true,
+      userId: true,
+      finalScore: true,
+      user: {
+        select: {
+          name: true,
+        },
+      },
+    },
+  });
+
+  const competitorItems: PredictionCompetitor[] = pagedParticipants.map((item) => {
+    const score = toSafeNumber(item.finalScore);
+    const rank = rankByScore.get(toScoreKey(score));
+    if (!rank) {
+      throw new PredictionError("합격예측 랭킹 계산에 실패했습니다.", 500);
+    }
+
+    return {
+      submissionId: item.id,
+      userId: item.userId,
+      rank,
+      score,
+      maskedName: maskKoreanName(item.user.name),
+      isMine: item.id === submission.id,
+    };
+  });
+
+  const disclaimer = isLowSampleSize
+    ? `${PREDICTION_DISCLAIMER} 현재 참여인원이 적어 예측 신뢰도가 낮습니다.`
+    : PREDICTION_DISCLAIMER;
 
   return {
     summary: {
@@ -494,7 +528,7 @@ export async function calculatePrediction(
       regionId: submission.region.id,
       regionName: submission.region.name,
       recruitCount,
-      estimatedApplicants: recruitCount * 20,
+      estimatedApplicants: Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER),
       totalParticipants,
       myScore,
       myRank,
@@ -504,7 +538,7 @@ export async function calculatePrediction(
       passCount,
       passLineScore: passLineScore === null ? null : toSafeNumber(passLineScore),
       predictionGrade,
-      disclaimer: PREDICTION_DISCLAIMER,
+      disclaimer,
     },
     pyramid: {
       levels,

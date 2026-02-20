@@ -1,7 +1,8 @@
-import { ExamType } from "@prisma/client";
+import { ExamType, Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
+import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -9,6 +10,12 @@ export const runtime = "nodejs";
 const SUBJECT_ORDER: Record<ExamType, string[]> = {
   [ExamType.PUBLIC]: ["헌법", "형사법", "경찰학"],
   [ExamType.CAREER]: ["범죄학", "형사법", "경찰학"],
+};
+
+type CountRow = {
+  totalCount: bigint | number | null;
+  higherCount: bigint | number | null;
+  lowerCount: bigint | number | null;
 };
 
 function parsePositiveInt(value: string | null): number | null {
@@ -21,14 +28,34 @@ function roundNumber(value: number): number {
   return Number(value.toFixed(2));
 }
 
-function calculateRank(scores: number[], myScore: number): number {
-  return scores.filter((score) => score > myScore).length + 1;
+function toCount(value: bigint | number | null | undefined): number {
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return 0;
 }
 
-function calculatePercentile(scores: number[], myScore: number): number {
-  if (scores.length === 0) return 0;
-  const lowerCount = scores.filter((score) => score < myScore).length;
-  return roundNumber((lowerCount / scores.length) * 100);
+function calculateRankByHigher(higherCount: number): number {
+  return higherCount + 1;
+}
+
+function calculatePercentileByLower(lowerCount: number, totalCount: number): number {
+  if (totalCount <= 0) return 0;
+  return roundNumber((lowerCount / totalCount) * 100);
+}
+
+function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
+  if (submissionHasCutoff) {
+    return Prisma.empty;
+  }
+
+  return Prisma.sql`
+    AND NOT EXISTS (
+      SELECT 1
+      FROM SubjectScore sf
+      WHERE sf.submissionId = s.id
+        AND sf.isFailed = true
+    )
+  `;
 }
 
 export async function GET(request: NextRequest) {
@@ -60,6 +87,7 @@ export async function GET(request: NextRequest) {
       examType: true,
       regionId: true,
       gender: true,
+      examNumber: true,
       totalScore: true,
       finalScore: true,
       bonusType: true,
@@ -103,23 +131,30 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "조회할 성적 데이터가 없습니다." }, { status: 404 });
   }
 
-  const groupSubmissions = await prisma.submission.findMany({
-    where: {
-      examId: submission.examId,
-      regionId: submission.regionId,
-      examType: submission.examType,
-    },
-    select: {
-      id: true,
-      finalScore: true,
-      subjectScores: {
-        select: {
-          subjectId: true,
-          rawScore: true,
-        },
-      },
-    },
-  });
+  const submissionHasCutoff = submission.subjectScores.some((score) => score.isFailed);
+  const rankingBasis = submissionHasCutoff ? "ALL_PARTICIPANTS" : "NON_CUTOFF_PARTICIPANTS";
+  const populationConditionSql = getPopulationConditionSql(submissionHasCutoff);
+  const myFinalScore = Number(submission.finalScore);
+
+  const [overallRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
+    SELECT
+      COUNT(*) AS totalCount,
+      SUM(CASE WHEN s.finalScore > ${myFinalScore} THEN 1 ELSE 0 END) AS higherCount,
+      SUM(CASE WHEN s.finalScore < ${myFinalScore} THEN 1 ELSE 0 END) AS lowerCount
+    FROM Submission s
+    WHERE s.examId = ${submission.examId}
+      AND s.regionId = ${submission.regionId}
+      AND s.examType = ${submission.examType}
+      ${populationConditionSql}
+  `);
+
+  const totalParticipants = toCount(overallRow?.totalCount);
+  if (totalParticipants < 1) {
+    return NextResponse.json({ error: "성적 비교 대상이 없습니다." }, { status: 404 });
+  }
+
+  const totalRank = calculateRankByHigher(toCount(overallRow?.higherCount));
+  const totalPercentile = calculatePercentileByLower(toCount(overallRow?.lowerCount), totalParticipants);
 
   const subjectOrder = SUBJECT_ORDER[submission.examType];
   const orderedSubjectScores = [...submission.subjectScores].sort((a, b) => {
@@ -131,43 +166,53 @@ export async function GET(request: NextRequest) {
     return a.subjectId - b.subjectId;
   });
 
-  const totalScores = groupSubmissions.map((item) => Number(item.finalScore));
-  const myFinalScore = Number(submission.finalScore);
-  const totalRank = calculateRank(totalScores, myFinalScore);
-  const totalPercentile = calculatePercentile(totalScores, myFinalScore);
-  const totalParticipants = groupSubmissions.length;
+  const scores = await Promise.all(
+    orderedSubjectScores.map(async (mySubjectScore) => {
+      const rawScore = Number(mySubjectScore.rawScore);
+      const maxScore = Number(mySubjectScore.subject.maxScore);
+      const pointPerQuestion = Number(mySubjectScore.subject.pointPerQuestion);
+      const bonusScore = roundNumber(maxScore * Number(submission.bonusRate));
+      const finalScore = roundNumber(rawScore + bonusScore);
 
-  const scores = orderedSubjectScores.map((mySubjectScore) => {
-    const subjectScoresInGroup = groupSubmissions.map((participant) => {
-      const found = participant.subjectScores.find((score) => score.subjectId === mySubjectScore.subjectId);
-      return Number(found?.rawScore ?? 0);
-    });
+      const [subjectRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
+        SELECT
+          COUNT(*) AS totalCount,
+          SUM(CASE WHEN ss.rawScore > ${rawScore} THEN 1 ELSE 0 END) AS higherCount,
+          SUM(CASE WHEN ss.rawScore < ${rawScore} THEN 1 ELSE 0 END) AS lowerCount
+        FROM Submission s
+        INNER JOIN SubjectScore ss
+          ON ss.submissionId = s.id
+         AND ss.subjectId = ${mySubjectScore.subjectId}
+        WHERE s.examId = ${submission.examId}
+          AND s.regionId = ${submission.regionId}
+          AND s.examType = ${submission.examType}
+          ${populationConditionSql}
+      `);
 
-    const rawScore = Number(mySubjectScore.rawScore);
-    const maxScore = Number(mySubjectScore.subject.maxScore);
-    const pointPerQuestion = Number(mySubjectScore.subject.pointPerQuestion);
-    const bonusScore = roundNumber(maxScore * Number(submission.bonusRate));
-    const finalScore = roundNumber(rawScore + bonusScore);
+      const subjectParticipants = toCount(subjectRow?.totalCount);
+      const subjectHigher = toCount(subjectRow?.higherCount);
+      const subjectLower = toCount(subjectRow?.lowerCount);
 
-    return {
-      subjectId: mySubjectScore.subjectId,
-      subjectName: mySubjectScore.subject.name,
-      questionCount: mySubjectScore.subject.questionCount,
-      pointPerQuestion,
-      correctCount: Math.round(rawScore / pointPerQuestion),
-      rawScore,
-      maxScore,
-      bonusScore,
-      finalScore,
-      isCutoff: mySubjectScore.isFailed,
-      cutoffScore: roundNumber(maxScore * 0.4),
-      rank: calculateRank(subjectScoresInGroup, rawScore),
-      percentile: calculatePercentile(subjectScoresInGroup, rawScore),
-      totalParticipants,
-    };
-  });
+      return {
+        subjectId: mySubjectScore.subjectId,
+        subjectName: mySubjectScore.subject.name,
+        questionCount: mySubjectScore.subject.questionCount,
+        pointPerQuestion,
+        correctCount: Math.round(rawScore / pointPerQuestion),
+        rawScore,
+        maxScore,
+        bonusScore,
+        finalScore,
+        isCutoff: mySubjectScore.isFailed,
+        cutoffScore: roundNumber(maxScore * SUBJECT_CUTOFF_RATE),
+        rank: calculateRankByHigher(subjectHigher),
+        percentile: calculatePercentileByLower(subjectLower, subjectParticipants),
+        totalParticipants: subjectParticipants,
+      };
+    })
+  );
 
-  const hasCutoff = scores.some((score) => score.isCutoff);
+  const hasCutoff = submissionHasCutoff;
   const cutoffSubjects = scores
     .filter((score) => score.isCutoff)
     .map((score) => ({
@@ -188,6 +233,7 @@ export async function GET(request: NextRequest) {
       regionId: submission.region.id,
       regionName: submission.region.name,
       gender: submission.gender,
+      examNumber: submission.examNumber,
       totalScore: Number(submission.totalScore),
       finalScore: Number(submission.finalScore),
       bonusType: submission.bonusType,
@@ -200,6 +246,7 @@ export async function GET(request: NextRequest) {
       totalRank,
       totalPercentile,
       hasCutoff,
+      rankingBasis,
       cutoffSubjects,
       bonusScore: roundNumber(Number(submission.finalScore) - Number(submission.totalScore)),
     },

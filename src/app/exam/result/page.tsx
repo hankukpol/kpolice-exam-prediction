@@ -26,6 +26,7 @@ interface ResultResponse {
     regionId: number;
     regionName: string;
     gender: "MALE" | "FEMALE";
+    examNumber: string | null;
     totalScore: number;
     finalScore: number;
     bonusType: "NONE" | "VETERAN_5" | "VETERAN_10" | "HERO_3" | "HERO_5";
@@ -53,6 +54,7 @@ interface ResultResponse {
     totalRank: number;
     totalPercentile: number;
     hasCutoff: boolean;
+    rankingBasis: "ALL_PARTICIPANTS" | "NON_CUTOFF_PARTICIPANTS";
     cutoffSubjects: Array<{
       subjectName: string;
       rawScore: number;
@@ -78,6 +80,13 @@ function formatBonusType(type: ResultResponse["submission"]["bonusType"]): strin
   }
 }
 
+function formatRankingBasis(basis: ResultResponse["statistics"]["rankingBasis"]): string {
+  if (basis === "NON_CUTOFF_PARTICIPANTS") {
+    return "과락 미해당자 기준";
+  }
+  return "전체 참여자 기준";
+}
+
 export default function ExamResultPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -100,7 +109,7 @@ export default function ExamResultPage() {
         const submissionId = fromQuery ?? fromStorage ?? "";
         const query = submissionId ? `?submissionId=${encodeURIComponent(submissionId)}` : "";
 
-        const response = await fetch(`/exam/api/result${query}`, {
+        const response = await fetch(`/api/result${query}`, {
           method: "GET",
           cache: "no-store",
         });
@@ -133,7 +142,7 @@ export default function ExamResultPage() {
     return () => {
       isMounted = false;
     };
-  }, [router, searchParams]);
+  }, [router, searchParams, showErrorToast]);
 
   const chartData = useMemo(() => {
     if (!result) return [];
@@ -176,6 +185,9 @@ export default function ExamResultPage() {
           {result.submission.examYear}년 {result.submission.examRound}차 ·{" "}
           {result.submission.examType === "PUBLIC" ? "공채" : "경행경채"} · {result.submission.regionName}
         </p>
+        {result.submission.examNumber ? (
+          <p className="mt-1 text-xs text-slate-500">응시번호: {result.submission.examNumber}</p>
+        ) : null}
 
         <div className="mt-5 h-[320px] w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -264,6 +276,9 @@ export default function ExamResultPage() {
             </tbody>
           </table>
         </div>
+        <p className="mt-3 text-xs text-slate-500">
+          순위 기준: {formatRankingBasis(result.statistics.rankingBasis)}
+        </p>
       </section>
 
       {result.statistics.hasCutoff ? (

@@ -8,6 +8,10 @@ export interface ValidationResult<T> {
 
 const koreanNameRegex = /^[가-힣]{2,20}$/;
 const phoneRegex = /^010-\d{4}-\d{4}$/;
+const passwordHasUppercase = /[A-Z]/;
+const passwordHasLowercase = /[a-z]/;
+const passwordHasNumber = /\d/;
+const passwordHasSpecial = /[^A-Za-z0-9]/;
 
 export function normalizePhone(rawPhone: string): string {
   const digits = rawPhone.replace(/\D/g, "");
@@ -39,6 +43,19 @@ export function validateRegisterInput(
     errors.push("비밀번호를 입력해 주세요.");
   } else if (password.length < 8) {
     errors.push("비밀번호는 8자 이상이어야 합니다.");
+  } else {
+    if (!passwordHasUppercase.test(password)) {
+      errors.push("비밀번호에 영문 대문자를 1자 이상 포함해 주세요.");
+    }
+    if (!passwordHasLowercase.test(password)) {
+      errors.push("비밀번호에 영문 소문자를 1자 이상 포함해 주세요.");
+    }
+    if (!passwordHasNumber.test(password)) {
+      errors.push("비밀번호에 숫자를 1자 이상 포함해 주세요.");
+    }
+    if (!passwordHasSpecial.test(password)) {
+      errors.push("비밀번호에 특수문자를 1자 이상 포함해 주세요.");
+    }
   }
 
   if (errors.length > 0) {
