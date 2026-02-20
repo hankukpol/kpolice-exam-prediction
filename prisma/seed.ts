@@ -1,4 +1,4 @@
-import bcrypt from "bcryptjs";
+﻿import bcrypt from "bcryptjs";
 import { ExamType, PrismaClient, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
@@ -70,20 +70,21 @@ const subjects = [
 ];
 
 async function main() {
-  const adminEmail = process.env.ADMIN_EMAIL ?? "admin@koreapolice.local";
+  const adminPhone = process.env.ADMIN_PHONE ?? "010-0000-0000";
   const adminPassword = process.env.ADMIN_PASSWORD ?? "admin1234!";
   const hashedPassword = await bcrypt.hash(adminPassword, 12);
 
   await prisma.user.upsert({
-    where: { email: adminEmail },
+    where: { phone: adminPhone },
     update: {
       name: "시스템 관리자",
+      phone: adminPhone,
       password: hashedPassword,
       role: Role.ADMIN,
     },
     create: {
       name: "시스템 관리자",
-      email: adminEmail,
+      phone: adminPhone,
       password: hashedPassword,
       role: Role.ADMIN,
     },
@@ -132,7 +133,7 @@ async function main() {
   }
 
   console.log("기본 데이터 시딩이 완료되었습니다.");
-  console.log(`관리자 이메일: ${adminEmail}`);
+  console.log(`관리자 연락처: ${adminPhone}`);
   console.log("관리자 비밀번호는 .env의 ADMIN_PASSWORD 값을 사용합니다.");
 }
 

@@ -1,77 +1,91 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/providers/ToastProvider";
+import { normalizePhone, validateRegisterInput } from "@/lib/validations";
 
 interface RegisterResponse {
-  message: string;
+  message?: string;
+  errors?: string[];
 }
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { showErrorToast, showToast } = useToast();
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handlePhoneChange = (value: string) => {
+    setPhone(normalizePhone(value));
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage("");
     setSuccessMessage("");
 
-    if (password !== confirmPassword) {
-      setErrorMessage("비밀번호 확인이 일치하지 않습니다.");
+    const validationResult = validateRegisterInput({ name, phone, password });
+    if (!validationResult.isValid) {
+      setErrorMessage(validationResult.errors[0]);
       return;
     }
 
-    if (password.length < 8) {
-      setErrorMessage("비밀번호는 8자 이상 입력해주세요.");
+    if (password !== passwordConfirm) {
+      setErrorMessage("비밀번호와 비밀번호 확인이 일치하지 않습니다.");
       return;
     }
 
     setIsSubmitting(true);
+    try {
+      const response = await fetch("/exam/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(validationResult.data),
+      });
 
-    const response = await fetch("/api/auth/register", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        name,
-        email,
-        password,
-      }),
-    });
+      const data = (await response.json()) as RegisterResponse;
 
-    const data = (await response.json()) as RegisterResponse;
+      if (!response.ok) {
+        const message = data.message ?? "회원가입 처리 중 오류가 발생했습니다.";
+        setErrorMessage(message);
+        showErrorToast(message);
+        return;
+      }
 
-    if (!response.ok) {
-      setErrorMessage(data.message ?? "회원가입 처리 중 오류가 발생했습니다.");
+      const success = "회원가입이 완료되었습니다. 로그인 페이지로 이동합니다.";
+      setSuccessMessage(success);
+      showToast(success, "success");
+      setTimeout(() => {
+        router.push("/login");
+      }, 800);
+    } catch {
+      const message = "회원가입 처리 중 오류가 발생했습니다.";
+      setErrorMessage(message);
+      showErrorToast(message);
+    } finally {
       setIsSubmitting(false);
-      return;
     }
-
-    setSuccessMessage("회원가입이 완료되었습니다. 로그인 페이지로 이동합니다.");
-    setTimeout(() => {
-      router.push("/auth/login");
-    }, 800);
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
+    <main className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-10">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">회원가입</CardTitle>
           <p className="text-sm text-slate-500">
-            합격예측 서비스 이용을 위해 기본 정보를 입력해주세요.
+            한글 이름과 연락처를 입력하고 계정을 생성하세요.
           </p>
         </CardHeader>
         <CardContent>
@@ -88,13 +102,12 @@ export default function RegisterPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">이메일</Label>
+              <Label htmlFor="phone">연락처</Label>
               <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@example.com"
+                id="phone"
+                value={phone}
+                onChange={(event) => handlePhoneChange(event.target.value)}
+                placeholder="010-1234-5678"
                 required
               />
             </div>
@@ -112,12 +125,12 @@ export default function RegisterPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">비밀번호 확인</Label>
+              <Label htmlFor="passwordConfirm">비밀번호 확인</Label>
               <Input
-                id="confirmPassword"
+                id="passwordConfirm"
                 type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
+                value={passwordConfirm}
+                onChange={(event) => setPasswordConfirm(event.target.value)}
                 placeholder="비밀번호를 다시 입력"
                 required
               />
@@ -140,7 +153,7 @@ export default function RegisterPage() {
 
           <p className="mt-4 text-sm text-slate-600">
             이미 계정이 있으신가요?{" "}
-            <Link href="/auth/login" className="font-medium text-slate-900 underline">
+            <Link href="/login" className="font-medium text-slate-900 underline">
               로그인
             </Link>
           </p>

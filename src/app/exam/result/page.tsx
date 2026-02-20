@@ -1,0 +1,302 @@
+"use client";
+
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { useToast } from "@/components/providers/ToastProvider";
+import { Button } from "@/components/ui/button";
+
+interface ResultResponse {
+  submission: {
+    id: number;
+    examId: number;
+    examName: string;
+    examYear: number;
+    examRound: number;
+    examType: "PUBLIC" | "CAREER";
+    regionId: number;
+    regionName: string;
+    gender: "MALE" | "FEMALE";
+    totalScore: number;
+    finalScore: number;
+    bonusType: "NONE" | "VETERAN_5" | "VETERAN_10" | "HERO_3" | "HERO_5";
+    bonusRate: number;
+    createdAt: string;
+  };
+  scores: Array<{
+    subjectId: number;
+    subjectName: string;
+    questionCount: number;
+    pointPerQuestion: number;
+    correctCount: number;
+    rawScore: number;
+    maxScore: number;
+    bonusScore: number;
+    finalScore: number;
+    isCutoff: boolean;
+    cutoffScore: number;
+    rank: number;
+    percentile: number;
+    totalParticipants: number;
+  }>;
+  statistics: {
+    totalParticipants: number;
+    totalRank: number;
+    totalPercentile: number;
+    hasCutoff: boolean;
+    cutoffSubjects: Array<{
+      subjectName: string;
+      rawScore: number;
+      maxScore: number;
+      cutoffScore: number;
+    }>;
+    bonusScore: number;
+  };
+}
+
+function formatBonusType(type: ResultResponse["submission"]["bonusType"]): string {
+  switch (type) {
+    case "VETERAN_5":
+      return "취업지원 5%";
+    case "VETERAN_10":
+      return "취업지원 10%";
+    case "HERO_3":
+      return "의사상자 3%";
+    case "HERO_5":
+      return "의사상자 5%";
+    default:
+      return "해당 없음";
+  }
+}
+
+export default function ExamResultPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { showErrorToast } = useToast();
+
+  const [result, setResult] = useState<ResultResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadResult() {
+      setIsLoading(true);
+      setErrorMessage("");
+      try {
+        const fromQuery = searchParams.get("submissionId");
+        const fromStorage =
+          typeof window !== "undefined" ? sessionStorage.getItem("latestSubmissionId") : null;
+        const submissionId = fromQuery ?? fromStorage ?? "";
+        const query = submissionId ? `?submissionId=${encodeURIComponent(submissionId)}` : "";
+
+        const response = await fetch(`/exam/api/result${query}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const data = (await response.json()) as ResultResponse & { error?: string };
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            router.replace("/exam/input");
+            return;
+          }
+          throw new Error(data.error ?? "성적 정보를 불러오지 못했습니다.");
+        }
+
+        if (!isMounted) return;
+        setResult(data);
+        sessionStorage.setItem("latestSubmissionId", String(data.submission.id));
+      } catch (error) {
+        if (!isMounted) return;
+        const message = error instanceof Error ? error.message : "성적 정보를 불러오지 못했습니다.";
+        setErrorMessage(message);
+        showErrorToast(message);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadResult();
+    return () => {
+      isMounted = false;
+    };
+  }, [router, searchParams]);
+
+  const chartData = useMemo(() => {
+    if (!result) return [];
+    return result.scores.map((score) => ({
+      subjectName: score.subjectName,
+      rawScore: score.rawScore,
+      fill: score.isCutoff ? "#dc2626" : "#2563eb",
+    }));
+  }, [result]);
+
+  if (isLoading) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-600">
+        성적 분석 화면을 불러오는 중입니다...
+      </section>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <section className="rounded-xl border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700">
+        {errorMessage}
+      </section>
+    );
+  }
+
+  if (!result) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-600">
+        조회 가능한 성적이 없습니다.
+      </section>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-xl border border-slate-200 bg-white p-6">
+        <h1 className="text-lg font-semibold text-slate-900">내 성적 분석</h1>
+        <p className="mt-1 text-sm text-slate-600">
+          {result.submission.examYear}년 {result.submission.examRound}차 ·{" "}
+          {result.submission.examType === "PUBLIC" ? "공채" : "경행경채"} · {result.submission.regionName}
+        </p>
+
+        <div className="mt-5 h-[320px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} margin={{ top: 20, right: 12, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="subjectName" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} />
+              <Tooltip />
+              <Bar dataKey="rawScore" radius={[6, 6, 0, 0]}>
+                {chartData.map((item) => (
+                  <Cell key={item.subjectName} fill={item.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-6">
+        <h2 className="text-base font-semibold text-slate-900">상세 분석</h2>
+        <div className="mt-4 overflow-x-auto">
+          <table className="min-w-[720px] w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-slate-700">
+                <th className="border border-slate-200 px-3 py-2 text-left">구분</th>
+                <th className="border border-slate-200 px-3 py-2 text-right">총점</th>
+                {result.scores.map((score) => (
+                  <th key={score.subjectId} className="border border-slate-200 px-3 py-2 text-right">
+                    {score.subjectName}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-slate-200 px-3 py-2 font-medium text-slate-700">원점수</td>
+                <td className="border border-slate-200 px-3 py-2 text-right font-semibold text-slate-900">
+                  {result.submission.totalScore.toFixed(1)}
+                </td>
+                {result.scores.map((score) => (
+                  <td key={`${score.subjectId}-raw`} className="border border-slate-200 px-3 py-2 text-right">
+                    {score.rawScore.toFixed(1)}
+                  </td>
+                ))}
+              </tr>
+              <tr className="bg-slate-50">
+                <td className="border border-slate-200 px-3 py-2 font-medium text-slate-700">백분위</td>
+                <td className="border border-slate-200 px-3 py-2 text-right">
+                  {result.statistics.totalPercentile.toFixed(1)}%
+                </td>
+                {result.scores.map((score) => (
+                  <td
+                    key={`${score.subjectId}-percentile`}
+                    className="border border-slate-200 px-3 py-2 text-right"
+                  >
+                    {score.percentile.toFixed(1)}%
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="border border-slate-200 px-3 py-2 font-medium text-slate-700">석차/전체인원</td>
+                <td className="border border-slate-200 px-3 py-2 text-right">
+                  {result.statistics.totalRank}/{result.statistics.totalParticipants}
+                </td>
+                {result.scores.map((score) => (
+                  <td key={`${score.subjectId}-rank`} className="border border-slate-200 px-3 py-2 text-right">
+                    {score.rank}/{score.totalParticipants}
+                  </td>
+                ))}
+              </tr>
+              <tr className="bg-slate-50">
+                <td className="border border-slate-200 px-3 py-2 font-medium text-slate-700">과락</td>
+                <td className="border border-slate-200 px-3 py-2 text-right">
+                  {result.statistics.hasCutoff ? (
+                    <span className="font-semibold text-rose-600">과락</span>
+                  ) : (
+                    "-"
+                  )}
+                </td>
+                {result.scores.map((score) => (
+                  <td key={`${score.subjectId}-cutoff`} className="border border-slate-200 px-3 py-2 text-right">
+                    {score.isCutoff ? <span className="font-semibold text-rose-600">과락</span> : "-"}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {result.statistics.hasCutoff ? (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 p-5">
+          <h3 className="text-sm font-semibold text-rose-700">⚠ 과락 과목이 있습니다.</h3>
+          <div className="mt-2 space-y-1 text-sm text-rose-700">
+            {result.statistics.cutoffSubjects.map((subject) => (
+              <p key={subject.subjectName}>
+                {subject.subjectName}: {subject.rawScore.toFixed(1)}점 (과락 기준 {subject.cutoffScore.toFixed(1)}점
+                미만)
+              </p>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+        <h3 className="text-sm font-semibold text-slate-900">가산점 적용 요약</h3>
+        <div className="mt-2 space-y-1 text-sm text-slate-700">
+          <p>원점수 합계: {result.submission.totalScore.toFixed(1)}점</p>
+          <p>
+            가산점: {formatBonusType(result.submission.bonusType)} ({(result.submission.bonusRate * 100).toFixed(0)}%)
+            → +{result.statistics.bonusScore.toFixed(1)}점
+          </p>
+          <p className="font-semibold text-slate-900">최종점수: {result.submission.finalScore.toFixed(1)}점</p>
+        </div>
+      </section>
+
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" onClick={() => router.push("/exam/prediction")}>
+          합격예측 분석 보기
+        </Button>
+      </div>
+    </div>
+  );
+}

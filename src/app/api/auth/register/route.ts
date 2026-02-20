@@ -1,39 +1,33 @@
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { validateRegisterInput } from "@/lib/validations";
 
 export const runtime = "nodejs";
 
 interface RegisterRequestBody {
   name?: string;
-  email?: string;
+  phone?: string;
   password?: string;
 }
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as RegisterRequestBody;
-    const name = body.name?.trim();
-    const email = body.email?.trim().toLowerCase();
-    const password = body.password?.trim();
+    const validationResult = validateRegisterInput(body);
 
-    if (!name || !email || !password) {
+    if (!validationResult.isValid || !validationResult.data) {
       return NextResponse.json(
-        { message: "이름, 이메일, 비밀번호를 모두 입력해주세요." },
+        { message: validationResult.errors[0], errors: validationResult.errors },
         { status: 400 }
       );
     }
 
-    if (password.length < 8) {
-      return NextResponse.json(
-        { message: "비밀번호는 8자 이상이어야 합니다." },
-        { status: 400 }
-      );
-    }
+    const { name, phone, password } = validationResult.data;
 
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const existingUser = await prisma.user.findUnique({ where: { phone } });
     if (existingUser) {
-      return NextResponse.json({ message: "이미 가입된 이메일입니다." }, { status: 409 });
+      return NextResponse.json({ message: "이미 등록된 연락처입니다." }, { status: 409 });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -41,7 +35,7 @@ export async function POST(request: Request) {
     await prisma.user.create({
       data: {
         name,
-        email,
+        phone,
         password: hashedPassword,
       },
     });

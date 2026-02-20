@@ -1,62 +1,78 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import type { FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/providers/ToastProvider";
+import { validateLoginInput } from "@/lib/validations";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const searchParams = useSearchParams();
+  const { showErrorToast } = useToast();
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/exam";
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage("");
+
+    const validationResult = validateLoginInput({ phone, password });
+    if (!validationResult.isValid) {
+      setErrorMessage(validationResult.errors[0]);
+      return;
+    }
+
     setIsSubmitting(true);
 
     const result = await signIn("credentials", {
-      email,
-      password,
+      phone: validationResult.data?.phone,
+      password: validationResult.data?.password,
       redirect: false,
-      callbackUrl: "/",
+      callbackUrl,
     });
 
     if (result?.ok) {
-      router.push("/");
+      router.push(result.url ?? callbackUrl);
       router.refresh();
       return;
     }
 
-    setErrorMessage("이메일 또는 비밀번호가 올바르지 않습니다.");
+    const message = "연락처 또는 비밀번호가 올바르지 않습니다.";
+    setErrorMessage(message);
+    showErrorToast(message);
     setIsSubmitting(false);
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
+    <main className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-10">
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl">로그인</CardTitle>
           <p className="text-sm text-slate-500">
-            경찰 필기시험 합격예측 서비스를 이용하려면 로그인해주세요.
+            연락처와 비밀번호를 입력해 경찰 필기 합격예측 서비스를 이용하세요.
           </p>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="email">이메일</Label>
+              <Label htmlFor="phone">연락처</Label>
               <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                placeholder="name@example.com"
+                id="phone"
+                type="text"
+                value={phone}
+                onChange={(event) => setPhone(event.target.value)}
+                placeholder="010-1234-5678"
                 required
               />
             </div>
@@ -68,7 +84,7 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                placeholder="비밀번호를 입력하세요"
+                placeholder="비밀번호를 입력해 주세요"
                 required
               />
             </div>
@@ -84,12 +100,26 @@ export default function LoginPage() {
 
           <p className="mt-4 text-sm text-slate-600">
             계정이 없으신가요?{" "}
-            <Link href="/auth/register" className="font-medium text-slate-900 underline">
+            <Link href="/register" className="font-medium text-slate-900 underline">
               회원가입
             </Link>
           </p>
         </CardContent>
       </Card>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-10">
+          <p className="text-sm text-slate-600">로그인 화면을 불러오는 중입니다...</p>
+        </main>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -4,32 +4,37 @@ import bcrypt from "bcryptjs";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+import { normalizePhone } from "@/lib/validations";
 
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: 60 * 60 * 24,
   },
   pages: {
-    signIn: "/auth/login",
+    signIn: "/exam/login",
   },
   providers: [
     CredentialsProvider({
-      name: "이메일 로그인",
+      name: "연락처 로그인",
       credentials: {
-        email: { label: "이메일", type: "email", placeholder: "admin@example.com" },
+        phone: {
+          label: "연락처",
+          type: "text",
+          placeholder: "010-1234-5678",
+        },
         password: { label: "비밀번호", type: "password" },
       },
       async authorize(credentials) {
-        const email = credentials?.email?.trim().toLowerCase();
-        const password = credentials?.password;
+        const phone = normalizePhone(credentials?.phone ?? "");
+        const password = credentials?.password?.trim();
 
-        if (!email || !password) {
+        if (!phone || !password) {
           return null;
         }
 
         const user = await prisma.user.findUnique({
-          where: { email },
+          where: { phone },
         });
 
         if (!user) {
@@ -44,7 +49,7 @@ export const authOptions: NextAuthOptions = {
         return {
           id: String(user.id),
           name: user.name,
-          email: user.email,
+          phone: user.phone,
           role: user.role,
         };
       },
@@ -55,6 +60,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = (user as { role: Role }).role;
+        token.phone = (user as { phone: string }).phone;
       }
       return token;
     },
@@ -62,6 +68,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = typeof token.id === "string" ? token.id : "";
         session.user.role = (token.role as Role | undefined) ?? "USER";
+        session.user.phone = typeof token.phone === "string" ? token.phone : "";
       }
       return session;
     },
