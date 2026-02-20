@@ -71,6 +71,26 @@ const subjects = [
   },
 ];
 
+const siteSettings = [
+  { key: "site.title", value: "경찰 필기 합격예측" },
+  { key: "site.heroBadge", value: "2026년 경찰 1차 필기시험 합격예측" },
+  { key: "site.heroTitle", value: "OMR 입력부터 합격권 예측까지\n한 번에 확인하세요." },
+  {
+    key: "site.heroSubtitle",
+    value:
+      "응시정보와 OMR 답안을 입력하면 과목별 분석, 석차, 배수 위치, 합격권 등급을 실시간으로 제공합니다.",
+  },
+  {
+    key: "site.footerDisclaimer",
+    value:
+      "면책조항: 본 서비스는 수험생의 자기 점검을 위한 참고용 분석 도구이며, 실제 합격 여부를 보장하지 않습니다. 최종 선발 결과는 경찰청 및 지역청 공식 공고를 반드시 확인해 주세요.",
+  },
+  { key: "site.bannerImageUrl", value: "" },
+  { key: "site.bannerLink", value: "" },
+  { key: "site.maintenanceMode", value: "false" },
+  { key: "site.maintenanceMessage", value: "시스템 점검 중입니다." },
+];
+
 async function main() {
   const adminPhone = process.env.ADMIN_PHONE ?? "010-0000-0000";
   const adminPassword = process.env.ADMIN_PASSWORD ?? "admin1234!";
@@ -131,6 +151,14 @@ async function main() {
       },
       update: subject,
       create: subject,
+    });
+  }
+
+  for (const setting of siteSettings) {
+    await prisma.siteSetting.upsert({
+      where: { key: setting.key },
+      update: { value: setting.value },
+      create: setting,
     });
   }
 

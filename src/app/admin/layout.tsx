@@ -7,6 +7,11 @@ const navItems = [
   { href: "/admin", label: "대시보드" },
   { href: "/admin/exams", label: "시험 관리" },
   { href: "/admin/answers", label: "정답 관리" },
+  { href: "/admin/regions", label: "모집인원 관리" },
+  { href: "/admin/site", label: "사이트 관리" },
+  { href: "/admin/users", label: "사용자 관리" },
+  { href: "/admin/comments", label: "댓글 관리" },
+  { href: "/admin/submissions", label: "제출 현황" },
   { href: "/admin/stats", label: "참여 통계" },
 ];
 
@@ -18,7 +23,7 @@ export default async function AdminLayout({
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
-    redirect("/login?callbackUrl=/exam/admin");
+    redirect("/login?callbackUrl=/admin");
   }
 
   if (session.user.role !== "ADMIN") {

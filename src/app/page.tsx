@@ -5,6 +5,7 @@ import { ArrowRight, Clock3, FileCheck2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getActiveNotices, getSiteSettings } from "@/lib/site-settings";
 
 interface LiveStats {
   examName: string;
@@ -92,25 +93,37 @@ function formatDateTime(date: Date | null): string {
 }
 
 export default async function HomePage() {
-  const [session, liveStats] = await Promise.all([getServerSession(authOptions), getLiveStats()]);
+  const [session, liveStats, siteSettings, activeNotices] = await Promise.all([
+    getServerSession(authOptions),
+    getLiveStats(),
+    getSiteSettings(),
+    getActiveNotices(),
+  ]);
   const primaryCtaHref = session?.user ? "/exam/input" : "/login";
   const primaryCtaText = session?.user ? "시작하기" : "로그인하고 시작";
+  const heroBadge = String(siteSettings["site.heroBadge"] ?? "2026년 경찰 1차 필기시험 합격예측");
+  const heroTitle = String(
+    siteSettings["site.heroTitle"] ?? "OMR 입력부터 합격권 예측까지\n한 번에 확인하세요."
+  );
+  const heroSubtitle = String(
+    siteSettings["site.heroSubtitle"] ??
+      "응시정보와 OMR 답안을 입력하면 과목별 분석, 석차, 배수 위치, 합격권 등급을 실시간으로 제공합니다."
+  );
+  const bannerImageUrl = (siteSettings["site.bannerImageUrl"] as string | null) ?? null;
+  const bannerLink = (siteSettings["site.bannerLink"] as string | null) ?? null;
+  const hasActiveNotices = activeNotices.length > 0;
+  const isExternalBannerLink = bannerLink?.startsWith("http://") || bannerLink?.startsWith("https://");
 
   return (
     <main className="py-8 sm:py-12">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4">
         <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-blue-900 p-6 text-white shadow-lg sm:p-10">
           <p className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium">
-            2026년 경찰 1차 필기시험 합격예측
+            {heroBadge}
           </p>
-          <h1 className="mt-4 text-2xl font-bold leading-tight sm:text-4xl">
-            OMR 입력부터 합격권 예측까지
-            <br className="hidden sm:block" />
-            한 번에 확인하세요.
-          </h1>
+          <h1 className="mt-4 whitespace-pre-line text-2xl font-bold leading-tight sm:text-4xl">{heroTitle}</h1>
           <p className="mt-3 max-w-2xl text-sm text-slate-200 sm:text-base">
-            응시정보와 OMR 답안을 입력하면 과목별 분석, 석차, 배수 위치, 합격권 등급을 실시간으로
-            제공합니다.
+            {heroSubtitle}
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">
@@ -135,6 +148,48 @@ export default async function HomePage() {
             )}
           </div>
         </section>
+
+        {hasActiveNotices ? (
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-amber-900">공지사항</h2>
+            <ul className="mt-3 space-y-3">
+              {activeNotices.map((notice) => (
+                <li key={notice.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                  <p className="text-sm font-semibold text-slate-900">{notice.title}</p>
+                  <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{notice.content}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {bannerImageUrl ? (
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
+            {bannerLink ? (
+              <a
+                href={bannerLink}
+                target={isExternalBannerLink ? "_blank" : undefined}
+                rel={isExternalBannerLink ? "noreferrer noopener" : undefined}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={bannerImageUrl}
+                  alt="안내 배너"
+                  className="h-auto w-full rounded-xl border border-slate-100 object-cover"
+                />
+              </a>
+            ) : (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={bannerImageUrl}
+                  alt="안내 배너"
+                  className="h-auto w-full rounded-xl border border-slate-100 object-cover"
+                />
+              </>
+            )}
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

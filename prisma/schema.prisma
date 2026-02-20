@@ -147,3 +147,22 @@ model Comment {
   exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
+model SiteSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   @db.Text
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model Notice {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String   @db.Text
+  isActive  Boolean  @default(true)
+  priority  Int      @default(0)
+  startAt   DateTime?
+  endAt     DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
