@@ -39,6 +39,7 @@ model User {
   createdAt   DateTime     @default(now())
   submissions Submission[]
   comments    Comment[]
+  answerKeyLogs AnswerKeyLog[]
 }
 
 model Exam {
@@ -50,6 +51,7 @@ model Exam {
   isActive    Boolean      @default(true)
   createdAt   DateTime     @default(now())
   answerKeys  AnswerKey[]
+  answerKeyLogs AnswerKeyLog[]
   submissions Submission[]
   comments    Comment[]
 
@@ -72,6 +74,7 @@ model Subject {
   maxScore         Float
   examType         ExamType
   answerKeys       AnswerKey[]
+  answerKeyLogs    AnswerKeyLog[]
   userAnswers      UserAnswer[]
   subjectScores    SubjectScore[]
   difficultyRatings DifficultyRating[]
@@ -90,6 +93,24 @@ model AnswerKey {
   subject        Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
 
   @@unique([examId, subjectId, questionNumber])
+}
+
+model AnswerKeyLog {
+  id             Int      @id @default(autoincrement())
+  examId         Int
+  examType       ExamType
+  subjectId      Int
+  questionNumber Int
+  oldAnswer      Int?
+  newAnswer      Int
+  changedBy      Int
+  createdAt      DateTime @default(now())
+  exam           Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  subject        Subject  @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  admin          User     @relation(fields: [changedBy], references: [id], onDelete: Restrict)
+
+  @@index([examId, examType, createdAt])
+  @@index([subjectId, questionNumber])
 }
 
 model Submission {

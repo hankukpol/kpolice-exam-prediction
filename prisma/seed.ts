@@ -91,6 +91,15 @@ const siteSettings = [
   { key: "site.maintenanceMessage", value: "시스템 점검 중입니다." },
 ];
 
+const noticeSamples = [
+  {
+    title: "시험일: 2026.3.14(토)",
+    content: "합격발표: 2026.3.20(금) 17:00",
+    isActive: true,
+    priority: 1,
+  },
+];
+
 async function main() {
   const adminPhone = process.env.ADMIN_PHONE ?? "010-0000-0000";
   const adminPassword = process.env.ADMIN_PASSWORD ?? "admin1234!";
@@ -160,6 +169,26 @@ async function main() {
       update: { value: setting.value },
       create: setting,
     });
+  }
+
+  for (const notice of noticeSamples) {
+    const existingNotice = await prisma.notice.findFirst({
+      where: { title: notice.title },
+      select: { id: true },
+    });
+
+    if (existingNotice) {
+      await prisma.notice.update({
+        where: { id: existingNotice.id },
+        data: {
+          content: notice.content,
+          isActive: notice.isActive,
+          priority: notice.priority,
+        },
+      });
+    } else {
+      await prisma.notice.create({ data: notice });
+    }
   }
 
   console.log("기본 데이터 시딩이 완료되었습니다.");

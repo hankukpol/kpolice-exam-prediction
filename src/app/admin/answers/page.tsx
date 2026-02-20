@@ -6,6 +6,13 @@ import { Label } from "@/components/ui/label";
 
 const ADMIN_EXAM_API = "/api/admin/exam";
 const ADMIN_ANSWERS_API = "/api/admin/answers";
+const ADMIN_ANSWERS_PREVIEW_API = "/api/admin/answers/preview";
+const ADMIN_ANSWERS_LOGS_API = "/api/admin/answers/logs";
+
+type RecruitExamType = "PUBLIC" | "CAREER";
+
+const EXAM_TYPE_PUBLIC: RecruitExamType = "PUBLIC";
+const EXAM_TYPE_CAREER: RecruitExamType = "CAREER";
 
 interface ExamItem {
   id: number;
@@ -14,11 +21,6 @@ interface ExamItem {
   round: number;
   isActive: boolean;
 }
-
-type RecruitExamType = "PUBLIC" | "CAREER";
-
-const EXAM_TYPE_PUBLIC: RecruitExamType = "PUBLIC";
-const EXAM_TYPE_CAREER: RecruitExamType = "CAREER";
 
 interface SubjectItem {
   id: number;
@@ -47,14 +49,33 @@ interface AnswerDiffRow {
   nextAnswer: number;
 }
 
+interface PreviewResponse {
+  changedQuestions: number;
+  statusChangedCount: number;
+  affectedSubmissions: number;
+  scoreChanges: {
+    increased: number;
+    decreased: number;
+    unchanged: number;
+  };
+}
+
+interface AnswerLogRow {
+  id: number;
+  subjectId: number;
+  subjectName: string;
+  questionNumber: number;
+  oldAnswer: number | null;
+  newAnswer: number;
+  changedById: number;
+  changedByName: string;
+  createdAt: string;
+}
+
 type NoticeState = {
   type: "success" | "error";
   message: string;
 } | null;
-
-function buildAnswerKey(subjectId: number, questionNumber: number) {
-  return `${subjectId}:${questionNumber}`;
-}
 
 const TEMPLATE_SUBJECTS: Record<RecruitExamType, Array<{ name: string; questionCount: number }>> = {
   PUBLIC: [
@@ -69,6 +90,18 @@ const TEMPLATE_SUBJECTS: Record<RecruitExamType, Array<{ name: string; questionC
   ],
 };
 
+function buildAnswerKey(subjectId: number, questionNumber: number) {
+  return `${subjectId}:${questionNumber}`;
+}
+
+function formatLogTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString("ko-KR");
+}
+
 export default function AdminAnswersPage() {
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
@@ -81,20 +114,27 @@ export default function AdminAnswersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [showDiffPanel, setShowDiffPanel] = useState(false);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [historyRows, setHistoryRows] = useState<AnswerLogRow[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
 
   const expectedAnswerCount = useMemo(
     () => subjects.reduce((sum, subject) => sum + subject.questionCount, 0),
     [subjects]
   );
+
   const currentAnswerCount = useMemo(() => Object.keys(answerMap).length, [answerMap]);
+
   const answerDiffRows = useMemo<AnswerDiffRow[]>(() => {
     const rows: AnswerDiffRow[] = [];
+
     for (const subject of subjects) {
       for (let questionNumber = 1; questionNumber <= subject.questionCount; questionNumber += 1) {
         const key = buildAnswerKey(subject.id, questionNumber);
         const previousAnswer = baselineAnswerMap[key];
         const nextAnswer = answerMap[key];
+
         if (!nextAnswer) {
           continue;
         }
@@ -113,12 +153,14 @@ export default function AdminAnswersPage() {
         });
       }
     }
+
     return rows;
   }, [answerMap, baselineAnswerMap, subjects]);
 
   const loadExamOptions = useCallback(async () => {
     const response = await fetch(ADMIN_EXAM_API, { method: "GET", cache: "no-store" });
     const data = (await response.json()) as { exams?: ExamItem[]; error?: string };
+
     if (!response.ok) {
       throw new Error(data.error ?? "시험 목록을 불러오지 못했습니다.");
     }
@@ -126,45 +168,66 @@ export default function AdminAnswersPage() {
     const examList = data.exams ?? [];
     setExams(examList);
     setSelectedExamId((current) => {
-      if (current || examList.length === 0) {
-        return current;
-      }
+      if (current || examList.length === 0) return current;
       const activeExam = examList.find((exam) => exam.isActive) ?? examList[0];
       return activeExam.id;
     });
   }, []);
 
-  async function loadAnswers(
-    examId: number,
-    nextExamType: RecruitExamType,
-    nextConfirmed: boolean
-  ) {
-    const query = new URLSearchParams({
-      examId: String(examId),
-      examType: nextExamType,
-      confirmed: String(nextConfirmed),
-    });
+  const loadAnswers = useCallback(
+    async (examId: number, nextExamType: RecruitExamType, nextConfirmed: boolean) => {
+      const query = new URLSearchParams({
+        examId: String(examId),
+        examType: nextExamType,
+        confirmed: String(nextConfirmed),
+      });
 
-    const response = await fetch(`${ADMIN_ANSWERS_API}?${query.toString()}`, {
-      method: "GET",
-      cache: "no-store",
-    });
+      const response = await fetch(`${ADMIN_ANSWERS_API}?${query.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const data = (await response.json()) as AnswersResponse & { error?: string };
 
-    const data = (await response.json()) as AnswersResponse & { error?: string };
-    if (!response.ok) {
-      throw new Error(data.error ?? "정답 데이터를 불러오지 못했습니다.");
+      if (!response.ok) {
+        throw new Error(data.error ?? "정답 데이터를 불러오지 못했습니다.");
+      }
+
+      const nextMap: Record<string, number> = {};
+      for (const answer of data.answers ?? []) {
+        nextMap[buildAnswerKey(answer.subjectId, answer.questionNumber)] = answer.answer;
+      }
+
+      setSubjects(data.subjects ?? []);
+      setAnswerMap(nextMap);
+      setBaselineAnswerMap(nextMap);
+      setShowDiffPanel(false);
+    },
+    []
+  );
+
+  const loadHistory = useCallback(async () => {
+    if (!selectedExamId) return;
+
+    setIsHistoryLoading(true);
+    try {
+      const query = new URLSearchParams({
+        examId: String(selectedExamId),
+        examType,
+        limit: "120",
+      });
+      const response = await fetch(`${ADMIN_ANSWERS_LOGS_API}?${query.toString()}`, {
+        method: "GET",
+        cache: "no-store",
+      });
+      const data = (await response.json()) as { logs?: AnswerLogRow[]; error?: string };
+      if (!response.ok) {
+        throw new Error(data.error ?? "정답 변경 이력을 불러오지 못했습니다.");
+      }
+      setHistoryRows(data.logs ?? []);
+    } finally {
+      setIsHistoryLoading(false);
     }
-
-    const nextMap: Record<string, number> = {};
-    for (const answer of data.answers ?? []) {
-      nextMap[buildAnswerKey(answer.subjectId, answer.questionNumber)] = answer.answer;
-    }
-
-    setSubjects(data.subjects ?? []);
-    setAnswerMap(nextMap);
-    setBaselineAnswerMap(nextMap);
-    setShowDiffPanel(false);
-  }
+  }, [examType, selectedExamId]);
 
   useEffect(() => {
     (async () => {
@@ -189,11 +252,14 @@ export default function AdminAnswersPage() {
     (async () => {
       setIsLoading(true);
       setNotice(null);
+      setHistoryRows([]);
+      setShowHistoryPanel(false);
       try {
         await loadAnswers(selectedExamId, examType, isConfirmed);
       } catch (error) {
         setSubjects([]);
         setAnswerMap({});
+        setBaselineAnswerMap({});
         setNotice({
           type: "error",
           message: error instanceof Error ? error.message : "정답 조회에 실패했습니다.",
@@ -202,7 +268,7 @@ export default function AdminAnswersPage() {
         setIsLoading(false);
       }
     })();
-  }, [selectedExamId, examType, isConfirmed]);
+  }, [examType, isConfirmed, loadAnswers, selectedExamId]);
 
   function updateAnswer(subjectId: number, questionNumber: number, answer: number) {
     const key = buildAnswerKey(subjectId, questionNumber);
@@ -210,6 +276,79 @@ export default function AdminAnswersPage() {
       ...current,
       [key]: answer,
     }));
+  }
+
+  function collectGridRows(): {
+    rows: Array<{ subjectId: number; questionNumber: number; answer: number }>;
+    error?: string;
+  } {
+    const rows: Array<{ subjectId: number; questionNumber: number; answer: number }> = [];
+
+    for (const subject of subjects) {
+      for (let questionNumber = 1; questionNumber <= subject.questionCount; questionNumber += 1) {
+        const key = buildAnswerKey(subject.id, questionNumber);
+        const answer = answerMap[key];
+        if (!answer) {
+          return {
+            rows: [],
+            error: `${subject.name} ${questionNumber}번 문항 정답을 선택해 주세요.`,
+          };
+        }
+
+        rows.push({
+          subjectId: subject.id,
+          questionNumber,
+          answer,
+        });
+      }
+    }
+
+    return { rows };
+  }
+
+  async function requestPreview(
+    rows: Array<{ subjectId: number; questionNumber: number; answer: number }>
+  ): Promise<PreviewResponse> {
+    if (!selectedExamId) {
+      throw new Error("시험을 먼저 선택해 주세요.");
+    }
+
+    const response = await fetch(ADMIN_ANSWERS_PREVIEW_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        examId: selectedExamId,
+        examType,
+        isConfirmed,
+        answers: rows,
+      }),
+    });
+
+    const data = (await response.json()) as PreviewResponse & { error?: string };
+    if (!response.ok) {
+      throw new Error(data.error ?? "재채점 미리보기에 실패했습니다.");
+    }
+
+    return data;
+  }
+
+  function buildPreviewConfirmMessage(preview: PreviewResponse): string {
+    if (preview.changedQuestions > 0) {
+      return [
+        `정답 변경 문항: ${preview.changedQuestions}개`,
+        `재채점 대상 제출: ${preview.affectedSubmissions}건`,
+        `점수 상승 ${preview.scoreChanges.increased}건 / 하락 ${preview.scoreChanges.decreased}건 / 변동 없음 ${preview.scoreChanges.unchanged}건`,
+        "",
+        "저장하시겠습니까?",
+      ].join("\n");
+    }
+
+    return [
+      `정답 상태 변경 문항: ${preview.statusChangedCount}개`,
+      "정답 값 변경이 없어 점수 재채점은 실행되지 않습니다.",
+      "",
+      "저장하시겠습니까?",
+    ].join("\n");
   }
 
   async function saveFromGrid(event: FormEvent<HTMLFormElement>) {
@@ -221,41 +360,25 @@ export default function AdminAnswersPage() {
       return;
     }
 
-    const rows: Array<{ subjectId: number; questionNumber: number; answer: number }> = [];
-
-    for (const subject of subjects) {
-      for (let questionNumber = 1; questionNumber <= subject.questionCount; questionNumber += 1) {
-        const key = buildAnswerKey(subject.id, questionNumber);
-        const answer = answerMap[key];
-        if (!answer) {
-          setNotice({
-            type: "error",
-            message: `${subject.name} ${questionNumber}번 문항 정답을 선택해 주세요.`,
-          });
-          return;
-        }
-        rows.push({
-          subjectId: subject.id,
-          questionNumber,
-          answer,
-        });
-      }
-    }
-
-    if (answerDiffRows.length < 1) {
-      setNotice({ type: "error", message: "변경된 문항이 없습니다. 정답을 수정한 뒤 저장해 주세요." });
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `총 ${answerDiffRows.length}개 문항이 변경됩니다.\n저장 시 전체 재채점이 실행됩니다.\n저장하시겠습니까?`
-    );
-    if (!confirmed) {
+    const { rows, error } = collectGridRows();
+    if (error) {
+      setNotice({ type: "error", message: error });
       return;
     }
 
     setIsSaving(true);
     try {
+      const preview = await requestPreview(rows);
+      if (preview.changedQuestions < 1 && preview.statusChangedCount < 1) {
+        setNotice({ type: "error", message: "변경된 정답이 없습니다. 저장할 내용이 없습니다." });
+        return;
+      }
+
+      const confirmed = window.confirm(buildPreviewConfirmMessage(preview));
+      if (!confirmed) {
+        return;
+      }
+
       const response = await fetch(ADMIN_ANSWERS_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -269,18 +392,30 @@ export default function AdminAnswersPage() {
 
       const data = (await response.json()) as {
         error?: string;
-        rescoredCount?: number;
         changedQuestions?: number;
+        statusChangedCount?: number;
+        rescoredCount?: number;
       };
       if (!response.ok) {
         throw new Error(data.error ?? "정답 저장에 실패했습니다.");
       }
 
+      const changedQuestions = data.changedQuestions ?? 0;
+      const statusChangedCount = data.statusChangedCount ?? 0;
+      const rescoredCount = data.rescoredCount ?? 0;
+
       setNotice({
         type: "success",
-        message: `정답이 저장되었습니다. 변경 문항: ${data.changedQuestions ?? answerDiffRows.length}개, 재채점 처리: ${data.rescoredCount ?? 0}건`,
+        message:
+          changedQuestions > 0
+            ? `정답이 저장되었습니다. 변경 문항 ${changedQuestions}개, 상태 변경 ${statusChangedCount}개, 재채점 ${rescoredCount}건`
+            : `정답 상태가 저장되었습니다. 상태 변경 ${statusChangedCount}개`,
       });
+
       await loadAnswers(selectedExamId, examType, isConfirmed);
+      if (showHistoryPanel) {
+        await loadHistory();
+      }
     } catch (error) {
       setNotice({
         type: "error",
@@ -305,7 +440,9 @@ export default function AdminAnswersPage() {
       return;
     }
 
-    const confirmed = window.confirm("CSV 정답을 반영하면 전체 재채점이 실행됩니다. 계속하시겠습니까?");
+    const confirmed = window.confirm(
+      "CSV 정답을 반영하면 변경된 문항 기준으로 재채점이 실행됩니다. 계속하시겠습니까?"
+    );
     if (!confirmed) {
       return;
     }
@@ -325,19 +462,31 @@ export default function AdminAnswersPage() {
 
       const data = (await response.json()) as {
         error?: string;
-        rescoredCount?: number;
         changedQuestions?: number;
+        statusChangedCount?: number;
+        rescoredCount?: number;
       };
       if (!response.ok) {
         throw new Error(data.error ?? "CSV 저장에 실패했습니다.");
       }
 
+      const changedQuestions = data.changedQuestions ?? 0;
+      const statusChangedCount = data.statusChangedCount ?? 0;
+      const rescoredCount = data.rescoredCount ?? 0;
+
       setNotice({
         type: "success",
-        message: `CSV 정답 업로드가 완료되었습니다. 변경 문항: ${data.changedQuestions ?? 0}개, 재채점 처리: ${data.rescoredCount ?? 0}건`,
+        message:
+          changedQuestions > 0
+            ? `CSV 정답 업로드가 완료되었습니다. 변경 문항 ${changedQuestions}개, 상태 변경 ${statusChangedCount}개, 재채점 ${rescoredCount}건`
+            : `CSV 업로드가 완료되었습니다. 상태 변경 ${statusChangedCount}개`,
       });
+
       setCsvFile(null);
       await loadAnswers(selectedExamId, examType, isConfirmed);
+      if (showHistoryPanel) {
+        await loadHistory();
+      }
     } catch (error) {
       setNotice({
         type: "error",
@@ -349,14 +498,31 @@ export default function AdminAnswersPage() {
   }
 
   function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    setCsvFile(file);
+    setCsvFile(event.target.files?.[0] ?? null);
+  }
+
+  async function toggleHistoryPanel() {
+    if (showHistoryPanel) {
+      setShowHistoryPanel(false);
+      return;
+    }
+
+    setShowHistoryPanel(true);
+    try {
+      await loadHistory();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "정답 변경 이력을 불러오지 못했습니다.",
+      });
+    }
   }
 
   function downloadTemplateCsv(type: RecruitExamType) {
-    const subjectsForTemplate = TEMPLATE_SUBJECTS[type];
+    const templateSubjects = TEMPLATE_SUBJECTS[type];
     const lines = ["과목,문항번호,정답"];
-    for (const subject of subjectsForTemplate) {
+
+    for (const subject of templateSubjects) {
       for (let questionNumber = 1; questionNumber <= subject.questionCount; questionNumber += 1) {
         lines.push(`${subject.name},${questionNumber},`);
       }
@@ -380,7 +546,7 @@ export default function AdminAnswersPage() {
       <header>
         <h1 className="text-xl font-semibold text-slate-900">정답 관리</h1>
         <p className="mt-1 text-sm text-slate-600">
-          시험 선택 후 공채/경행경채 정답을 직접 입력하거나 CSV로 업로드할 수 있습니다.
+          시험 유형별 정답을 직접 입력하거나 CSV로 업로드할 수 있습니다.
         </p>
       </header>
 
@@ -448,12 +614,18 @@ export default function AdminAnswersPage() {
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-700">
-            변경 문항: <span className="font-semibold text-slate-900">{answerDiffRows.length}</span>개
+            현재 변경 문항: <span className="font-semibold text-slate-900">{answerDiffRows.length}</span>개
           </p>
-          <Button type="button" variant="outline" onClick={() => setShowDiffPanel((prev) => !prev)}>
-            {showDiffPanel ? "변경 이력 닫기" : "변경 이력 보기"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => setShowDiffPanel((prev) => !prev)}>
+              {showDiffPanel ? "현재 변경 비교 닫기" : "현재 변경 비교 보기"}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void toggleHistoryPanel()}>
+              {showHistoryPanel ? "저장 이력 닫기" : "저장 이력 보기"}
+            </Button>
+          </div>
         </div>
+
         {showDiffPanel ? (
           answerDiffRows.length === 0 ? (
             <p className="text-sm text-slate-600">현재 변경된 문항이 없습니다.</p>
@@ -475,6 +647,41 @@ export default function AdminAnswersPage() {
                       <td className="px-3 py-2 text-slate-700">{row.questionNumber}</td>
                       <td className="px-3 py-2 font-semibold text-rose-600">{row.previousAnswer ?? "-"}</td>
                       <td className="px-3 py-2 font-semibold text-emerald-700">{row.nextAnswer}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        ) : null}
+
+        {showHistoryPanel ? (
+          isHistoryLoading ? (
+            <p className="text-sm text-slate-600">저장 이력을 불러오는 중입니다...</p>
+          ) : historyRows.length === 0 ? (
+            <p className="text-sm text-slate-600">저장된 정답 변경 이력이 없습니다.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border border-slate-200">
+              <table className="min-w-[720px] w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">일시</th>
+                    <th className="px-3 py-2">과목</th>
+                    <th className="px-3 py-2">문항</th>
+                    <th className="px-3 py-2">이전</th>
+                    <th className="px-3 py-2">변경</th>
+                    <th className="px-3 py-2">변경자</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {historyRows.map((row) => (
+                    <tr key={row.id} className="bg-white">
+                      <td className="px-3 py-2 text-slate-700">{formatLogTime(row.createdAt)}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.subjectName}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.questionNumber}</td>
+                      <td className="px-3 py-2 font-semibold text-rose-600">{row.oldAnswer ?? "-"}</td>
+                      <td className="px-3 py-2 font-semibold text-emerald-700">{row.newAnswer}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.changedByName}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -544,7 +751,7 @@ export default function AdminAnswersPage() {
           ))}
 
           <Button type="submit" disabled={isSaving}>
-            {isSaving ? "저장 중..." : "정답 저장 + 재채점"}
+            {isSaving ? "저장 중..." : "정답 저장"}
           </Button>
         </form>
       )}
@@ -552,7 +759,7 @@ export default function AdminAnswersPage() {
       <section className="space-y-3 rounded-lg border border-slate-200 p-4">
         <h2 className="text-base font-semibold text-slate-900">CSV 업로드</h2>
         <p className="text-sm text-slate-600">
-          CSV는 `과목, 문항번호, 정답` 3개 컬럼 형식으로 업로드하세요. (예: 헌법,1,3)
+          CSV는 <code>과목,문항번호,정답</code> 3개 컬럼 형식으로 업로드해 주세요. (예: 헌법,1,3)
         </p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={() => downloadTemplateCsv(EXAM_TYPE_PUBLIC)}>
@@ -571,7 +778,7 @@ export default function AdminAnswersPage() {
             className="block w-full text-sm text-slate-700 md:max-w-sm"
           />
           <Button type="submit" variant="outline" disabled={isSaving}>
-            CSV 저장 + 재채점
+            CSV 저장
           </Button>
         </form>
       </section>
