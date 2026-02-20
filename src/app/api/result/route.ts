@@ -1,9 +1,11 @@
-import { ExamType, Prisma } from "@prisma/client";
+import { ExamType, Prisma, Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
+import { getCorrectRateRows } from "@/lib/correct-rate";
 import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
+import { getSiteSettings } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
 
@@ -22,6 +24,10 @@ function parsePositiveInt(value: string | null): number | null {
   if (!value) return null;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function toAnswerKey(subjectId: number, questionNumber: number): string {
+  return `${subjectId}:${questionNumber}`;
 }
 
 function roundNumber(value: number): number {
@@ -65,6 +71,7 @@ export async function GET(request: NextRequest) {
   }
 
   const userId = Number(session.user.id);
+  const isAdmin = ((session.user.role as Role | undefined) ?? Role.USER) === Role.ADMIN;
   if (!Number.isInteger(userId) || userId <= 0) {
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
@@ -75,14 +82,34 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "submissionId가 올바르지 않습니다." }, { status: 400 });
   }
 
+  const activeExam =
+    !submissionId && isAdmin
+      ? await prisma.exam.findFirst({
+          where: { isActive: true },
+          orderBy: [{ examDate: "desc" }, { id: "desc" }],
+          select: { id: true },
+        })
+      : null;
+
+  const submissionWhere: Prisma.SubmissionWhereInput = submissionId
+    ? {
+        id: submissionId,
+        ...(isAdmin ? {} : { userId }),
+      }
+    : isAdmin
+      ? {
+          ...(activeExam ? { examId: activeExam.id } : {}),
+        }
+      : {
+          userId,
+        };
+
   const submission = await prisma.submission.findFirst({
-    where: {
-      userId,
-      ...(submissionId ? { id: submissionId } : {}),
-    },
+    where: submissionWhere,
     orderBy: submissionId ? undefined : [{ createdAt: "desc" }, { id: "desc" }],
     select: {
       id: true,
+      userId: true,
       examId: true,
       examType: true,
       regionId: true,
@@ -93,6 +120,7 @@ export async function GET(request: NextRequest) {
       bonusType: true,
       bonusRate: true,
       createdAt: true,
+      editCount: true,
       exam: {
         select: {
           id: true,
@@ -124,12 +152,44 @@ export async function GET(request: NextRequest) {
           },
         },
       },
+      userAnswers: {
+        select: {
+          subjectId: true,
+          questionNumber: true,
+          selectedAnswer: true,
+          isCorrect: true,
+        },
+      },
+      difficultyRatings: {
+        select: {
+          subjectId: true,
+          rating: true,
+        },
+      },
     },
   });
 
   if (!submission) {
     return NextResponse.json({ error: "조회할 성적 데이터가 없습니다." }, { status: 404 });
   }
+
+  const settings = await getSiteSettings();
+  const maxEditLimit = (settings["site.submissionEditLimit"] as number) ?? 3;
+
+  const answerKeys = await prisma.answerKey.findMany({
+    where: { examId: submission.examId },
+    select: { subjectId: true, questionNumber: true, correctAnswer: true },
+  });
+  const correctRateRows = await getCorrectRateRows(submission.examId, submission.examType);
+  const correctRateByKey = new Map(
+    correctRateRows.map((row) => [
+      toAnswerKey(row.subjectId, row.questionNumber),
+      {
+        correctRate: row.correctRate,
+        difficultyLevel: row.difficultyLevel,
+      },
+    ] as const)
+  );
 
   const submissionHasCutoff = submission.subjectScores.some((score) => score.isFailed);
   const rankingBasis = submissionHasCutoff ? "ALL_PARTICIPANTS" : "NON_CUTOFF_PARTICIPANTS";
@@ -166,51 +226,152 @@ export async function GET(request: NextRequest) {
     return a.subjectId - b.subjectId;
   });
 
-  const scores = await Promise.all(
-    orderedSubjectScores.map(async (mySubjectScore) => {
-      const rawScore = Number(mySubjectScore.rawScore);
-      const maxScore = Number(mySubjectScore.subject.maxScore);
-      const pointPerQuestion = Number(mySubjectScore.subject.pointPerQuestion);
-      const bonusScore = roundNumber(maxScore * Number(submission.bonusRate));
-      const finalScore = roundNumber(rawScore + bonusScore);
+  // 과목별 순위/백분위를 단일 GROUP BY 쿼리로 일괄 조회 (N+1 방지)
+  type SubjectCountRow = {
+    subjectId: number;
+    totalCount: bigint | number | null;
+    higherCount: bigint | number | null;
+    lowerCount: bigint | number | null;
+  };
 
-      const [subjectRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
-        SELECT
-          COUNT(*) AS totalCount,
-          SUM(CASE WHEN ss.rawScore > ${rawScore} THEN 1 ELSE 0 END) AS higherCount,
-          SUM(CASE WHEN ss.rawScore < ${rawScore} THEN 1 ELSE 0 END) AS lowerCount
-        FROM Submission s
-        INNER JOIN SubjectScore ss
-          ON ss.submissionId = s.id
-         AND ss.subjectId = ${mySubjectScore.subjectId}
-        WHERE s.examId = ${submission.examId}
-          AND s.regionId = ${submission.regionId}
-          AND s.examType = ${submission.examType}
-          ${populationConditionSql}
-      `);
+  const subjectIds = orderedSubjectScores.map((s) => s.subjectId);
 
-      const subjectParticipants = toCount(subjectRow?.totalCount);
-      const subjectHigher = toCount(subjectRow?.higherCount);
-      const subjectLower = toCount(subjectRow?.lowerCount);
-
-      return {
-        subjectId: mySubjectScore.subjectId,
-        subjectName: mySubjectScore.subject.name,
-        questionCount: mySubjectScore.subject.questionCount,
-        pointPerQuestion,
-        correctCount: Math.round(rawScore / pointPerQuestion),
-        rawScore,
-        maxScore,
-        bonusScore,
-        finalScore,
-        isCutoff: mySubjectScore.isFailed,
-        cutoffScore: roundNumber(maxScore * SUBJECT_CUTOFF_RATE),
-        rank: calculateRankByHigher(subjectHigher),
-        percentile: calculatePercentileByLower(subjectLower, subjectParticipants),
-        totalParticipants: subjectParticipants,
-      };
-    })
+  const scoreConditions = orderedSubjectScores.map(
+    (s) => Prisma.sql`WHEN ss.subjectId = ${s.subjectId} THEN ${Number(s.rawScore)}`
   );
+  const myScoreSql = Prisma.sql`CASE ${Prisma.join(scoreConditions, " ")} ELSE 0 END`;
+
+  const subjectRows =
+    subjectIds.length > 0
+      ? await prisma.$queryRaw<SubjectCountRow[]>(Prisma.sql`
+          SELECT
+            ss.subjectId,
+            COUNT(*) AS totalCount,
+            SUM(CASE WHEN ss.rawScore > (${myScoreSql}) THEN 1 ELSE 0 END) AS higherCount,
+            SUM(CASE WHEN ss.rawScore < (${myScoreSql}) THEN 1 ELSE 0 END) AS lowerCount
+          FROM Submission s
+          INNER JOIN SubjectScore ss
+            ON ss.submissionId = s.id
+           AND ss.subjectId IN (${Prisma.join(subjectIds)})
+          WHERE s.examId = ${submission.examId}
+            AND s.regionId = ${submission.regionId}
+            AND s.examType = ${submission.examType}
+            ${populationConditionSql}
+          GROUP BY ss.subjectId
+        `)
+      : [];
+
+  const subjectStatsMap = new Map(
+    subjectRows.map((row) => [
+      row.subjectId,
+      {
+        totalCount: toCount(row.totalCount),
+        higherCount: toCount(row.higherCount),
+        lowerCount: toCount(row.lowerCount),
+      },
+    ])
+  );
+
+  const answerKeyMap = new Map<string, number>();
+  for (const k of answerKeys) {
+    answerKeyMap.set(toAnswerKey(k.subjectId, k.questionNumber), k.correctAnswer);
+  }
+
+  const scores = orderedSubjectScores.map((mySubjectScore) => {
+    const rawScore = Number(mySubjectScore.rawScore);
+    const maxScore = Number(mySubjectScore.subject.maxScore);
+    const pointPerQuestion = Number(mySubjectScore.subject.pointPerQuestion);
+    const bonusScore = roundNumber(maxScore * Number(submission.bonusRate));
+    const finalScore = roundNumber(rawScore + bonusScore);
+
+    const stats = subjectStatsMap.get(mySubjectScore.subjectId);
+    const subjectParticipants = stats?.totalCount ?? 0;
+    const subjectHigher = stats?.higherCount ?? 0;
+    const subjectLower = stats?.lowerCount ?? 0;
+
+    const difficulty =
+      submission.difficultyRatings.find(
+        (rating) => rating.subjectId === mySubjectScore.subjectId
+      )?.rating ?? null;
+
+    const userAnswers = submission.userAnswers
+      .filter((ua) => ua.subjectId === mySubjectScore.subjectId)
+      .map((ua) => {
+        const correctRateInfo = correctRateByKey.get(toAnswerKey(ua.subjectId, ua.questionNumber));
+        return {
+          questionNumber: ua.questionNumber,
+          selectedAnswer: ua.selectedAnswer,
+          isCorrect: ua.isCorrect,
+          correctAnswer: answerKeyMap.get(toAnswerKey(ua.subjectId, ua.questionNumber)) ?? null,
+          correctRate: correctRateInfo?.correctRate ?? 0,
+          difficultyLevel: correctRateInfo?.difficultyLevel ?? "NORMAL",
+        };
+      })
+      .sort((a, b) => a.questionNumber - b.questionNumber);
+
+    return {
+      subjectId: mySubjectScore.subjectId,
+      subjectName: mySubjectScore.subject.name,
+      questionCount: mySubjectScore.subject.questionCount,
+      pointPerQuestion,
+      correctCount: Math.round(rawScore / pointPerQuestion),
+      rawScore,
+      maxScore,
+      bonusScore,
+      finalScore,
+      isCutoff: mySubjectScore.isFailed,
+      cutoffScore: roundNumber(maxScore * SUBJECT_CUTOFF_RATE),
+      rank: calculateRankByHigher(subjectHigher),
+      percentile: calculatePercentileByLower(subjectLower, subjectParticipants),
+      totalParticipants: subjectParticipants,
+      difficulty,
+      answers: userAnswers,
+    };
+  });
+
+  const subjectCorrectRateSummaries = scores.map((score) => {
+    const rows = correctRateRows.filter((row) => row.subjectId === score.subjectId);
+    const averageCorrectRate =
+      rows.length > 0
+        ? roundNumber(rows.reduce((sum, row) => sum + row.correctRate, 0) / rows.length)
+        : 0;
+
+    const hardest = rows.reduce(
+      (current, row) => {
+        if (!current || row.correctRate < current.correctRate) {
+          return row;
+        }
+        return current;
+      },
+      null as (typeof rows)[number] | null
+    );
+
+    const easiest = rows.reduce(
+      (current, row) => {
+        if (!current || row.correctRate > current.correctRate) {
+          return row;
+        }
+        return current;
+      },
+      null as (typeof rows)[number] | null
+    );
+
+    return {
+      subjectId: score.subjectId,
+      subjectName: score.subjectName,
+      averageCorrectRate,
+      hardestQuestion: hardest?.questionNumber ?? null,
+      hardestRate: hardest?.correctRate ?? null,
+      easiestQuestion: easiest?.questionNumber ?? null,
+      easiestRate: easiest?.correctRate ?? null,
+      myCorrectOnHard: score.answers.filter(
+        (answer) => answer.difficultyLevel === "VERY_HARD" && answer.isCorrect
+      ).length,
+      myWrongOnEasy: score.answers.filter(
+        (answer) => answer.difficultyLevel === "EASY" && !answer.isCorrect
+      ).length,
+    };
+  });
 
   const hasCutoff = submissionHasCutoff;
   const cutoffSubjects = scores
@@ -225,6 +386,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     submission: {
       id: submission.id,
+      isOwner: submission.userId === userId,
       examId: submission.examId,
       examName: submission.exam.name,
       examYear: submission.exam.year,
@@ -239,8 +401,11 @@ export async function GET(request: NextRequest) {
       bonusType: submission.bonusType,
       bonusRate: Number(submission.bonusRate),
       createdAt: submission.createdAt,
+      editCount: submission.editCount,
+      maxEditLimit,
     },
     scores,
+    subjectCorrectRateSummaries,
     statistics: {
       totalParticipants,
       totalRank,

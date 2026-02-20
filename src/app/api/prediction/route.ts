@@ -31,13 +31,14 @@ export async function GET(request: NextRequest) {
   const submissionId = parsePositiveInteger(searchParams.get("submissionId"));
   const page = parsePositiveInteger(searchParams.get("page"));
   const limit = parsePositiveInteger(searchParams.get("limit"));
+  const role = session.user.role === "ADMIN" ? "ADMIN" : "USER";
 
   try {
     const result = await calculatePrediction(userId, {
       submissionId,
       page,
       limit,
-    });
+    }, role);
 
     return NextResponse.json(result);
   } catch (error) {

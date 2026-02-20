@@ -1,4 +1,5 @@
-﻿import { BonusType, ExamType, Prisma } from "@prisma/client";
+import { BonusType, ExamType, Prisma } from "@prisma/client";
+import { invalidateCorrectRateCache } from "@/lib/correct-rate";
 import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 
@@ -93,6 +94,30 @@ interface CalculateScoreParams {
   tx?: Prisma.TransactionClient;
 }
 
+export interface RescoreChangedQuestion {
+  subjectName: string;
+  questionNumber: number;
+  oldAnswer: number | null;
+  newAnswer: number;
+}
+
+export interface RescoreOptions {
+  reason?: string;
+  adminUserId: number;
+  examType: ExamType;
+  changedQuestions: RescoreChangedQuestion[];
+}
+
+export interface RescoreResult {
+  rescoredCount: number;
+  rescoreEventId: number | null;
+  scoreChanges: {
+    increased: number;
+    decreased: number;
+    unchanged: number;
+  };
+}
+
 function toAnswerKey(subjectId: number, questionNo: number): string {
   return `${subjectId}:${questionNo}`;
 }
@@ -103,6 +128,53 @@ function normalizeSubjectName(name: string): string {
 
 function roundScore(value: number): number {
   return Number(value.toFixed(2));
+}
+
+function isSameScore(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.000001;
+}
+
+function toRankGroupKey(regionId: number, examType: ExamType): string {
+  return `${regionId}:${examType}`;
+}
+
+function buildRankMapBySubmission<T extends { id: number; regionId: number; examType: ExamType; finalScore: number }>(
+  rows: T[]
+): Map<number, number> {
+  const byGroup = new Map<string, T[]>();
+
+  for (const row of rows) {
+    const key = toRankGroupKey(row.regionId, row.examType);
+    const group = byGroup.get(key) ?? [];
+    group.push(row);
+    byGroup.set(key, group);
+  }
+
+  const rankBySubmissionId = new Map<number, number>();
+
+  for (const groupRows of byGroup.values()) {
+    const sorted = [...groupRows].sort((a, b) => b.finalScore - a.finalScore || a.id - b.id);
+    let processed = 0;
+    let index = 0;
+
+    while (index < sorted.length) {
+      const bandScore = roundScore(sorted[index].finalScore);
+      const bandRows: T[] = [];
+
+      while (index < sorted.length && isSameScore(roundScore(sorted[index].finalScore), bandScore)) {
+        bandRows.push(sorted[index]);
+        index += 1;
+      }
+
+      const rank = processed + 1;
+      for (const row of bandRows) {
+        rankBySubmissionId.set(row.id, rank);
+      }
+      processed += bandRows.length;
+    }
+  }
+
+  return rankBySubmissionId;
 }
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -377,23 +449,79 @@ export async function calculateScore(params: CalculateScoreParams): Promise<Scor
   });
 }
 
-export async function rescoreExam(examId: number): Promise<number> {
+export async function rescoreExam(examId: number, options?: RescoreOptions): Promise<RescoreResult> {
   if (!Number.isInteger(examId) || examId <= 0) {
     throw new Error("유효한 examId가 필요합니다.");
   }
 
-  const submissionIds = await prisma.submission.findMany({
+  const allSubmissions = await prisma.submission.findMany({
     where: { examId },
-    select: { id: true },
+    select: {
+      id: true,
+      userId: true,
+      regionId: true,
+      examType: true,
+      totalScore: true,
+      finalScore: true,
+    },
     orderBy: { id: "asc" },
   });
 
-  if (submissionIds.length === 0) {
-    return 0;
+  if (allSubmissions.length === 0) {
+    return {
+      rescoredCount: 0,
+      rescoreEventId: null,
+      scoreChanges: {
+        increased: 0,
+        decreased: 0,
+        unchanged: 0,
+      },
+    };
   }
 
+  const detailedMode =
+    options !== undefined &&
+    Number.isInteger(options.adminUserId) &&
+    options.adminUserId > 0 &&
+    Array.isArray(options.changedQuestions) &&
+    options.changedQuestions.length > 0;
+
+  let rescoreEventId: number | null = null;
+  if (detailedMode && options) {
+    const summaryPayload = {
+      examType: options.examType,
+      changedQuestions: options.changedQuestions,
+    };
+    const event = await prisma.rescoreEvent.create({
+      data: {
+        examId,
+        examType: options.examType,
+        reason: options.reason?.trim() || null,
+        summary: JSON.stringify(summaryPayload),
+        createdBy: options.adminUserId,
+      },
+      select: { id: true },
+    });
+    rescoreEventId = event.id;
+  }
+
+  const oldRankMap = detailedMode ? buildRankMapBySubmission(allSubmissions) : new Map<number, number>();
+  const detailRows: Array<{
+    submissionId: number;
+    userId: number;
+    oldTotalScore: number;
+    newTotalScore: number;
+    oldFinalScore: number;
+    newFinalScore: number;
+    scoreDelta: number;
+  }> = [];
+
+  let increased = 0;
+  let decreased = 0;
+  let unchanged = 0;
+
   const submissionIdChunks = chunkArray(
-    submissionIds.map((submission) => submission.id),
+    allSubmissions.map((submission) => submission.id),
     RESCORE_BATCH_SIZE
   );
 
@@ -403,7 +531,11 @@ export async function rescoreExam(examId: number): Promise<number> {
         where: { id: { in: idChunk } },
         select: {
           id: true,
+          userId: true,
+          regionId: true,
           examType: true,
+          totalScore: true,
+          finalScore: true,
           bonusType: true,
           bonusRate: true,
           userAnswers: {
@@ -445,6 +577,8 @@ export async function rescoreExam(examId: number): Promise<number> {
         }
 
         const normalizedBonusRate = normalizeBonusRate(submission.bonusType, submission.bonusRate);
+        const oldTotalScore = roundScore(submission.totalScore);
+        const oldFinalScore = roundScore(submission.finalScore);
         const result = scoreByAnswerMap({
           examType: submission.examType,
           subjects: context.subjects,
@@ -461,6 +595,27 @@ export async function rescoreExam(examId: number): Promise<number> {
             bonusRate: normalizedBonusRate,
           },
         });
+
+        const scoreDelta = roundScore(result.finalScore - oldFinalScore);
+        if (isSameScore(scoreDelta, 0)) {
+          unchanged += 1;
+        } else if (scoreDelta > 0) {
+          increased += 1;
+        } else {
+          decreased += 1;
+        }
+
+        if (detailedMode) {
+          detailRows.push({
+            submissionId: submission.id,
+            userId: submission.userId,
+            oldTotalScore,
+            newTotalScore: result.totalScore,
+            oldFinalScore,
+            newFinalScore: result.finalScore,
+            scoreDelta,
+          });
+        }
 
         const correctnessByKey = new Map(
           result.userAnswers.map((answer) => [
@@ -496,5 +651,49 @@ export async function rescoreExam(examId: number): Promise<number> {
     });
   }
 
-  return submissionIds.length;
+  if (detailedMode && rescoreEventId !== null && detailRows.length > 0) {
+    const newSubmissionScores = await prisma.submission.findMany({
+      where: { examId },
+      select: {
+        id: true,
+        regionId: true,
+        examType: true,
+        finalScore: true,
+      },
+    });
+    const newRankMap = buildRankMapBySubmission(
+      newSubmissionScores.map((row) => ({
+        ...row,
+        finalScore: Number(row.finalScore),
+      }))
+    );
+
+    await prisma.rescoreDetail.createMany({
+      data: detailRows.map((row) => ({
+        rescoreEventId,
+        submissionId: row.submissionId,
+        userId: row.userId,
+        oldTotalScore: row.oldTotalScore,
+        newTotalScore: row.newTotalScore,
+        oldFinalScore: row.oldFinalScore,
+        newFinalScore: row.newFinalScore,
+        oldRank: oldRankMap.get(row.submissionId) ?? null,
+        newRank: newRankMap.get(row.submissionId) ?? null,
+        scoreDelta: row.scoreDelta,
+        isRead: false,
+      })),
+    });
+  }
+
+  invalidateCorrectRateCache(examId);
+
+  return {
+    rescoredCount: allSubmissions.length,
+    rescoreEventId,
+    scoreChanges: {
+      increased,
+      decreased,
+      unchanged,
+    },
+  };
 }

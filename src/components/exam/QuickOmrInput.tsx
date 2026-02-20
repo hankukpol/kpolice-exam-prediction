@@ -32,15 +32,8 @@ export default function QuickOmrInput({
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [focusedQuestion, setFocusedQuestion] = useState<number | null>(null);
 
-  const rows = useMemo(() => {
-    const next: Array<{ start: number; end: number }> = [];
-    for (let start = 1; start <= questionCount; start += 10) {
-      next.push({
-        start,
-        end: Math.min(start + 9, questionCount),
-      });
-    }
-    return next;
+  const questions = useMemo(() => {
+    return Array.from({ length: questionCount }, (_, index) => index + 1);
   }, [questionCount]);
 
   function focusQuestion(questionNo: number) {
@@ -120,53 +113,43 @@ export default function QuickOmrInput({
   }, [focusToken]);
 
   return (
-    <div className="space-y-3">
-      {rows.map(({ start, end }) => (
-        <div key={`${subjectName}-${start}`} className="space-y-1.5">
-          <div className="flex gap-1">
-            <span className="w-14 shrink-0 text-xs text-slate-500">문항번호</span>
-            {Array.from({ length: end - start + 1 }, (_, index) => start + index).map((questionNo) => (
-              <span
-                key={`${subjectName}-label-${questionNo}`}
-                className="inline-flex h-9 w-9 items-center justify-center text-xs text-slate-500"
-              >
-                {questionNo}
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-1">
-            <span className="w-14 shrink-0 text-xs text-slate-500">답안입력</span>
-            {Array.from({ length: end - start + 1 }, (_, index) => start + index).map((questionNo) => {
-              const value = answers[questionNo];
-              const isFocused = focusedQuestion === questionNo;
-              const styleClass = isFocused
-                ? cellStyles.focused
-                : value === null
-                  ? cellStyles.empty
-                  : cellStyles.filled;
+    <div className="flex flex-wrap gap-2 sm:gap-3">
+      {questions.map((questionNo) => {
+        const value = answers[questionNo];
+        const isFocused = focusedQuestion === questionNo;
+        const styleClass = isFocused
+          ? cellStyles.focused
+          : value === null
+            ? cellStyles.empty
+            : cellStyles.filled;
 
-              return (
-                <input
-                  key={`${subjectName}-input-${questionNo}`}
-                  ref={(element) => {
-                    inputRefs.current[questionNo - 1] = element;
-                  }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={value ?? ""}
-                  onChange={(event) => handleAnswerInput(questionNo, event.target.value)}
-                  onKeyDown={(event) => handleKeyDown(questionNo, event)}
-                  onFocus={() => setFocusedQuestion(questionNo)}
-                  onBlur={() => setFocusedQuestion((prev) => (prev === questionNo ? null : prev))}
-                  className={`h-9 w-9 rounded text-center text-sm outline-none transition ${styleClass}`}
-                  aria-label={`${subjectName} ${questionNo}번 답안`}
-                />
-              );
-            })}
+        return (
+          <div key={`${subjectName}-${questionNo}`} className="flex flex-col items-center gap-1.5">
+            <label
+              htmlFor={`${subjectName}-quick-${questionNo}`}
+              className="text-xs font-semibold text-slate-500"
+            >
+              {questionNo}
+            </label>
+            <input
+              id={`${subjectName}-quick-${questionNo}`}
+              ref={(element) => {
+                inputRefs.current[questionNo - 1] = element;
+              }}
+              type="text"
+              inputMode="numeric"
+              maxLength={1}
+              value={value ?? ""}
+              onChange={(event) => handleAnswerInput(questionNo, event.target.value)}
+              onKeyDown={(event) => handleKeyDown(questionNo, event)}
+              onFocus={() => setFocusedQuestion(questionNo)}
+              onBlur={() => setFocusedQuestion((prev) => (prev === questionNo ? null : prev))}
+              className={`h-9 w-9 rounded-none text-center text-sm outline-none transition ${styleClass}`}
+              aria-label={`${subjectName} ${questionNo}번 답안`}
+            />
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

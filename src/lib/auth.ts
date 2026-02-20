@@ -8,6 +8,28 @@ import { consumeFixedWindowRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-ip";
 import { normalizePhone } from "@/lib/validations";
 
+const INSECURE_SECRETS = new Set([
+  "change-this-to-a-long-random-string",
+  "secret",
+  "nextauth-secret",
+  "",
+]);
+
+const nextAuthSecret = process.env.NEXTAUTH_SECRET ?? "";
+const isProduction = process.env.NODE_ENV === "production";
+const isNextBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+if (!nextAuthSecret || INSECURE_SECRETS.has(nextAuthSecret)) {
+  if (isProduction && !isNextBuildPhase) {
+    throw new Error(
+      "[auth] NEXTAUTH_SECRET이 설정되지 않았거나 기본값입니다. " +
+        "프로덕션 환경에서는 반드시 안전한 랜덤 문자열로 변경해 주세요."
+    );
+  }
+  console.warn(
+    "[auth] 경고: NEXTAUTH_SECRET이 기본값입니다. 프로덕션 배포 전 반드시 변경하세요."
+  );
+}
+
 const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_FAILURE_LIMIT = 5;
 const LOGIN_IP_WINDOW_MS = 60 * 1000;

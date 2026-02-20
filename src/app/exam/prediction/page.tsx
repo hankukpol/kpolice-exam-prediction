@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import PassCutHistoryTable from "@/components/prediction/PassCutHistoryTable";
+import PassCutTrendChart from "@/components/prediction/PassCutTrendChart";
 import { useToast } from "@/components/providers/ToastProvider";
+import ShareButton from "@/components/share/ShareButton";
 import { Button } from "@/components/ui/button";
 
 interface PredictionPageResponse {
@@ -23,11 +26,15 @@ interface PredictionPageResponse {
     myScore: number;
     myRank: number;
     myMultiple: number;
+    oneMultipleBaseRank: number;
+    oneMultipleActualRank: number | null;
+    oneMultipleCutScore: number | null;
+    oneMultipleTieCount: number | null;
     passMultiple: number;
     likelyMultiple: number;
     passCount: number;
     passLineScore: number | null;
-    predictionGrade: "확실권" | "유력권" | "가능권" | "도전권";
+    predictionGrade: "확실권" | "유력권" | "가능권" | "안전권";
     disclaimer: string;
   };
   pyramid: {
@@ -66,6 +73,47 @@ interface PredictionPageResponse {
   updatedAt: string;
 }
 
+interface CompetitorDetailResponse {
+  competitor: {
+    submissionId: number;
+    rank: number;
+    maskedName: string;
+    score: number;
+    isMine: boolean;
+    totalParticipants: number;
+    examTypeLabel: string;
+    regionName: string;
+  };
+  subjectScores: Array<{
+    subjectId: number;
+    subjectName: string;
+    rawScore: number;
+    maxScore: number;
+    percentage: number;
+    isFailed: boolean;
+  }>;
+}
+
+interface PassCutSnapshot {
+  participantCount: number;
+  recruitCount: number;
+  averageScore: number | null;
+  oneMultipleCutScore: number | null;
+  sureMinScore: number | null;
+  likelyMinScore: number | null;
+  possibleMinScore: number | null;
+}
+
+interface PassCutHistoryResponse {
+  releases: Array<{
+    releaseNumber: number;
+    releasedAt: string;
+    totalParticipantCount: number;
+    snapshot: PassCutSnapshot | null;
+  }>;
+  current: PassCutSnapshot;
+}
+
 interface ExamPredictionPageProps {
   embedded?: boolean;
 }
@@ -75,7 +123,10 @@ function formatScore(value: number | null): string {
   return value.toFixed(2);
 }
 
-function levelColor(key: PredictionPageResponse["pyramid"]["levels"][number]["key"], current: boolean): string {
+function levelColor(
+  key: PredictionPageResponse["pyramid"]["levels"][number]["key"],
+  current: boolean
+): string {
   if (key === "sure") return current ? "bg-blue-900" : "bg-blue-800";
   if (key === "likely") return current ? "bg-blue-700" : "bg-blue-600";
   if (key === "possible") return current ? "bg-cyan-600" : "bg-cyan-500";
@@ -94,6 +145,19 @@ function buildPageNumbers(page: number, totalPages: number): number[] {
     .sort((a, b) => a - b);
 }
 
+function formatDateTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 export default function ExamPredictionPage({ embedded = false }: ExamPredictionPageProps = {}) {
   const router = useRouter();
   const { showErrorToast } = useToast();
@@ -103,6 +167,15 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+
+  const [passCutHistory, setPassCutHistory] = useState<PassCutHistoryResponse | null>(null);
+  const [isPassCutLoading, setIsPassCutLoading] = useState(false);
+
+  const [isCompetitorModalOpen, setIsCompetitorModalOpen] = useState(false);
+  const [isCompetitorDetailLoading, setIsCompetitorDetailLoading] = useState(false);
+  const [competitorDetailError, setCompetitorDetailError] = useState("");
+  const [competitorDetail, setCompetitorDetail] = useState<CompetitorDetailResponse | null>(null);
+
   const pageRef = useRef(page);
 
   const fetchPrediction = useCallback(
@@ -149,7 +222,8 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
           setPage(data.competitors.page);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "합격예측 데이터를 불러오지 못했습니다.";
+        const message =
+          error instanceof Error ? error.message : "합격예측 데이터를 불러오지 못했습니다.";
         setErrorMessage(message);
         showErrorToast(message);
       } finally {
@@ -172,9 +246,97 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
     const interval = setInterval(() => {
       void fetchPrediction(pageRef.current, true);
     }, 60000);
-
     return () => clearInterval(interval);
   }, [fetchPrediction]);
+
+  useEffect(() => {
+    const summary = prediction?.summary;
+    if (!summary) {
+      setPassCutHistory(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsPassCutLoading(true);
+    (async () => {
+      try {
+        const query = new URLSearchParams({
+          examId: String(summary.examId),
+          regionId: String(summary.regionId),
+          examType: summary.examType,
+        });
+        const response = await fetch(`/api/pass-cut-history?${query.toString()}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          if (!cancelled) {
+            setPassCutHistory(null);
+          }
+          return;
+        }
+        const data = (await response.json()) as PassCutHistoryResponse;
+        if (!cancelled) {
+          setPassCutHistory(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setPassCutHistory(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsPassCutLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [prediction?.summary]);
+
+  useEffect(() => {
+    if (!isCompetitorModalOpen) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsCompetitorModalOpen(false);
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isCompetitorModalOpen]);
+
+  const handleOpenCompetitorDetail = useCallback(
+    async (submissionId: number) => {
+      setIsCompetitorModalOpen(true);
+      setIsCompetitorDetailLoading(true);
+      setCompetitorDetailError("");
+      setCompetitorDetail(null);
+
+      try {
+        const response = await fetch(`/api/prediction/competitor?submissionId=${submissionId}`, {
+          method: "GET",
+          cache: "no-store",
+        });
+        const data = (await response.json()) as CompetitorDetailResponse & { error?: string };
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "세부 성적 조회에 실패했습니다.");
+        }
+
+        setCompetitorDetail(data);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "세부 성적 조회에 실패했습니다.";
+        setCompetitorDetailError(message);
+        showErrorToast(message);
+      } finally {
+        setIsCompetitorDetailLoading(false);
+      }
+    },
+    [showErrorToast]
+  );
 
   const pageNumbers = useMemo(() => {
     if (!prediction) return [];
@@ -212,14 +374,18 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-6 text-center">
         <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
-          {summary.userName}님은 {summary.examTypeLabel} 입력자{" "}
-          <span className="text-blue-600">{summary.totalParticipants}명</span> 중{" "}
-          <span className="text-blue-600">{summary.myRank}등</span>입니다.
+          {summary.userName}님은 {summary.examTypeLabel} 참여자{" "}
+          <span className="text-blue-600">{summary.totalParticipants.toLocaleString("ko-KR")}명</span> 중{" "}
+          <span className="text-blue-600">{summary.myRank.toLocaleString("ko-KR")}등</span>입니다.
         </h1>
         <p className="mt-2 text-sm text-slate-500">
           {summary.examYear}년 {summary.examRound}차 | {summary.examName}
           {isRefreshing ? " (업데이트 중)" : ""}
         </p>
+        <p className="mt-1 text-xs text-slate-500">갱신시각: {formatDateTime(prediction.updatedAt)}</p>
+        <div className="mt-3 flex justify-center">
+          <ShareButton submissionId={summary.submissionId} sharePath="/exam/prediction" />
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
@@ -233,26 +399,28 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
               <p className="text-3xl font-bold text-blue-600">{summary.myScore.toFixed(2)}</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">배수점</p>
-              <p className="text-3xl font-bold text-blue-600">{formatScore(summary.passLineScore)}</p>
+              <p className="text-xs text-slate-500">1배수 컷점수</p>
+              <p className="text-3xl font-bold text-blue-600">{formatScore(summary.oneMultipleCutScore)}</p>
             </div>
           </div>
 
           <div className="mt-5 grid grid-cols-3 gap-3 text-center text-sm">
             <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs text-slate-500">선발인원</p>
-              <p className="mt-1 font-semibold text-slate-900">{summary.recruitCount}</p>
+              <p className="text-xs text-slate-500">모집인원</p>
+              <p className="mt-1 font-semibold text-slate-900">
+                {summary.recruitCount.toLocaleString("ko-KR")}
+              </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs text-slate-500">응시인원(추정)</p>
               <p className="mt-1 font-semibold text-slate-900">
-                {summary.estimatedApplicants.toLocaleString()}
+                {summary.estimatedApplicants.toLocaleString("ko-KR")}
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
               <p className="text-xs text-slate-500">참여인원</p>
               <p className="mt-1 font-semibold text-slate-900">
-                {summary.totalParticipants.toLocaleString()}
+                {summary.totalParticipants.toLocaleString("ko-KR")}
               </p>
             </div>
           </div>
@@ -263,6 +431,23 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
               <span className="font-semibold text-blue-700">{summary.passMultiple.toFixed(2)}배</span>
             </p>
             <p className="mt-1">
+              1배수 기준{" "}
+              <span className="font-semibold text-blue-700">
+                {summary.oneMultipleBaseRank.toLocaleString("ko-KR")}등
+              </span>{" "}
+              / 실제 1배수 끝등수{" "}
+              <span className="font-semibold text-blue-700">
+                {summary.oneMultipleActualRank
+                  ? `${summary.oneMultipleActualRank.toLocaleString("ko-KR")}등`
+                  : "-"}
+              </span>
+            </p>
+            {summary.oneMultipleTieCount ? (
+              <p className="mt-1 text-xs text-slate-600">
+                동점 묶음 인원: {summary.oneMultipleTieCount.toLocaleString("ko-KR")}명
+              </p>
+            ) : null}
+            <p className="mt-1">
               현재 예측 등급: <span className="font-bold text-blue-700">{summary.predictionGrade}</span>
             </p>
           </div>
@@ -270,7 +455,9 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
 
         <article className="rounded-xl border border-slate-200 bg-white p-6">
           <h2 className="text-base font-semibold text-slate-900">합격예측 피라미드</h2>
-          <p className="mt-1 text-xs text-slate-500">확실권/유력권/가능권/도전권/도전권 이하 5단계</p>
+          <p className="mt-1 text-xs text-slate-500">
+            확실권 / 유력권 / 가능권 / 안전권 / 안전권 이하 5단계
+          </p>
 
           <div className="mt-5 space-y-3">
             {pyramid.levels.map((level, index) => (
@@ -285,7 +472,7 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
                       clipPath: "polygon(8% 0, 92% 0, 100% 100%, 0 100%)",
                     }}
                   >
-                    {level.label} {level.count}명
+                    {level.label} {level.count.toLocaleString("ko-KR")}명
                   </div>
                 </div>
 
@@ -317,7 +504,9 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
               }`}
             >
               <p className="text-sm font-semibold text-slate-700">{level.label}</p>
-              <p className="mt-1 text-xl font-bold text-slate-900">{level.count}명</p>
+              <p className="mt-1 text-xl font-bold text-slate-900">
+                {level.count.toLocaleString("ko-KR")}명
+              </p>
             </div>
           ))}
         </div>
@@ -327,17 +516,18 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <h2 className="text-base font-semibold text-slate-900">경쟁자 순위</h2>
           <p className="text-xs text-slate-500">
-            {competitors.totalCount.toLocaleString()}명 중 {competitors.page}/{competitors.totalPages} 페이지
+            {competitors.totalCount.toLocaleString("ko-KR")}명 중 {competitors.page}/{competitors.totalPages} 페이지
           </p>
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[520px] border-collapse text-sm">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-700">
                 <th className="border border-slate-200 px-3 py-2 text-left">석차</th>
                 <th className="border border-slate-200 px-3 py-2 text-left">이름</th>
                 <th className="border border-slate-200 px-3 py-2 text-right">점수</th>
+                <th className="border border-slate-200 px-3 py-2 text-center">세부성적보기</th>
               </tr>
             </thead>
             <tbody>
@@ -348,9 +538,20 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
                 >
                   <td className="border border-slate-200 px-3 py-2">{competitor.rank}</td>
                   <td className="border border-slate-200 px-3 py-2">
-                    {competitor.isMine ? "★ 나" : competitor.maskedName}
+                    {competitor.isMine ? "본인" : competitor.maskedName}
                   </td>
-                  <td className="border border-slate-200 px-3 py-2 text-right">{competitor.score.toFixed(2)}</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right">
+                    {competitor.score.toFixed(2)}
+                  </td>
+                  <td className="border border-slate-200 px-3 py-2 text-center">
+                    <button
+                      type="button"
+                      className="text-sm font-medium text-blue-600 underline underline-offset-2 hover:text-blue-700"
+                      onClick={() => void handleOpenCompetitorDetail(competitor.submissionId)}
+                    >
+                      [성적보기]
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -387,9 +588,118 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
         </div>
       </section>
 
+      {isPassCutLoading ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+          합격컷 발표 이력을 불러오는 중입니다...
+        </section>
+      ) : passCutHistory ? (
+        <>
+          <PassCutHistoryTable releases={passCutHistory.releases} current={passCutHistory.current} />
+          <PassCutTrendChart releases={passCutHistory.releases} current={passCutHistory.current} />
+        </>
+      ) : null}
+
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        ※ 면책조항: {summary.disclaimer}
+        안내 문구: {summary.disclaimer}
       </section>
+
+      {isCompetitorModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          onClick={() => setIsCompetitorModalOpen(false)}
+        >
+          <div
+            className="max-h-[88vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">세부 성적 보기</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  동일 {summary.examTypeLabel} · {summary.regionName} 입력자 기준
+                </p>
+              </div>
+              <Button type="button" variant="outline" onClick={() => setIsCompetitorModalOpen(false)}>
+                닫기
+              </Button>
+            </div>
+
+            {isCompetitorDetailLoading ? (
+              <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                세부 성적을 불러오는 중입니다...
+              </p>
+            ) : competitorDetailError ? (
+              <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                {competitorDetailError}
+              </p>
+            ) : competitorDetail ? (
+              <>
+                <section className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <article className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">석차</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {competitorDetail.competitor.rank} / {competitorDetail.competitor.totalParticipants}
+                    </p>
+                  </article>
+                  <article className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">아이디</p>
+                    <p className="mt-1 text-lg font-bold text-slate-900">
+                      {competitorDetail.competitor.maskedName}
+                    </p>
+                  </article>
+                  <article className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-xs text-slate-500">점수</p>
+                    <p className="mt-1 text-lg font-bold text-blue-700">
+                      {competitorDetail.competitor.score.toFixed(2)}
+                    </p>
+                  </article>
+                </section>
+
+                <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full min-w-[560px] border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-700">
+                        <th className="border border-slate-200 px-3 py-2 text-left">과목</th>
+                        <th className="border border-slate-200 px-3 py-2 text-right">원점수</th>
+                        <th className="border border-slate-200 px-3 py-2 text-right">만점</th>
+                        <th className="border border-slate-200 px-3 py-2 text-right">백분율</th>
+                        <th className="border border-slate-200 px-3 py-2 text-center">과락</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {competitorDetail.subjectScores.map((subject) => (
+                        <tr key={subject.subjectId} className="bg-white">
+                          <td className="border border-slate-200 px-3 py-2 text-slate-900">
+                            {subject.subjectName}
+                          </td>
+                          <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">
+                            {subject.rawScore.toFixed(2)}
+                          </td>
+                          <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">
+                            {subject.maxScore.toFixed(2)}
+                          </td>
+                          <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">
+                            {subject.percentage.toFixed(1)}%
+                          </td>
+                          <td className="border border-slate-200 px-3 py-2 text-center">
+                            {subject.isFailed ? (
+                              <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
+                                과락
+                              </span>
+                            ) : (
+                              "-"
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -45,28 +45,37 @@ function normalizeHeaderValue(value: HeaderValueLike): string | null {
   return null;
 }
 
+// Nginx 리버스 프록시 설정 시 아래와 같이 헤더를 세팅해야 IP 스푸핑 방지 가능:
+//   proxy_set_header X-Real-IP $remote_addr;
+//   proxy_set_header X-Forwarded-For $remote_addr;    # 클라이언트 원본만 전달
+//   proxy_set_header X-Forwarded-Proto $scheme;
+// 위처럼 설정하면 클라이언트가 임의로 X-Forwarded-For를 조작해도 Nginx가 덮어씀
 export function getClientIp(requestLike: unknown): string {
   const headers =
     requestLike && typeof requestLike === "object" && "headers" in (requestLike as Record<string, unknown>)
       ? (requestLike as { headers: unknown }).headers
       : undefined;
 
-  const xForwardedFor = normalizeHeaderValue(readHeaderValue(headers, "x-forwarded-for"));
-  if (xForwardedFor) {
-    const first = xForwardedFor.split(",")[0]?.trim();
-    if (first) {
-      return first;
-    }
-  }
-
+  // 1. Nginx가 설정하는 X-Real-IP를 가장 먼저 신뢰 (스푸핑 불가)
   const xRealIp = normalizeHeaderValue(readHeaderValue(headers, "x-real-ip"));
   if (xRealIp) {
     return xRealIp;
   }
 
+  // 2. Cloudflare 환경
   const cfIp = normalizeHeaderValue(readHeaderValue(headers, "cf-connecting-ip"));
   if (cfIp) {
     return cfIp;
+  }
+
+  // 3. X-Forwarded-For — 가장 마지막(rightmost) IP가 리버스 프록시가 추가한 값
+  //    Nginx에서 $remote_addr만 전달하도록 설정된 경우 첫 번째 값이 정확함
+  const xForwardedFor = normalizeHeaderValue(readHeaderValue(headers, "x-forwarded-for"));
+  if (xForwardedFor) {
+    const parts = xForwardedFor.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length > 0) {
+      return parts[parts.length - 1];
+    }
   }
 
   return "unknown";

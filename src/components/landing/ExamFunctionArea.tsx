@@ -1,19 +1,20 @@
-"use client";
+﻿"use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import ExamCommentsPage from "@/app/exam/comments/page";
+import ExamFaqPage from "@/app/exam/faq/page";
 import ExamInputPage from "@/app/exam/input/page";
+import ExamNoticesPage from "@/app/exam/notices/page";
 import ExamPredictionPage from "@/app/exam/prediction/page";
 import ExamResultPage from "@/app/exam/result/page";
 import ExamMainOverviewPanel from "@/components/landing/ExamMainOverviewPanel";
-import { Button } from "@/components/ui/button";
 
-type TabKey = "main" | "input" | "result" | "prediction" | "comments";
+type TabKey = "main" | "input" | "result" | "prediction" | "comments" | "notices" | "faq";
 
 interface ExamFunctionAreaProps {
   isAuthenticated: boolean;
   hasSubmission: boolean;
+  isAdmin?: boolean;
 }
 
 interface TabItem {
@@ -28,6 +29,8 @@ const tabs: TabItem[] = [
   { key: "result", label: "내 성적 분석", requireSubmission: true },
   { key: "prediction", label: "합격 컷/경쟁자 정보", requireSubmission: true },
   { key: "comments", label: "실시간 댓글", requireSubmission: true },
+  { key: "notices", label: "공지사항", requireSubmission: false },
+  { key: "faq", label: "FAQ", requireSubmission: false },
 ];
 
 function tabClassName(active: boolean, disabled: boolean): string {
@@ -41,9 +44,14 @@ function tabClassName(active: boolean, disabled: boolean): string {
   return `${base} text-slate-400 hover:text-slate-600`;
 }
 
-export default function ExamFunctionArea({ isAuthenticated, hasSubmission }: ExamFunctionAreaProps) {
+export default function ExamFunctionArea({
+  isAuthenticated,
+  hasSubmission,
+  isAdmin = false,
+}: ExamFunctionAreaProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("main");
   const [localHasSubmission, setLocalHasSubmission] = useState(hasSubmission);
+  const canAccessRestrictedTabs = localHasSubmission || isAdmin;
 
   useEffect(() => {
     setLocalHasSubmission(hasSubmission);
@@ -52,44 +60,24 @@ export default function ExamFunctionArea({ isAuthenticated, hasSubmission }: Exa
   const activeTabMeta = useMemo(() => tabs.find((tab) => tab.key === activeTab) ?? tabs[0], [activeTab]);
 
   useEffect(() => {
-    if (activeTabMeta.requireSubmission && !localHasSubmission) {
+    if (activeTabMeta.requireSubmission && !canAccessRestrictedTabs) {
       setActiveTab("main");
     }
-  }, [activeTabMeta.requireSubmission, localHasSubmission]);
+  }, [activeTabMeta.requireSubmission, canAccessRestrictedTabs]);
 
   if (!isAuthenticated) {
-    return (
-      <section
-        id="exam-functions"
-        className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.45)]"
-      >
-        <h2 className="text-xl font-black text-slate-900">합격예측 풀서비스 메뉴</h2>
-        <p className="mt-3 text-sm leading-relaxed text-slate-600">
-          응시정보 입력, 성적분석, 합격예측, 댓글 기능은 로그인 후 이용할 수 있습니다.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Link href="/login">
-            <Button className="rounded-full bg-black px-5 hover:bg-slate-800">로그인</Button>
-          </Link>
-          <Link href="/register">
-            <Button variant="outline" className="rounded-full px-5">
-              회원가입
-            </Button>
-          </Link>
-        </div>
-      </section>
-    );
+    return null;
   }
 
   return (
     <section
       id="exam-functions"
-      className="rounded-[28px] border border-slate-300 bg-[#efefef] p-2 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.45)]"
+      className="border border-slate-300 bg-[#efefef] p-0 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.45)]"
     >
-      <div className="overflow-x-auto border-b border-slate-300 px-1 sm:px-3">
+      <div className="overflow-x-auto border-b border-slate-300 bg-white px-1 sm:px-3">
         <div className="flex min-w-max items-center">
           {tabs.map((tab) => {
-            const disabled = tab.requireSubmission && !localHasSubmission;
+            const disabled = tab.requireSubmission && !canAccessRestrictedTabs;
             return (
               <button
                 key={tab.key}
@@ -106,8 +94,8 @@ export default function ExamFunctionArea({ isAuthenticated, hasSubmission }: Exa
         </div>
       </div>
 
-      <div className="rounded-b-[24px] bg-[#efefef] p-3 sm:p-5">
-        <div className="rounded-2xl border border-slate-300 bg-white p-4 sm:p-5">
+      <div className="bg-[#efefef] p-0 sm:p-0">
+        <div className="border border-slate-300 border-t-0 bg-white p-4 sm:p-8">
           {activeTab === "main" ? <ExamMainOverviewPanel /> : null}
           {activeTab === "input" ? (
             <ExamInputPage
@@ -121,6 +109,8 @@ export default function ExamFunctionArea({ isAuthenticated, hasSubmission }: Exa
           {activeTab === "result" ? <ExamResultPage embedded /> : null}
           {activeTab === "prediction" ? <ExamPredictionPage embedded /> : null}
           {activeTab === "comments" ? <ExamCommentsPage embedded /> : null}
+          {activeTab === "notices" ? <ExamNoticesPage embedded /> : null}
+          {activeTab === "faq" ? <ExamFaqPage embedded /> : null}
         </div>
       </div>
     </section>

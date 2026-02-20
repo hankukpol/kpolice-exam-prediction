@@ -263,7 +263,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = (await request.json()) as CommentPayload;
-    const content = typeof body.content === "string" ? body.content.trim() : "";
+    const rawContent = typeof body.content === "string" ? body.content : "";
+    // HTML 태그 제거 (XSS 방어 — React 자동 이스케이프와 이중 방어)
+    const content = rawContent.replace(/<[^>]*>/g, "").trim();
 
     if (!content) {
       return NextResponse.json({ error: "댓글 내용을 입력해주세요." }, { status: 400 });

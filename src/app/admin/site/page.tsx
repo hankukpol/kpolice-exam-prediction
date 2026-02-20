@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SITE_SETTING_DEFAULTS } from "@/lib/site-settings.constants";
 
-type SettingValue = string | boolean | null;
+type SettingValue = string | boolean | number | null;
 
 interface SiteSettingsResponse {
   settings: Record<string, SettingValue>;
@@ -193,12 +193,20 @@ export default function AdminSitePage() {
         throw new Error("메인 페이지 갱신 간격은 10초 이상의 숫자여야 합니다.");
       }
 
+      const editLimitRaw = String(settings["site.submissionEditLimit"] ?? "3").trim();
+      const editLimit = Number(editLimitRaw);
+      if (!Number.isFinite(editLimit) || editLimit < 0) {
+        throw new Error("답안 수정 제한 횟수는 0 이상의 숫자여야 합니다.");
+      }
+
       await saveSettings(
         {
+          "site.careerExamEnabled": Boolean(settings["site.careerExamEnabled"]),
           "site.maintenanceMode": Boolean(settings["site.maintenanceMode"]),
           "site.maintenanceMessage": String(settings["site.maintenanceMessage"] ?? ""),
           "site.mainPageAutoRefresh": Boolean(settings["site.mainPageAutoRefresh"]),
           "site.mainPageRefreshInterval": String(Math.floor(refreshInterval)),
+          "site.submissionEditLimit": Math.floor(editLimit),
         },
         "시스템 설정이 저장되었습니다."
       );
@@ -336,11 +344,10 @@ export default function AdminSitePage() {
 
       {notice ? (
         <p
-          className={`rounded-md px-3 py-2 text-sm ${
-            notice.type === "success"
+          className={`rounded-md px-3 py-2 text-sm ${notice.type === "success"
               ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
               : "border border-rose-200 bg-rose-50 text-rose-700"
-          }`}
+            }`}
         >
           {notice.message}
         </p>
@@ -554,6 +561,15 @@ export default function AdminSitePage() {
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
             type="checkbox"
+            checked={Boolean(settings["site.careerExamEnabled"])}
+            onChange={(event) => updateSettingBoolean("site.careerExamEnabled", event.target.checked)}
+          />
+          경행경채 시험 활성화 (미체크 시 사용자/관리자 화면에서 경행경채 입력 및 선택 숨김)
+        </label>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
             checked={Boolean(settings["site.maintenanceMode"])}
             onChange={(event) => updateSettingBoolean("site.maintenanceMode", event.target.checked)}
           />
@@ -577,6 +593,17 @@ export default function AdminSitePage() {
             min={10}
             value={String(settings["site.mainPageRefreshInterval"] ?? "60")}
             onChange={(event) => updateSettingString("site.mainPageRefreshInterval", event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="submission-edit-limit">답안 수정 제한 횟수 (0: 수정 불가)</Label>
+          <Input
+            id="submission-edit-limit"
+            type="number"
+            min={0}
+            value={String(settings["site.submissionEditLimit"] ?? "3")}
+            onChange={(event) => updateSettingString("site.submissionEditLimit", event.target.value)}
           />
         </div>
 

@@ -2,7 +2,7 @@
 
 import { ExamType, Gender } from "@prisma/client";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import DifficultySelector, { type DifficultyRating } from "@/components/exam/DifficultySelector";
 import OmrInputModeToggle, { type OmrInputMode } from "@/components/exam/OmrInputModeToggle";
@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
 type BonusVeteran = 0 | 5 | 10;
 type BonusHero = 0 | 3 | 5;
 type AnswersBySubject = Record<string, Record<number, number | null>>;
-type DifficultyBySubject = Record<string, DifficultyRating>;
+type DifficultyBySubject = Record<string, DifficultyRating | null>;
 
 const OMR_INPUT_MODE_STORAGE_KEY = "exam.omr.input-mode";
 const DIFFICULTY_LABEL: Record<DifficultyRating, string> = {
@@ -53,6 +53,7 @@ interface SubjectInfo {
 
 interface ExamsResponse {
   activeExam: ExamSummary | null;
+  careerExamEnabled: boolean;
   regions: RegionInfo[];
   subjectGroups: {
     PUBLIC: SubjectInfo[];
@@ -85,7 +86,7 @@ function createEmptyAnswers(subjects: SubjectInfo[]): AnswersBySubject {
 function createEmptyDifficulty(subjects: SubjectInfo[]): DifficultyBySubject {
   const next: DifficultyBySubject = {};
   for (const subject of subjects) {
-    next[subject.name] = "NORMAL";
+    next[subject.name] = null;
   }
   return next;
 }
@@ -116,6 +117,8 @@ export default function ExamInputPage({
   onSubmitted,
 }: ExamInputPageProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
   const { data: session, status } = useSession();
   const { showErrorToast } = useToast();
 
@@ -150,26 +153,73 @@ export default function ExamInputPage({
       setIsMetaLoading(true);
       setErrorMessage("");
       try {
-        const response = await fetch("/api/exams?active=true", {
-          method: "GET",
-          cache: "no-store",
-        });
-        const data = (await response.json()) as ExamsResponse & { error?: string };
-        if (!response.ok) {
+        const [metaRes, editRes] = await Promise.all([
+          fetch("/api/exams?active=true", { method: "GET", cache: "no-store" }),
+          editId ? fetch(`/api/result?submissionId=${editId}`, { method: "GET", cache: "no-store" }) : Promise.resolve(null)
+        ]);
+
+        const data = (await metaRes.json()) as ExamsResponse & { error?: string };
+        if (!metaRes.ok) {
           throw new Error(data.error ?? "시험 정보를 불러오지 못했습니다.");
+        }
+
+        let editData: any = null;
+        if (editRes) {
+          editData = await editRes.json();
+          if (!editRes.ok) throw new Error(editData.error ?? "수정할 답안을 불러오지 못했습니다.");
         }
 
         if (!isMounted) return;
 
         setMeta(data);
-        setAnswerStore({
-          [ExamType.PUBLIC]: createEmptyAnswers(data.subjectGroups.PUBLIC),
-          [ExamType.CAREER]: createEmptyAnswers(data.subjectGroups.CAREER),
-        });
-        setDifficultyStore({
-          [ExamType.PUBLIC]: createEmptyDifficulty(data.subjectGroups.PUBLIC),
-          [ExamType.CAREER]: createEmptyDifficulty(data.subjectGroups.CAREER),
-        });
+
+        if (editData && editData.submission) {
+          const sub = editData.submission;
+          setGender(sub.gender);
+          const nextExamType =
+            sub.examType === ExamType.CAREER && !data.careerExamEnabled
+              ? ExamType.PUBLIC
+              : (sub.examType as ExamType);
+          setExamType(nextExamType);
+          setRegionId(sub.regionId);
+          setExamNumber(sub.examNumber || "");
+          if (sub.bonusType === "VETERAN_5") setVeteranPercent(5);
+          else if (sub.bonusType === "VETERAN_10") setVeteranPercent(10);
+          else if (sub.bonusType === "HERO_3") setHeroPercent(3);
+          else if (sub.bonusType === "HERO_5") setHeroPercent(5);
+
+          const newAnswerStore: Record<ExamType, AnswersBySubject> = {
+            [ExamType.PUBLIC]: createEmptyAnswers(data.subjectGroups.PUBLIC),
+            [ExamType.CAREER]: createEmptyAnswers(data.subjectGroups.CAREER),
+          };
+          const newDiffStore: Record<ExamType, DifficultyBySubject> = {
+            [ExamType.PUBLIC]: createEmptyDifficulty(data.subjectGroups.PUBLIC),
+            [ExamType.CAREER]: createEmptyDifficulty(data.subjectGroups.CAREER),
+          };
+
+          editData.scores.forEach((score: any) => {
+            if (score.difficulty) {
+              newDiffStore[sub.examType as ExamType][score.subjectName] = score.difficulty;
+            }
+            if (score.answers) {
+              score.answers.forEach((ans: any) => {
+                newAnswerStore[sub.examType as ExamType][score.subjectName][ans.questionNumber] = ans.selectedAnswer;
+              });
+            }
+          });
+
+          setAnswerStore(newAnswerStore);
+          setDifficultyStore(newDiffStore);
+        } else {
+          setAnswerStore({
+            [ExamType.PUBLIC]: createEmptyAnswers(data.subjectGroups.PUBLIC),
+            [ExamType.CAREER]: createEmptyAnswers(data.subjectGroups.CAREER),
+          });
+          setDifficultyStore({
+            [ExamType.PUBLIC]: createEmptyDifficulty(data.subjectGroups.PUBLIC),
+            [ExamType.CAREER]: createEmptyDifficulty(data.subjectGroups.CAREER),
+          });
+        }
       } catch (error) {
         if (!isMounted) return;
         const message = error instanceof Error ? error.message : "시험 정보를 불러오지 못했습니다.";
@@ -192,6 +242,14 @@ export default function ExamInputPage({
     if (!meta) return [];
     return examType === ExamType.PUBLIC ? meta.subjectGroups.PUBLIC : meta.subjectGroups.CAREER;
   }, [meta, examType]);
+  const careerExamEnabled = Boolean(meta?.careerExamEnabled ?? true);
+
+  useEffect(() => {
+    if (careerExamEnabled) return;
+    if (examType === ExamType.CAREER) {
+      setExamType(ExamType.PUBLIC);
+    }
+  }, [careerExamEnabled, examType]);
 
   useEffect(() => {
     setActiveSubjectIndex(0);
@@ -270,7 +328,7 @@ export default function ExamInputPage({
     });
   }
 
-  function setDifficulty(subjectName: string, rating: DifficultyRating) {
+  function setDifficulty(subjectName: string, rating: DifficultyRating | null) {
     setDifficultyStore((previous) => {
       const typeDifficulty = previous[examType] ?? {};
       return {
@@ -310,6 +368,11 @@ export default function ExamInputPage({
   async function handleSubmit() {
     if (!meta?.activeExam) {
       setErrorMessage("활성 시험이 없습니다.");
+      return;
+    }
+
+    if (examType === ExamType.CAREER && !careerExamEnabled) {
+      setErrorMessage("현재 경행경채 시험은 비활성화 상태입니다.");
       return;
     }
 
@@ -356,26 +419,35 @@ export default function ExamInputPage({
 
     const difficulty = subjects.map((subject) => ({
       subjectName: subject.name,
-      rating: currentDifficulty[subject.name] ?? "NORMAL",
+      rating: currentDifficulty[subject.name],
     }));
+
+    const missingDifficulty = difficulty.find((d) => d.rating === null || d.rating === undefined);
+    if (missingDifficulty) {
+      setErrorMessage(`모든 과목의 체감 난이도를 선택해주세요. (${missingDifficulty.subjectName} 난이도 미입력)`);
+      return;
+    }
 
     setIsSubmitting(true);
     setErrorMessage("");
     try {
+      const requestBody = {
+        examId: meta.activeExam.id,
+        examType,
+        gender,
+        regionId,
+        examNumber: normalizedExamNumber,
+        veteranPercent,
+        heroPercent,
+        answers,
+        difficulty: difficulty as Array<{ subjectName: string; rating: DifficultyRating }>,
+        ...(editId ? { submissionId: Number(editId) } : {}),
+      };
+
       const response = await fetch("/api/submission", {
-        method: "POST",
+        method: editId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          examId: meta.activeExam.id,
-          examType,
-          gender,
-          regionId,
-          examNumber: normalizedExamNumber,
-          veteranPercent,
-          heroPercent,
-          answers,
-          difficulty,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = (await response.json()) as SubmissionResponse & { error?: string };
@@ -461,7 +533,7 @@ export default function ExamInputPage({
               onChange={(event) => setExamType(event.target.value as ExamType)}
             >
               <option value={ExamType.PUBLIC}>공채</option>
-              <option value={ExamType.CAREER}>경행경채</option>
+              {careerExamEnabled ? <option value={ExamType.CAREER}>경행경채</option> : null}
             </select>
           </div>
 
@@ -507,7 +579,7 @@ export default function ExamInputPage({
           </div>
         </div>
 
-        <div className="mt-6 rounded-lg border border-slate-200 p-4">
+        <div className="mt-6 rounded-xl border border-slate-200 p-4">
           <h2 className="text-sm font-semibold text-slate-900">가산점</h2>
           <p className="mt-1 text-xs text-slate-500">취업지원과 의사상자 가산점은 동시에 적용할 수 없습니다.</p>
 
@@ -574,29 +646,35 @@ export default function ExamInputPage({
             const progress = progressBySubject.find((item) => item.subjectName === subject.name);
             const filled = progress?.filled ?? 0;
             const completed = filled === subject.questionCount;
-                const rating = currentDifficulty[subject.name] ?? "NORMAL";
+            const rating = currentDifficulty[subject.name] ?? "NORMAL";
 
             return (
               <button
                 key={subject.name}
                 type="button"
-                className={`rounded-md border px-3 py-2 text-sm ${
-                  index === activeSubjectIndex
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
+                className={`rounded-md border px-4 py-2 text-sm font-bold ${index === activeSubjectIndex
+                  ? "border-police-700 bg-police-700 text-white"
+                  : "border-slate-300 bg-white text-slate-700 hover:border-slate-400"
+                  }`}
                 onClick={() => setActiveSubjectIndex(index)}
               >
                 <span>{subject.name}</span>
                 <span
-                  className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
-                    completed ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                  }`}
+                  className={`ml-2 rounded-md px-2 py-0.5 text-xs font-semibold ${completed
+                    ? "bg-police-600 text-white"
+                    : "bg-rose-100 text-rose-700"
+                    } ${index === activeSubjectIndex && completed ? "bg-white text-police-700" : ""
+                    }`}
                 >
                   {filled}/{subject.questionCount}
                 </span>
                 {rating ? (
-                  <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                  <span
+                    className={`ml-2 rounded-md px-2 py-0.5 text-xs font-semibold ${index === activeSubjectIndex
+                      ? "bg-white text-police-700"
+                      : "bg-blue-100 text-blue-700"
+                      }`}
+                  >
                     {DIFFICULTY_LABEL[rating]}
                   </span>
                 ) : null}
@@ -606,14 +684,14 @@ export default function ExamInputPage({
         </div>
 
         {currentSubject ? (
-          <div className="mt-4 rounded-lg border border-slate-200 p-4">
+          <div className="mt-4 rounded-xl border border-slate-200 p-4">
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="font-semibold text-slate-900">
                 {currentSubject.name} ({currentSubject.questionCount}문항)
               </h3>
               <DifficultySelector
                 subjectName={currentSubject.name}
-                value={currentDifficulty[currentSubject.name] ?? "NORMAL"}
+                value={currentDifficulty[currentSubject.name] ?? null}
                 onChange={(next) => setDifficulty(currentSubject.name, next)}
               />
             </div>
@@ -638,7 +716,7 @@ export default function ExamInputPage({
           </div>
         ) : null}
 
-        <div className="mt-5 space-y-3 rounded-lg border border-slate-200 p-4">
+        <div className="mt-5 space-y-3 rounded-xl border border-slate-200 p-4">
           <h3 className="text-sm font-semibold text-slate-900">입력 현황</h3>
           {progressBySubject.map((item) => {
             const percentage = item.total > 0 ? (item.filled / item.total) * 100 : 0;
@@ -650,7 +728,7 @@ export default function ExamInputPage({
                     {item.filled}/{item.total}
                   </span>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                <div className="h-2 overflow-hidden bg-slate-200">
                   <div
                     className={`h-full ${progressColor(percentage)}`}
                     style={{ width: `${percentage}%` }}
@@ -666,14 +744,14 @@ export default function ExamInputPage({
         </div>
 
         {errorMessage ? (
-          <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+          <p className="mt-4 rounded-none border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
             {errorMessage}
           </p>
         ) : null}
 
         <div className="mt-5 flex justify-end">
           <Button type="button" onClick={handleSubmit} disabled={isSubmitting || isMetaLoading}>
-            {isSubmitting ? "제출 중..." : "채점하기"}
+            {isSubmitting ? "처리 중..." : editId ? "답안 수정하기" : "채점하기"}
           </Button>
         </div>
       </section>

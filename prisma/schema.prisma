@@ -48,6 +48,10 @@ model User {
   submissions Submission[]
   comments    Comment[]
   answerKeyLogs AnswerKeyLog[]
+  rescoreEventsCreated RescoreEvent[]
+  passCutReleasesCreated PassCutRelease[]
+  rescoreDetails RescoreDetail[]
+  finalPredictions FinalPrediction[]
 }
 
 model Exam {
@@ -62,6 +66,8 @@ model Exam {
   answerKeyLogs AnswerKeyLog[]
   submissions Submission[]
   comments    Comment[]
+  rescoreEvents RescoreEvent[]
+  passCutReleases PassCutRelease[]
 
   @@unique([year, round])
 }
@@ -74,6 +80,7 @@ model Region {
   applicantCount       Int?
   applicantCountCareer Int?
   submissions        Submission[]
+  passCutSnapshots   PassCutSnapshot[]
 }
 
 model Subject {
@@ -135,16 +142,22 @@ model Submission {
   bonusType     BonusType      @default(NONE)
   bonusRate     Float          @default(0)
   finalScore    Float
+  editCount     Int            @default(0)
   createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
   exam          Exam           @relation(fields: [examId], references: [id], onDelete: Restrict)
   user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
   region        Region         @relation(fields: [regionId], references: [id], onDelete: Restrict)
   userAnswers   UserAnswer[]
   subjectScores SubjectScore[]
   difficultyRatings DifficultyRating[]
+  rescoreDetails RescoreDetail[]
+  finalPrediction FinalPrediction?
 
   @@unique([userId, examId])
   @@unique([examId, regionId, examNumber])
+  @@index([examId, regionId, examType])
+  @@index([examId, examType, finalScore])
 }
 
 model UserAnswer {
@@ -180,6 +193,9 @@ model Comment {
   createdAt DateTime @default(now())
   exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([examId, createdAt])
+  @@index([userId])
 }
 
 model SiteSetting {
@@ -197,6 +213,16 @@ model Notice {
   priority  Int      @default(0)
   startAt   DateTime?
   endAt     DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model Faq {
+  id        Int      @id @default(autoincrement())
+  question  String
+  answer    String   @db.Text
+  isActive  Boolean  @default(true)
+  priority  Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now()) @updatedAt
 }
@@ -242,4 +268,99 @@ model DifficultyRating {
 
   @@unique([submissionId, subjectId])
   @@index([subjectId, rating])
+}
+
+// One rescore run metadata.
+model RescoreEvent {
+  id        Int      @id @default(autoincrement())
+  examId    Int
+  examType  ExamType
+  reason    String?  @db.Text
+  summary   String   @db.Text
+  createdBy Int
+  createdAt DateTime @default(now())
+  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  admin     User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  details   RescoreDetail[]
+
+  @@index([examId, createdAt])
+}
+
+// Per-submission score deltas recorded for a rescore event.
+model RescoreDetail {
+  id             Int      @id @default(autoincrement())
+  rescoreEventId Int
+  submissionId   Int
+  userId         Int
+  oldTotalScore  Float
+  newTotalScore  Float
+  oldFinalScore  Float
+  newFinalScore  Float
+  oldRank        Int?
+  newRank        Int?
+  scoreDelta     Float
+  isRead         Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  rescoreEvent   RescoreEvent @relation(fields: [rescoreEventId], references: [id], onDelete: Cascade)
+  submission     Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([rescoreEventId, submissionId])
+  @@index([userId, isRead])
+  @@index([submissionId])
+}
+
+// 1st~4th pass-cut release snapshots.
+model PassCutRelease {
+  id               Int      @id @default(autoincrement())
+  examId           Int
+  releaseNumber    Int
+  releasedAt       DateTime @default(now())
+  participantCount Int
+  createdBy        Int
+  memo             String?  @db.Text
+  exam             Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  admin            User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  snapshots        PassCutSnapshot[]
+
+  @@unique([examId, releaseNumber])
+  @@index([examId])
+}
+
+// Region + examType row captured at release time.
+model PassCutSnapshot {
+  id                  Int      @id @default(autoincrement())
+  passCutReleaseId    Int
+  regionId            Int
+  examType            ExamType
+  participantCount    Int
+  recruitCount        Int
+  averageScore        Float?
+  oneMultipleCutScore Float?
+  sureMinScore        Float?
+  likelyMinScore      Float?
+  possibleMinScore    Float?
+  passCutRelease      PassCutRelease @relation(fields: [passCutReleaseId], references: [id], onDelete: Cascade)
+  region              Region         @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@unique([passCutReleaseId, regionId, examType])
+  @@index([passCutReleaseId])
+}
+
+// Reserved for post-written/final prediction phase.
+model FinalPrediction {
+  id             Int      @id @default(autoincrement())
+  submissionId   Int      @unique
+  userId         Int
+  fitnessScore   Float?
+  interviewScore Float?
+  interviewGrade String?
+  finalScore     Float?
+  finalRank      Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  submission     Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

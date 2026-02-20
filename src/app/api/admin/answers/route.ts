@@ -97,6 +97,7 @@ async function parseRequestPayload(request: NextRequest): Promise<{
   examId: number | null;
   examType: ExamType | null;
   isConfirmed: boolean;
+  reason: string | null;
   rawRows: RawAnswerRow[];
 }> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -106,21 +107,34 @@ async function parseRequestPayload(request: NextRequest): Promise<{
     const examId = parsePositiveInt(formData.get("examId")?.toString());
     const examType = parseExamType(formData.get("examType")?.toString() ?? null);
     const isConfirmed = parseBoolean(formData.get("isConfirmed")?.toString() ?? null, false);
+    const reasonRaw = formData.get("reason")?.toString() ?? "";
+    const reason = reasonRaw.trim() ? reasonRaw.trim() : null;
 
     const file = formData.get("file");
     if (!(file instanceof File)) {
       throw new Error("CSV 파일을 첨부해 주세요.");
     }
 
+    const MAX_CSV_SIZE = 1024 * 1024; // 1MB
+    if (file.size > MAX_CSV_SIZE) {
+      throw new Error("CSV 파일 크기는 1MB 이하여야 합니다.");
+    }
+
+    const fileName = file.name.toLowerCase();
+    if (!fileName.endsWith(".csv") && !fileName.endsWith(".txt")) {
+      throw new Error("CSV 또는 TXT 파일만 업로드할 수 있습니다.");
+    }
+
     const csvText = await file.text();
     const rawRows = parseCsvRows(csvText);
-    return { examId, examType, isConfirmed, rawRows };
+    return { examId, examType, isConfirmed, reason, rawRows };
   }
 
   const body = (await request.json()) as {
     examId?: number;
     examType?: string;
     isConfirmed?: unknown;
+    reason?: string;
     answers?: RawAnswerRow[];
   };
 
@@ -135,6 +149,7 @@ async function parseRequestPayload(request: NextRequest): Promise<{
     examId,
     examType,
     isConfirmed: typeof body.isConfirmed === "boolean" ? body.isConfirmed : false,
+    reason: typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : null,
     rawRows: Array.isArray(body.answers) ? body.answers : [],
   };
 }
@@ -209,7 +224,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { examId, examType, isConfirmed, rawRows } = await parseRequestPayload(request);
+    const { examId, examType, isConfirmed, reason, rawRows } = await parseRequestPayload(request);
 
     if (!examId) {
       return NextResponse.json({ error: "examId는 필수입니다." }, { status: 400 });
@@ -326,7 +341,18 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    const rescoredCount = await rescoreExam(examId);
+    const subjectNameById = new Map(subjects.map((subject) => [subject.id, subject.name] as const));
+    const rescoreResult = await rescoreExam(examId, {
+      reason: reason ?? undefined,
+      adminUserId,
+      examType,
+      changedQuestions: answerChanges.map((change) => ({
+        subjectName: subjectNameById.get(change.subjectId) ?? `과목#${change.subjectId}`,
+        questionNumber: change.questionNumber,
+        oldAnswer: change.oldAnswer,
+        newAnswer: change.newAnswer,
+      })),
+    });
 
     return NextResponse.json(
       {
@@ -335,16 +361,23 @@ export async function POST(request: NextRequest) {
         isConfirmed,
         changedQuestions,
         statusChangedCount,
-        rescoredCount,
+        rescoredCount: rescoreResult.rescoredCount,
+        rescoreEventId: rescoreResult.rescoreEventId,
+        scoreChanges: rescoreResult.scoreChanges,
       },
       { status: 201 }
     );
   } catch (error) {
-    if (error instanceof Error && error.message === "CSV 파일을 첨부해 주세요.") {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-    if (error instanceof Error && error.message === "isConfirmed는 boolean 타입이어야 합니다.") {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error instanceof Error) {
+      const userErrors = [
+        "CSV 파일을 첨부해 주세요.",
+        "isConfirmed는 boolean 타입이어야 합니다.",
+        "CSV 파일 크기는 1MB 이하여야 합니다.",
+        "CSV 또는 TXT 파일만 업로드할 수 있습니다.",
+      ];
+      if (userErrors.includes(error.message)) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
     }
 
     console.error("정답 저장 중 오류가 발생했습니다.", error);

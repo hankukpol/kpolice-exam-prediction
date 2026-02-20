@@ -28,7 +28,14 @@ export default async function ExamMainPage() {
   const session = await getServerSession(authOptions);
   const userId = Number(session?.user?.id ?? 0);
   const isAuthenticated = Number.isInteger(userId) && userId > 0;
+  const isAdmin = session?.user?.role === "ADMIN";
   const hasSubmission = isAuthenticated ? await getHasSubmission(userId) : false;
 
-  return <ExamFunctionArea isAuthenticated={isAuthenticated} hasSubmission={hasSubmission} />;
+  return (
+    <ExamFunctionArea
+      isAuthenticated={isAuthenticated}
+      hasSubmission={hasSubmission}
+      isAdmin={isAdmin}
+    />
+  );
 }

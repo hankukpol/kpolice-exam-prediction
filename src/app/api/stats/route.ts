@@ -57,6 +57,66 @@ interface RegionAggregate {
   avgFinalScore: number;
 }
 
+interface RegionPredictionAggregate {
+  regionId: number;
+  regionName: string;
+  examType: ExamType;
+  recruitCount: number;
+  participantCount: number;
+  oneMultipleBaseRank: number;
+  oneMultipleActualRank: number | null;
+  oneMultipleCutScore: number | null;
+  oneMultipleTieCount: number | null;
+}
+
+interface ScoreBand {
+  score: number;
+  count: number;
+}
+
+function roundTwo(value: number): number {
+  return Number(value.toFixed(2));
+}
+
+function getRegionRecruitCount(
+  region: { recruitCount: number; recruitCountCareer: number },
+  examType: ExamType
+): number {
+  return examType === ExamType.PUBLIC ? region.recruitCount : region.recruitCountCareer;
+}
+
+function getScoreBandInfoAtRank(
+  scoreBands: ScoreBand[],
+  rank: number
+): { score: number; startRank: number; endRank: number; count: number } | null {
+  if (!Number.isInteger(rank) || rank < 1) {
+    return null;
+  }
+
+  let covered = 0;
+  let lastBandInfo: { score: number; startRank: number; endRank: number; count: number } | null = null;
+
+  for (const band of scoreBands) {
+    const startRank = covered + 1;
+    const endRank = covered + band.count;
+
+    lastBandInfo = {
+      score: roundTwo(band.score),
+      startRank,
+      endRank,
+      count: band.count,
+    };
+
+    if (startRank <= rank && endRank >= rank) {
+      return lastBandInfo;
+    }
+
+    covered = endRank;
+  }
+
+  return lastBandInfo;
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireAdminRoute();
   if (auth.error) {
@@ -108,6 +168,8 @@ export async function GET(request: NextRequest) {
     submissionsByDateRaw,
     scoreDistributionRaw,
     difficulty,
+    predictionParticipantRaw,
+    predictionScoreBandRaw,
   ] = await Promise.all([
     prisma.submission.count({
       where: { examId: exam.id },
@@ -162,6 +224,33 @@ export async function GET(request: NextRequest) {
       ORDER BY bucket
     `,
     getDifficultyStats(exam.id),
+    prisma.submission.groupBy({
+      by: ["regionId", "examType"],
+      where: {
+        examId: exam.id,
+        subjectScores: {
+          some: {},
+          none: { isFailed: true },
+        },
+      },
+      _count: {
+        _all: true,
+      },
+    }),
+    prisma.submission.groupBy({
+      by: ["regionId", "examType", "finalScore"],
+      where: {
+        examId: exam.id,
+        subjectScores: {
+          some: {},
+          none: { isFailed: true },
+        },
+      },
+      _count: {
+        _all: true,
+      },
+      orderBy: [{ regionId: "asc" }, { examType: "asc" }, { finalScore: "desc" }],
+    }),
   ]);
 
   const regionNameById = new Map(regions.map((region) => [region.id, region.name] as const));
@@ -250,6 +339,62 @@ export async function GET(request: NextRequest) {
     };
   });
 
+  const predictionParticipantMap = new Map<string, number>();
+  for (const item of predictionParticipantRaw) {
+    predictionParticipantMap.set(`${item.regionId}-${item.examType}`, item._count._all);
+  }
+
+  const predictionScoreBandMap = new Map<string, ScoreBand[]>();
+  for (const row of predictionScoreBandRaw) {
+    const key = `${row.regionId}-${row.examType}`;
+    const current = predictionScoreBandMap.get(key) ?? [];
+    current.push({
+      score: toScore(row.finalScore),
+      count: row._count._all,
+    });
+    predictionScoreBandMap.set(key, current);
+  }
+
+  const byRegionPrediction: RegionPredictionAggregate[] = [];
+  for (const region of regions) {
+    for (const examType of [ExamType.PUBLIC, ExamType.CAREER] as const) {
+      const recruitCount = getRegionRecruitCount(region, examType);
+      if (!Number.isInteger(recruitCount) || recruitCount < 1) {
+        continue;
+      }
+
+      const key = `${region.id}-${examType}`;
+      const participantCount = predictionParticipantMap.get(key) ?? 0;
+      const scoreBands = predictionScoreBandMap.get(key) ?? [];
+      const oneMultipleBand = getScoreBandInfoAtRank(scoreBands, recruitCount);
+
+      byRegionPrediction.push({
+        regionId: region.id,
+        regionName: region.name,
+        examType,
+        recruitCount,
+        participantCount,
+        oneMultipleBaseRank: recruitCount,
+        oneMultipleActualRank: oneMultipleBand?.endRank ?? null,
+        oneMultipleCutScore: oneMultipleBand?.score ?? null,
+        oneMultipleTieCount: oneMultipleBand?.count ?? null,
+      });
+    }
+  }
+
+  byRegionPrediction.sort((a, b) => {
+    const regionCompare = a.regionName.localeCompare(b.regionName, "ko-KR");
+    if (regionCompare !== 0) {
+      return regionCompare;
+    }
+
+    if (a.examType === b.examType) {
+      return 0;
+    }
+
+    return a.examType === ExamType.PUBLIC ? -1 : 1;
+  });
+
   return NextResponse.json({
     exam: {
       id: exam.id,
@@ -269,6 +414,7 @@ export async function GET(request: NextRequest) {
       FEMALE: byGender[Gender.FEMALE],
     },
     byRegion: Array.from(byRegionMap.values()).sort((a, b) => b.total - a.total),
+    byRegionPrediction,
     submissionsByDate,
     scoreDistribution,
     difficulty,

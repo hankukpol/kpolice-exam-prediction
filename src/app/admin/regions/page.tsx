@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -226,6 +227,16 @@ export default function AdminRegionsPage() {
         <p className="mt-1">변경 전 공고문의 정확한 수치를 확인해 주세요.</p>
       </section>
 
+      <section className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+        <p>
+          1배수 기준 등수는 모집인원과 동일합니다. 실제 1배수 끝등수/동점 인원/컷 점수는{" "}
+          <Link href="/admin/stats" className="font-semibold text-slate-900 underline">
+            참여 통계
+          </Link>
+          에서 시험 선택 후 확인할 수 있습니다.
+        </p>
+      </section>
+
       {notice ? (
         <p
           className={`rounded-md px-3 py-2 text-sm ${
@@ -246,7 +257,7 @@ export default function AdminRegionsPage() {
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="min-w-[1220px] w-full divide-y divide-slate-200 text-sm">
+          <table className="min-w-[1460px] w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">지역</th>
@@ -276,6 +287,9 @@ export default function AdminRegionsPage() {
                           : "border-slate-300 bg-white"
                       }`}
                     />
+                    <p className="mt-1 text-xs text-slate-500">
+                      1배수 기준 {row.recruitCount.toLocaleString("ko-KR")}등
+                    </p>
                   </td>
                   <td className="px-4 py-3 text-slate-700">{getPassMultipleText(row.recruitCount)}</td>
                   <td className="px-4 py-3">
@@ -308,6 +322,11 @@ export default function AdminRegionsPage() {
                           : "border-slate-300 bg-white"
                       }`}
                     />
+                    <p className="mt-1 text-xs text-slate-500">
+                      {row.recruitCountCareer > 0
+                        ? `1배수 기준 ${row.recruitCountCareer.toLocaleString("ko-KR")}등`
+                        : "1배수 기준 없음"}
+                    </p>
                   </td>
                   <td className="px-4 py-3">
                     <input

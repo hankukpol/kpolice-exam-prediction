@@ -11,26 +11,24 @@ export default function OmrInputModeToggle({ value, onChange }: OmrInputModeTogg
   return (
     <div className="flex flex-wrap items-center gap-2">
       <p className="text-sm text-slate-600">입력 방식:</p>
-      <div className="inline-flex rounded-md border border-slate-200 bg-white p-1">
+      <div className="inline-flex overflow-hidden rounded-md border border-slate-300">
         <button
           type="button"
           onClick={() => onChange("quick")}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition ${
-            value === "quick"
-              ? "bg-slate-900 text-white"
-              : "text-slate-700 hover:bg-slate-100"
-          }`}
+          className={`border-r last:border-r-0 px-5 py-2.5 text-sm font-bold transition ${value === "quick"
+            ? "bg-police-700 text-white border-police-700"
+            : "bg-white text-slate-700 hover:bg-slate-50 border-transparent"
+            }`}
         >
           빠른입력 (키보드)
         </button>
         <button
           type="button"
           onClick={() => onChange("radio")}
-          className={`rounded px-3 py-1.5 text-sm font-medium transition ${
-            value === "radio"
-              ? "bg-slate-900 text-white"
-              : "text-slate-700 hover:bg-slate-100"
-          }`}
+          className={`border-r last:border-r-0 px-5 py-2.5 text-sm font-bold transition ${value === "radio"
+            ? "bg-police-700 text-white border-police-700"
+            : "bg-white text-slate-700 hover:bg-slate-50 border-transparent"
+            }`}
         >
           OMR 마킹 (터치)
         </button>

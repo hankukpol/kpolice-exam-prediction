@@ -34,11 +34,16 @@ function parseBooleanValue(raw: string): boolean {
   return raw.trim().toLowerCase() === "true";
 }
 
-function parseStoredSiteSettingValue(key: SiteSettingKey, raw: string): string | boolean | null {
+function parseStoredSiteSettingValue(key: SiteSettingKey, raw: string): string | boolean | number | null {
   const type = SITE_SETTING_TYPES[key];
 
   if (type === "boolean") {
     return parseBooleanValue(raw);
+  }
+
+  if (type === "number") {
+    const num = Number(raw);
+    return Number.isNaN(num) ? null : num;
   }
 
   if (type === "nullable-string") {
@@ -51,7 +56,7 @@ function parseStoredSiteSettingValue(key: SiteSettingKey, raw: string): string |
 
 function serializeSiteSettingValue(
   key: SiteSettingKey,
-  value: string | boolean | null
+  value: string | boolean | number | null
 ): { value?: string; error?: string } {
   const type = SITE_SETTING_TYPES[key];
 
@@ -61,6 +66,13 @@ function serializeSiteSettingValue(
     }
 
     return { value: value ? "true" : "false" };
+  }
+
+  if (type === "number") {
+    if (typeof value !== "number" || Number.isNaN(value)) {
+      return { error: `${key} 값은 숫자여야 합니다.` };
+    }
+    return { value: String(value) };
   }
 
   if (type === "nullable-string") {
@@ -214,7 +226,7 @@ export function normalizeSiteSettingUpdateEntries(input: Record<string, unknown>
       return { error: `지원하지 않는 설정 키입니다: ${rawKey}` };
     }
 
-    const serialized = serializeSiteSettingValue(rawKey, rawValue as string | boolean | null);
+    const serialized = serializeSiteSettingValue(rawKey, rawValue as string | boolean | number | null);
     if (serialized.error || serialized.value === undefined) {
       return { error: serialized.error ?? `${rawKey} 값이 올바르지 않습니다.` };
     }

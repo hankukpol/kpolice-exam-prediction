@@ -89,7 +89,11 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isAdminPath(pathname) && token.role !== "ADMIN") {
-    return NextResponse.redirect(new URL("/exam", request.url));
+    const loginUrl = new URL("/login", request.url);
+    const callbackPath = `${pathname}${request.nextUrl.search}`;
+    loginUrl.searchParams.set("callbackUrl", callbackPath);
+    loginUrl.searchParams.set("error", "admin_only");
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();

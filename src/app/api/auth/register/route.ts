@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
     if (!validationResult.isValid || !validationResult.data) {
       return NextResponse.json(
-        { message: validationResult.errors[0], errors: validationResult.errors },
+        { error: validationResult.errors[0], errors: validationResult.errors },
         { status: 400 }
       );
     }
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
     const existingUser = await prisma.user.findUnique({ where: { phone } });
     if (existingUser) {
-      return NextResponse.json({ message: "이미 등록된 연락처입니다." }, { status: 409 });
+      return NextResponse.json({ error: "이미 등록된 연락처입니다." }, { status: 409 });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -41,18 +41,18 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ message: "회원가입이 완료되었습니다." }, { status: 201 });
+    return NextResponse.json({ success: true, message: "회원가입이 완료되었습니다." }, { status: 201 });
   } catch (error) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      return NextResponse.json({ message: "이미 등록된 연락처입니다." }, { status: 409 });
+      return NextResponse.json({ error: "이미 등록된 연락처입니다." }, { status: 409 });
     }
 
     console.error("회원가입 처리 중 오류가 발생했습니다.", error);
     return NextResponse.json(
-      { message: "회원가입 처리 중 오류가 발생했습니다." },
+      { error: "회원가입 처리 중 오류가 발생했습니다." },
       { status: 500 }
     );
   }

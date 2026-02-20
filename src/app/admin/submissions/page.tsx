@@ -109,6 +109,7 @@ function formatExamType(type: ExamTypeValue): string {
 export default function AdminSubmissionsPage() {
   const [examOptions, setExamOptions] = useState<ExamOption[]>([]);
   const [regionOptions, setRegionOptions] = useState<RegionOption[]>([]);
+  const [careerExamEnabled, setCareerExamEnabled] = useState(true);
 
   const [selectedExamId, setSelectedExamId] = useState<number | "">("");
   const [selectedRegionId, setSelectedRegionId] = useState<number | "">("");
@@ -151,6 +152,7 @@ export default function AdminSubmissionsPage() {
 
     const metaData = (await examsMetaResponse.json()) as {
       regions?: RegionOption[];
+      careerExamEnabled?: boolean;
       error?: string;
     };
     if (!examsMetaResponse.ok) {
@@ -159,7 +161,14 @@ export default function AdminSubmissionsPage() {
 
     setExamOptions(examData.exams ?? []);
     setRegionOptions(metaData.regions ?? []);
+    setCareerExamEnabled(metaData.careerExamEnabled ?? true);
   }, []);
+
+  useEffect(() => {
+    if (!careerExamEnabled && selectedExamType === "CAREER") {
+      setSelectedExamType("");
+    }
+  }, [careerExamEnabled, selectedExamType]);
 
   const loadSubmissions = useCallback(async () => {
     const response = await fetch(`/api/admin/submissions?${queryString}`, {
@@ -316,7 +325,7 @@ export default function AdminSubmissionsPage() {
         >
           <option value="">전체 유형</option>
           <option value="PUBLIC">공채</option>
-          <option value="CAREER">경행경채</option>
+          {careerExamEnabled ? <option value="CAREER">경행경채</option> : null}
         </select>
 
         <Input

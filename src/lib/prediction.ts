@@ -1,4 +1,4 @@
-import { ExamType, Prisma } from "@prisma/client";
+import { ExamType, Prisma, Role } from "@prisma/client";
 import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 
@@ -59,6 +59,10 @@ export interface PredictionSummary {
   myScore: number;
   myRank: number;
   myMultiple: number;
+  oneMultipleBaseRank: number;
+  oneMultipleActualRank: number | null;
+  oneMultipleCutScore: number | null;
+  oneMultipleTieCount: number | null;
   passMultiple: number;
   likelyMultiple: number;
   passCount: number;
@@ -87,6 +91,7 @@ interface ScoreBand {
   score: number;
   count: number;
   rank: number;
+  endRank: number;
 }
 
 interface CalculatePredictionOptions {
@@ -163,23 +168,41 @@ function getMaxRankByMultiple(recruitCount: number, multiple: number): number {
 }
 
 function getMinScoreWithinRank(scoreBands: ScoreBand[], maxRank: number): number | null {
-  const selected = scoreBands.filter((band) => band.rank <= maxRank);
-  if (selected.length === 0) {
-    return null;
+  const atRank = getScoreBandAtRank(scoreBands, maxRank);
+  if (atRank) {
+    return atRank.score;
   }
 
-  return selected[selected.length - 1].score;
+  if (scoreBands.length > 0 && maxRank > 0) {
+    return scoreBands[scoreBands.length - 1].score;
+  }
+
+  return null;
 }
 
 function getMaxScoreWithinRank(scoreBands: ScoreBand[], minRank: number): number | null {
-  const selected = scoreBands.find((band) => band.rank >= minRank);
+  const selected = scoreBands.find((band) => band.endRank >= minRank);
   return selected ? selected.score : null;
 }
 
 function countByRankRange(scoreBands: ScoreBand[], minExclusive: number, maxInclusive: number): number {
-  return scoreBands
-    .filter((band) => band.rank > minExclusive && band.rank <= maxInclusive)
-    .reduce((sum, band) => sum + band.count, 0);
+  if (!Number.isFinite(minExclusive) || !Number.isFinite(maxInclusive) || maxInclusive <= minExclusive) {
+    return 0;
+  }
+
+  let count = 0;
+  const rangeStart = Math.floor(minExclusive) + 1;
+  const rangeEnd = Math.floor(maxInclusive);
+
+  for (const band of scoreBands) {
+    const overlapStart = Math.max(band.rank, rangeStart);
+    const overlapEnd = Math.min(band.endRank, rangeEnd);
+    if (overlapEnd >= overlapStart) {
+      count += overlapEnd - overlapStart + 1;
+    }
+  }
+
+  return count;
 }
 
 function parsePage(value: number | undefined): number {
@@ -226,10 +249,27 @@ function buildScoreBands(
     const score = toSafeNumber(row.finalScore);
     const count = row._count._all;
     const rank = processed + 1;
+    const endRank = processed + count;
     processed += count;
 
-    return { score, count, rank };
+    return { score, count, rank, endRank };
   });
+}
+
+function getScoreBandAtRank(scoreBands: ScoreBand[], rank: number): ScoreBand | null {
+  if (!Number.isInteger(rank) || rank < 1) {
+    return null;
+  }
+
+  return scoreBands.find((band) => band.rank <= rank && band.endRank >= rank) ?? null;
+}
+
+function getLastScoreBand(scoreBands: ScoreBand[]): ScoreBand | null {
+  if (scoreBands.length < 1) {
+    return null;
+  }
+
+  return scoreBands[scoreBands.length - 1] ?? null;
 }
 
 function buildPopulationWhere(submission: {
@@ -252,88 +292,76 @@ function buildPopulationWhere(submission: {
 
 export async function calculatePrediction(
   userId: number,
-  options: CalculatePredictionOptions = {}
+  options: CalculatePredictionOptions = {},
+  requesterRole: Role = Role.USER
 ): Promise<PredictionResult> {
   const page = parsePage(options.page);
   const limit = parseLimit(options.limit);
+  const isAdmin = requesterRole === Role.ADMIN;
 
-  const submission = options.submissionId
-    ? await prisma.submission.findFirst({
-        where: {
-          id: options.submissionId,
-          userId,
-        },
-        select: {
-          id: true,
-          examId: true,
-          regionId: true,
-          examType: true,
-          finalScore: true,
-          exam: {
-            select: {
-              id: true,
-              name: true,
-              year: true,
-              round: true,
-            },
-          },
-          region: {
-            select: {
-              id: true,
-              name: true,
-              recruitCount: true,
-              recruitCountCareer: true,
-            },
-          },
-          user: {
-            select: {
-              name: true,
-            },
-          },
+  const submissionSelect = {
+    id: true,
+    examId: true,
+    regionId: true,
+    examType: true,
+    finalScore: true,
+    exam: {
+      select: {
+        id: true,
+        name: true,
+        year: true,
+        round: true,
+      },
+    },
+    region: {
+      select: {
+        id: true,
+        name: true,
+        recruitCount: true,
+        recruitCountCareer: true,
+      },
+    },
+    user: {
+      select: {
+        name: true,
+      },
+    },
+    subjectScores: {
+      select: {
+        isFailed: true,
+      },
+    },
+  } satisfies Prisma.SubmissionSelect;
+
+  const activeExam =
+    !options.submissionId && isAdmin
+      ? await prisma.exam.findFirst({
+          where: { isActive: true },
+          orderBy: [{ examDate: "desc" }, { id: "desc" }],
+          select: { id: true },
+        })
+      : null;
+
+  const submissionWhere: Prisma.SubmissionWhereInput = options.submissionId
+    ? {
+        id: options.submissionId,
+        ...(isAdmin ? {} : { userId }),
+      }
+    : isAdmin
+      ? {
+          ...(activeExam ? { examId: activeExam.id } : {}),
           subjectScores: {
-            select: {
-              isFailed: true,
-            },
+            some: {},
+            none: { isFailed: true },
           },
-        },
-      })
-    : await prisma.submission.findFirst({
-        where: { userId },
-        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        select: {
-          id: true,
-          examId: true,
-          regionId: true,
-          examType: true,
-          finalScore: true,
-          exam: {
-            select: {
-              id: true,
-              name: true,
-              year: true,
-              round: true,
-            },
-          },
-          region: {
-            select: {
-              id: true,
-              name: true,
-              recruitCount: true,
-              recruitCountCareer: true,
-            },
-          },
-          user: {
-            select: {
-              name: true,
-            },
-          },
-          subjectScores: {
-            select: {
-              isFailed: true,
-            },
-          },
-        },
-      });
+        }
+      : { userId };
+
+  const submission = await prisma.submission.findFirst({
+    where: submissionWhere,
+    orderBy: options.submissionId ? undefined : [{ createdAt: "desc" }, { id: "desc" }],
+    select: submissionSelect,
+  });
 
   if (!submission) {
     throw new PredictionError("합격예측을 위한 제출 데이터가 없습니다.", 404);
@@ -401,6 +429,10 @@ export async function calculatePrediction(
   const myMultiple = myRank / recruitCount;
   const predictionGrade = classifyGrade(myMultiple, passMultiple);
   const passLineScore = getMinScoreWithinRank(scoreBands, passCount);
+  const oneMultipleBand = getScoreBandAtRank(scoreBands, recruitCount) ?? getLastScoreBand(scoreBands);
+  const oneMultipleActualRank = oneMultipleBand?.endRank ?? null;
+  const oneMultipleCutScore = oneMultipleBand?.score ?? null;
+  const oneMultipleTieCount = oneMultipleBand?.count ?? null;
 
   const sureCount = countByRankRange(scoreBands, 0, recruitCount);
   const likelyCount = countByRankRange(scoreBands, recruitCount, likelyMaxRank);
@@ -533,6 +565,10 @@ export async function calculatePrediction(
       myScore,
       myRank,
       myMultiple: toSafeNumber(myMultiple),
+      oneMultipleBaseRank: recruitCount,
+      oneMultipleActualRank,
+      oneMultipleCutScore: oneMultipleCutScore === null ? null : toSafeNumber(oneMultipleCutScore),
+      oneMultipleTieCount,
       passMultiple: toSafeNumber(passMultiple),
       likelyMultiple: toSafeNumber(likelyMultiple),
       passCount,

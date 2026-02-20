@@ -12,6 +12,14 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/providers/ToastProvider";
 import { validateLoginInput } from "@/lib/validations";
 
+function sanitizeCallbackUrl(raw: string | null): string {
+  const fallback = "/exam";
+  if (!raw) return fallback;
+  // 상대경로('/')로 시작하고, 프로토콜 상대경로('//')가 아닌 경우만 허용
+  if (raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  return fallback;
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -21,7 +29,7 @@ function LoginForm() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/exam";
+  const callbackUrl = sanitizeCallbackUrl(searchParams.get("callbackUrl"));
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -43,7 +51,8 @@ function LoginForm() {
     });
 
     if (result?.ok) {
-      router.push(result.url ?? callbackUrl);
+      const redirectTo = sanitizeCallbackUrl(result.url ?? null);
+      router.push(redirectTo);
       router.refresh();
       return;
     }

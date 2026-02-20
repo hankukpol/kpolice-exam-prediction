@@ -7,6 +7,7 @@ const prisma = new PrismaClient();
 // Update these values to official CAREER quotas for each region before production use.
 const regions = [
   { name: "서울", recruitCount: 715, recruitCountCareer: 715 },
+  { name: "101경비단", recruitCount: 40, recruitCountCareer: 0 },
   { name: "부산", recruitCount: 213, recruitCountCareer: 213 },
   { name: "대구", recruitCount: 92, recruitCountCareer: 92 },
   { name: "인천", recruitCount: 175, recruitCountCareer: 175 },
@@ -89,6 +90,7 @@ const siteSettings = [
   { key: "site.bannerLink", value: "" },
   { key: "site.maintenanceMode", value: "false" },
   { key: "site.maintenanceMessage", value: "시스템 점검 중입니다." },
+  { key: "site.careerExamEnabled", value: "true" },
   { key: "site.mainPageAutoRefresh", value: "true" },
   { key: "site.mainPageRefreshInterval", value: "60" },
 ];
@@ -99,6 +101,30 @@ const noticeSamples = [
     content: "합격발표: 2026.3.20(금) 17:00",
     isActive: true,
     priority: 1,
+  },
+];
+
+const faqSamples = [
+  {
+    question: "응시자 정보(직렬, 지역, 가산점) 입력을 잘못했는데 수정이 가능한가요?",
+    answer:
+      "답안 제출 전에는 입력 화면에서 수정할 수 있습니다. 제출 후에는 결과 화면의 답안 수정 기능(관리자 설정 제한 내)으로 수정 가능합니다.",
+    isActive: true,
+    priority: 100,
+  },
+  {
+    question: "채점하기에서 마킹을 잘못했는데 수정이 가능한가요?",
+    answer:
+      "가능합니다. 제출 이후 결과 화면에서 답안 수정 버튼을 눌러 다시 제출하면 최신 답안으로 재채점됩니다.",
+    isActive: true,
+    priority: 90,
+  },
+  {
+    question: "합격예측은 필기합격, 최종합격 중 어떤 기준인가요?",
+    answer:
+      "본 서비스의 합격예측은 필기시험 기준 참고 지표입니다. 최종 합격 여부는 체력·면접·신원조회 등 공식 전형 결과를 확인해야 합니다.",
+    isActive: true,
+    priority: 80,
   },
 ];
 
@@ -190,6 +216,26 @@ async function main() {
       });
     } else {
       await prisma.notice.create({ data: notice });
+    }
+  }
+
+  for (const faq of faqSamples) {
+    const existingFaq = await prisma.faq.findFirst({
+      where: { question: faq.question },
+      select: { id: true },
+    });
+
+    if (existingFaq) {
+      await prisma.faq.update({
+        where: { id: existingFaq.id },
+        data: {
+          answer: faq.answer,
+          isActive: faq.isActive,
+          priority: faq.priority,
+        },
+      });
+    } else {
+      await prisma.faq.create({ data: faq });
     }
   }
 

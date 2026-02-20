@@ -16,13 +16,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "유효한 examId가 필요합니다." }, { status: 400 });
     }
 
-    const rescoredCount = await rescoreExam(examId);
+    const rescoreResult = await rescoreExam(examId);
 
     return NextResponse.json({
       success: true,
       examId,
-      rescoredCount,
-      message: `${rescoredCount}건의 제출 데이터 재채점이 완료되었습니다.`,
+      rescoredCount: rescoreResult.rescoredCount,
+      rescoreEventId: rescoreResult.rescoreEventId,
+      scoreChanges: rescoreResult.scoreChanges,
+      message: `${rescoreResult.rescoredCount}건의 제출 데이터 재채점이 완료되었습니다.`,
     });
   } catch (error) {
     console.error("재채점 처리 중 오류가 발생했습니다.", error);

@@ -6,14 +6,16 @@ export type SiteSettingKey =
   | "site.footerDisclaimer"
   | "site.bannerImageUrl"
   | "site.bannerLink"
+  | "site.careerExamEnabled"
   | "site.maintenanceMode"
   | "site.maintenanceMessage"
   | "site.mainPageAutoRefresh"
-  | "site.mainPageRefreshInterval";
+  | "site.mainPageRefreshInterval"
+  | "site.submissionEditLimit";
 
-export type SiteSettingValueType = "string" | "nullable-string" | "boolean";
+export type SiteSettingValueType = "string" | "nullable-string" | "boolean" | "number";
 
-export type SiteSettingsMap = Record<SiteSettingKey, string | boolean | null>;
+export type SiteSettingsMap = Record<SiteSettingKey, string | boolean | number | null>;
 
 export const SITE_SETTING_TYPES: Record<SiteSettingKey, SiteSettingValueType> = {
   "site.title": "string",
@@ -23,10 +25,12 @@ export const SITE_SETTING_TYPES: Record<SiteSettingKey, SiteSettingValueType> = 
   "site.footerDisclaimer": "string",
   "site.bannerImageUrl": "nullable-string",
   "site.bannerLink": "nullable-string",
+  "site.careerExamEnabled": "boolean",
   "site.maintenanceMode": "boolean",
   "site.maintenanceMessage": "string",
   "site.mainPageAutoRefresh": "boolean",
   "site.mainPageRefreshInterval": "string",
+  "site.submissionEditLimit": "number",
 };
 
 export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
@@ -39,8 +43,10 @@ export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
     "면책조항: 본 서비스는 수험생의 자기 점검을 위한 참고용 분석 도구이며, 실제 합격 여부를 보장하지 않습니다. 최종 선발 결과는 경찰청 및 지역청 공식 공고를 반드시 확인해 주세요.",
   "site.bannerImageUrl": null,
   "site.bannerLink": null,
+  "site.careerExamEnabled": true,
   "site.maintenanceMode": false,
   "site.maintenanceMessage": "시스템 점검 중입니다.",
   "site.mainPageAutoRefresh": true,
   "site.mainPageRefreshInterval": "60",
+  "site.submissionEditLimit": 3,
 };

@@ -12,12 +12,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import AnswerSheet from "@/components/result/AnswerSheet";
+import CorrectRateChart from "@/components/result/CorrectRateChart";
+import ShareButton from "@/components/share/ShareButton";
 import { useToast } from "@/components/providers/ToastProvider";
 import { Button } from "@/components/ui/button";
 
 interface ResultResponse {
   submission: {
     id: number;
+    isOwner: boolean;
     examId: number;
     examName: string;
     examYear: number;
@@ -32,6 +36,8 @@ interface ResultResponse {
     bonusType: "NONE" | "VETERAN_5" | "VETERAN_10" | "HERO_3" | "HERO_5";
     bonusRate: number;
     createdAt: string;
+    editCount: number;
+    maxEditLimit: number;
   };
   scores: Array<{
     subjectId: number;
@@ -48,6 +54,26 @@ interface ResultResponse {
     rank: number;
     percentile: number;
     totalParticipants: number;
+    difficulty: "VERY_EASY" | "EASY" | "NORMAL" | "HARD" | "VERY_HARD" | null;
+    answers: Array<{
+      questionNumber: number;
+      selectedAnswer: number;
+      isCorrect: boolean;
+      correctAnswer: number | null;
+      correctRate: number;
+      difficultyLevel: "EASY" | "NORMAL" | "HARD" | "VERY_HARD";
+    }>;
+  }>;
+  subjectCorrectRateSummaries: Array<{
+    subjectId: number;
+    subjectName: string;
+    averageCorrectRate: number;
+    hardestQuestion: number | null;
+    hardestRate: number | null;
+    easiestQuestion: number | null;
+    easiestRate: number | null;
+    myCorrectOnHard: number;
+    myWrongOnEasy: number;
   }>;
   statistics: {
     totalParticipants: number;
@@ -85,9 +111,7 @@ function formatBonusType(type: ResultResponse["submission"]["bonusType"]): strin
 }
 
 function formatRankingBasis(basis: ResultResponse["statistics"]["rankingBasis"]): string {
-  if (basis === "NON_CUTOFF_PARTICIPANTS") {
-    return "과락 미해당자 기준";
-  }
+  if (basis === "NON_CUTOFF_PARTICIPANTS") return "과락 미해당자 기준";
   return "전체 참여자 기준";
 }
 
@@ -101,11 +125,12 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    let isMounted = true;
+    let mounted = true;
 
     async function loadResult() {
       setIsLoading(true);
       setErrorMessage("");
+
       try {
         const fromQuery = searchParams.get("submissionId");
         const fromStorage =
@@ -122,6 +147,7 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
         if (!response.ok) {
           if (response.status === 404) {
             if (embedded) {
+              if (!mounted) return;
               setResult(null);
               setErrorMessage("아직 제출된 성적이 없습니다. 먼저 OMR 답안을 제출해 주세요.");
             } else {
@@ -129,19 +155,22 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
             }
             return;
           }
+
           throw new Error(data.error ?? "성적 정보를 불러오지 못했습니다.");
         }
 
-        if (!isMounted) return;
+        if (!mounted) return;
         setResult(data);
-        sessionStorage.setItem("latestSubmissionId", String(data.submission.id));
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("latestSubmissionId", String(data.submission.id));
+        }
       } catch (error) {
-        if (!isMounted) return;
+        if (!mounted) return;
         const message = error instanceof Error ? error.message : "성적 정보를 불러오지 못했습니다.";
         setErrorMessage(message);
         showErrorToast(message);
       } finally {
-        if (isMounted) {
+        if (mounted) {
           setIsLoading(false);
         }
       }
@@ -149,16 +178,25 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
 
     void loadResult();
     return () => {
-      isMounted = false;
+      mounted = false;
     };
   }, [embedded, router, searchParams, showErrorToast]);
 
-  const chartData = useMemo(() => {
+  const scoreChartData = useMemo(() => {
     if (!result) return [];
     return result.scores.map((score) => ({
       subjectName: score.subjectName,
       rawScore: score.rawScore,
-      fill: score.isCutoff ? "#dc2626" : "#2563eb",
+      fill: score.isCutoff ? "#ef4444" : "#2563eb",
+    }));
+  }, [result]);
+
+  const subjectAnswerData = useMemo(() => {
+    if (!result) return [];
+    return result.scores.map((score) => ({
+      subjectId: score.subjectId,
+      subjectName: score.subjectName,
+      answers: score.answers,
     }));
   }, [result]);
 
@@ -189,22 +227,62 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
   return (
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-6">
-        <h1 className="text-lg font-semibold text-slate-900">내 성적 분석</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-lg font-semibold text-slate-900">내 성적 분석</h1>
+          <ShareButton submissionId={result.submission.id} sharePath="/exam/result" />
+        </div>
         <p className="mt-1 text-sm text-slate-600">
           {result.submission.examYear}년 {result.submission.examRound}차 ·{" "}
           {result.submission.examType === "PUBLIC" ? "공채" : "경행경채"} · {result.submission.regionName}
         </p>
         <p className="mt-1 text-xs text-slate-500">응시번호: {result.submission.examNumber ?? "-"}</p>
 
-        <div className="mt-5 h-[320px] w-full">
+        <div className="mt-5 grid gap-3 rounded-xl bg-slate-50 p-4 text-sm sm:grid-cols-4">
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs text-slate-500">원점수</p>
+            <p className="mt-1 text-lg font-bold text-slate-900">{result.submission.totalScore.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs text-slate-500">최종점수</p>
+            <p className="mt-1 text-lg font-bold text-blue-700">{result.submission.finalScore.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs text-slate-500">전체 석차</p>
+            <p className="mt-1 text-lg font-bold text-slate-900">
+              {result.statistics.totalRank} / {result.statistics.totalParticipants}
+            </p>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-white p-3">
+            <p className="text-xs text-slate-500">백분위</p>
+            <p className="mt-1 text-lg font-bold text-slate-900">
+              {result.statistics.totalPercentile.toFixed(1)}%
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 20, right: 12, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="subjectName" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="rawScore" radius={[6, 6, 0, 0]}>
-                {chartData.map((item) => (
+            <BarChart data={scoreChartData} margin={{ top: 20, right: 12, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+              <XAxis
+                dataKey="subjectName"
+                tick={{ fontSize: 12, fill: "#64748b" }}
+                axisLine={{ stroke: "#cbd5e1" }}
+                tickLine={false}
+                tickMargin={10}
+              />
+              <YAxis tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
+              <Tooltip
+                cursor={{ fill: "transparent" }}
+                contentStyle={{
+                  borderRadius: "8px",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 4px 12px rgba(15, 23, 42, 0.08)",
+                }}
+                formatter={(value: unknown) => `${Number(value ?? 0).toFixed(2)}점`}
+              />
+              <Bar dataKey="rawScore" radius={[6, 6, 0, 0]} barSize={90}>
+                {scoreChartData.map((item) => (
                   <Cell key={item.subjectName} fill={item.fill} />
                 ))}
               </Bar>
@@ -215,7 +293,7 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
 
       <section className="rounded-xl border border-slate-200 bg-white p-6">
         <h2 className="text-base font-semibold text-slate-900">상세 분석</h2>
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
           <table className="min-w-[720px] w-full border-collapse text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-700">
@@ -246,16 +324,13 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
                   {result.statistics.totalPercentile.toFixed(1)}%
                 </td>
                 {result.scores.map((score) => (
-                  <td
-                    key={`${score.subjectId}-percentile`}
-                    className="border border-slate-200 px-3 py-2 text-right"
-                  >
+                  <td key={`${score.subjectId}-percentile`} className="border border-slate-200 px-3 py-2 text-right">
                     {score.percentile.toFixed(1)}%
                   </td>
                 ))}
               </tr>
               <tr>
-                <td className="border border-slate-200 px-3 py-2 font-medium text-slate-700">석차/전체인원</td>
+                <td className="border border-slate-200 px-3 py-2 font-medium text-slate-700">석차/참여자</td>
                 <td className="border border-slate-200 px-3 py-2 text-right">
                   {result.statistics.totalRank}/{result.statistics.totalParticipants}
                 </td>
@@ -283,14 +358,12 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
             </tbody>
           </table>
         </div>
-        <p className="mt-3 text-xs text-slate-500">
-          순위 기준: {formatRankingBasis(result.statistics.rankingBasis)}
-        </p>
+        <p className="mt-3 text-xs text-slate-500">순위 기준: {formatRankingBasis(result.statistics.rankingBasis)}</p>
       </section>
 
       {result.statistics.hasCutoff ? (
         <section className="rounded-xl border border-rose-200 bg-rose-50 p-5">
-          <h3 className="text-sm font-semibold text-rose-700">⚠ 과락 과목이 있습니다.</h3>
+          <h3 className="text-sm font-semibold text-rose-700">과락 과목이 있습니다.</h3>
           <div className="mt-2 space-y-1 text-sm text-rose-700">
             {result.statistics.cutoffSubjects.map((subject) => (
               <p key={subject.subjectName}>
@@ -302,21 +375,36 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
         </section>
       ) : null}
 
+      <CorrectRateChart subjects={subjectAnswerData} />
+      <AnswerSheet subjects={subjectAnswerData} summaries={result.subjectCorrectRateSummaries} />
+
       <section className="rounded-xl border border-blue-200 bg-blue-50 p-5">
         <h3 className="text-sm font-semibold text-slate-900">가산점 적용 요약</h3>
         <div className="mt-2 space-y-1 text-sm text-slate-700">
           <p>원점수 합계: {result.submission.totalScore.toFixed(1)}점</p>
           <p>
-            가산점: {formatBonusType(result.submission.bonusType)} ({(result.submission.bonusRate * 100).toFixed(0)}%)
-            → +{result.statistics.bonusScore.toFixed(1)}점
+            가산점: {formatBonusType(result.submission.bonusType)} ({(result.submission.bonusRate * 100).toFixed(0)}
+            %) / +{result.statistics.bonusScore.toFixed(1)}점
           </p>
           <p className="font-semibold text-slate-900">최종점수: {result.submission.finalScore.toFixed(1)}점</p>
         </div>
       </section>
 
       {!embedded ? (
-        <div className="flex justify-end">
-          <Button type="button" variant="outline" onClick={() => router.push("/exam/prediction")}>
+        <div className="mt-8 flex flex-wrap justify-end gap-3">
+          {result.submission.isOwner &&
+          result.submission.editCount < result.submission.maxEditLimit &&
+          result.submission.maxEditLimit > 0 ? (
+            <Button type="button" variant="outline" onClick={() => router.push(`/exam/input?edit=${result.submission.id}`)}>
+              답안 수정 ({result.submission.maxEditLimit - result.submission.editCount}/
+              {result.submission.maxEditLimit}회 남음)
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            className="rounded-none border border-transparent bg-slate-900 text-white shadow-sm hover:bg-slate-800"
+            onClick={() => router.push("/exam/prediction")}
+          >
             합격예측 분석 보기
           </Button>
         </div>

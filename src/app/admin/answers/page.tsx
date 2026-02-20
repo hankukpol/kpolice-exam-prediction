@@ -106,6 +106,7 @@ export default function AdminAnswersPage() {
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
   const [examType, setExamType] = useState<RecruitExamType>(EXAM_TYPE_PUBLIC);
+  const [careerExamEnabled, setCareerExamEnabled] = useState(true);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [subjects, setSubjects] = useState<SubjectItem[]>([]);
   const [answerMap, setAnswerMap] = useState<Record<string, number>>({});
@@ -117,6 +118,7 @@ export default function AdminAnswersPage() {
   const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [historyRows, setHistoryRows] = useState<AnswerLogRow[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [rescoreReason, setRescoreReason] = useState("");
   const [notice, setNotice] = useState<NoticeState>(null);
 
   const expectedAnswerCount = useMemo(
@@ -159,13 +161,18 @@ export default function AdminAnswersPage() {
 
   const loadExamOptions = useCallback(async () => {
     const response = await fetch(ADMIN_EXAM_API, { method: "GET", cache: "no-store" });
-    const data = (await response.json()) as { exams?: ExamItem[]; error?: string };
+    const data = (await response.json()) as {
+      exams?: ExamItem[];
+      careerExamEnabled?: boolean;
+      error?: string;
+    };
 
     if (!response.ok) {
       throw new Error(data.error ?? "시험 목록을 불러오지 못했습니다.");
     }
 
     const examList = data.exams ?? [];
+    setCareerExamEnabled(data.careerExamEnabled ?? true);
     setExams(examList);
     setSelectedExamId((current) => {
       if (current || examList.length === 0) return current;
@@ -269,6 +276,12 @@ export default function AdminAnswersPage() {
       }
     })();
   }, [examType, isConfirmed, loadAnswers, selectedExamId]);
+
+  useEffect(() => {
+    if (!careerExamEnabled && examType === EXAM_TYPE_CAREER) {
+      setExamType(EXAM_TYPE_PUBLIC);
+    }
+  }, [careerExamEnabled, examType]);
 
   function updateAnswer(subjectId: number, questionNumber: number, answer: number) {
     const key = buildAnswerKey(subjectId, questionNumber);
@@ -386,6 +399,7 @@ export default function AdminAnswersPage() {
           examId: selectedExamId,
           examType,
           isConfirmed,
+          reason: rescoreReason.trim() || null,
           answers: rows,
         }),
       });
@@ -453,6 +467,7 @@ export default function AdminAnswersPage() {
       formData.append("examId", String(selectedExamId));
       formData.append("examType", examType);
       formData.append("isConfirmed", String(isConfirmed));
+      formData.append("reason", rescoreReason.trim());
       formData.append("file", csvFile);
 
       const response = await fetch(ADMIN_ANSWERS_API, {
@@ -578,7 +593,9 @@ export default function AdminAnswersPage() {
             onChange={(event) => setExamType(event.target.value as RecruitExamType)}
           >
             <option value={EXAM_TYPE_PUBLIC}>공채 (헌법/형사법/경찰학)</option>
-            <option value={EXAM_TYPE_CAREER}>경행경채 (범죄학/형사법/경찰학)</option>
+            {careerExamEnabled ? (
+              <option value={EXAM_TYPE_CAREER}>경행경채 (범죄학/형사법/경찰학)</option>
+            ) : null}
           </select>
         </div>
 
@@ -612,6 +629,17 @@ export default function AdminAnswersPage() {
       </div>
 
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+        <div className="space-y-2">
+          <Label htmlFor="rescore-reason">재채점 사유 (선택)</Label>
+          <textarea
+            id="rescore-reason"
+            value={rescoreReason}
+            onChange={(event) => setRescoreReason(event.target.value)}
+            className="min-h-20 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            placeholder="예: 헌법 12번 정답 정정, 가답안에서 확정답안으로 변경"
+          />
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-700">
             현재 변경 문항: <span className="font-semibold text-slate-900">{answerDiffRows.length}</span>개
@@ -765,9 +793,11 @@ export default function AdminAnswersPage() {
           <Button type="button" variant="outline" onClick={() => downloadTemplateCsv(EXAM_TYPE_PUBLIC)}>
             공채 양식 다운로드
           </Button>
-          <Button type="button" variant="outline" onClick={() => downloadTemplateCsv(EXAM_TYPE_CAREER)}>
-            경행경채 양식 다운로드
-          </Button>
+          {careerExamEnabled ? (
+            <Button type="button" variant="outline" onClick={() => downloadTemplateCsv(EXAM_TYPE_CAREER)}>
+              경행경채 양식 다운로드
+            </Button>
+          ) : null}
         </div>
 
         <form className="flex flex-col gap-3 md:flex-row md:items-center" onSubmit={uploadCsv}>

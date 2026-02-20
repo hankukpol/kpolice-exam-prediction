@@ -5,10 +5,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   LabelList,
   Legend,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -16,6 +15,7 @@ import {
 } from "recharts";
 
 type ExamType = "PUBLIC" | "CAREER";
+type ScoreDistributionKey = "TOTAL" | "CORE" | "CRIMINAL_LAW" | "POLICE_STUDIES";
 
 interface MainStatsRow {
   regionId: number;
@@ -28,6 +28,9 @@ interface MainStatsRow {
   participantCount: number;
   averageFinalScore: number | null;
   oneMultipleCutScore: number | null;
+  oneMultipleBaseRank: number;
+  oneMultipleActualRank: number | null;
+  oneMultipleTieCount: number | null;
   possibleRange: { min: number | null; max: number | null };
   likelyRange: { min: number | null; max: number | null };
   sureMinScore: number | null;
@@ -57,8 +60,29 @@ interface DifficultyPayload {
   subjects: DifficultySubject[];
 }
 
+interface ScoreDistributionBucket {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  count: number;
+  isFailRange: boolean;
+  isMine: boolean;
+}
+
+interface ScoreDistributionItem {
+  key: ScoreDistributionKey;
+  label: string;
+  maxScore: number;
+  failThreshold: number | null;
+  myScore: number | null;
+  isFail: boolean | null;
+  buckets: ScoreDistributionBucket[];
+}
+
 interface MainStatsResponse {
   updatedAt: string;
+  careerExamEnabled: boolean;
   liveStats: {
     examName: string;
     examYear: number;
@@ -90,14 +114,9 @@ interface MainStatsResponse {
     sureMinScore: number;
     gap: number;
   }>;
-  subjectScoreDistribution: {
-    buckets: string[];
-    series: Array<{
-      subjectId: number;
-      subjectName: string;
-      examType: ExamType;
-      counts: number[];
-    }>;
+  scoreDistributions: {
+    PUBLIC: ScoreDistributionItem[];
+    CAREER: ScoreDistributionItem[];
   };
   refresh: {
     enabled: boolean;
@@ -149,6 +168,33 @@ function normalizePercent(value: number): number {
   return Number(value.toFixed(1));
 }
 
+const REGION_GRID_ORDER = [
+  "강원",
+  "경기남부",
+  "경기북",
+  "경남",
+  "경북",
+  "광주",
+  "대구",
+  "대전",
+  "부산",
+  "서울",
+  "101경비단",
+  "세종",
+  "울산",
+  "인천",
+  "전남",
+  "전북",
+  "충남",
+  "충북",
+  "제주",
+];
+
+function getRegionDisplayOrder(regionName: string): number {
+  const index = REGION_GRID_ORDER.findIndex((keyword) => regionName.includes(keyword));
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
 function CompetitiveChart({
   title,
   data,
@@ -171,21 +217,25 @@ function CompetitiveChart({
   }
 
   return (
-    <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <h4 className="text-sm font-black text-slate-900">{title}</h4>
-      <div className="mt-3 h-[300px]">
+    <article className="rounded-md bg-slate-50 p-5">
+      <h4 className="text-sm font-bold text-slate-800">{title}</h4>
+      <div className="mt-4 h-[280px]">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} layout="vertical" margin={{ top: 6, right: 20, left: 10, bottom: 6 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" />
-            <YAxis type="category" dataKey="label" width={118} tick={{ fontSize: 12 }} />
-            <Tooltip formatter={(value: unknown) => `${Number(value ?? 0).toFixed(2)}점`} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="averageFinalScore" name="실시간 입력자 평균" fill="#9ca3af" radius={[0, 4, 4, 0]}>
-              <LabelList dataKey="averageFinalScore" position="right" formatter={(v: unknown) => Number(v ?? 0).toFixed(2)} />
+          <BarChart data={data} layout="vertical" margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
+            <XAxis type="number" hide />
+            <YAxis type="category" dataKey="label" width={90} tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+            <Tooltip
+              cursor={{ fill: "#f1f5f9" }}
+              contentStyle={{ borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}
+              formatter={(value: unknown) => `${Number(value ?? 0).toFixed(2)}점`}
+            />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: "10px", color: "#64748b" }} iconType="circle" iconSize={8} />
+            <Bar dataKey="averageFinalScore" name="실시간 입력자 평균" fill="#cbd5e1" radius={[0, 4, 4, 0]} barSize={16}>
+              <LabelList dataKey="averageFinalScore" position="right" formatter={(v: unknown) => Number(v ?? 0).toFixed(2)} style={{ fontSize: "11px", fill: "#64748b", fontWeight: 600 }} />
             </Bar>
-            <Bar dataKey="sureMinScore" name="합격확실권 점수" fill="#2563eb" radius={[0, 4, 4, 0]}>
-              <LabelList dataKey="sureMinScore" position="right" formatter={(v: unknown) => Number(v ?? 0).toFixed(2)} />
+            <Bar dataKey="sureMinScore" name="합격확실권 점수" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={16}>
+              <LabelList dataKey="sureMinScore" position="right" formatter={(v: unknown) => Number(v ?? 0).toFixed(2)} style={{ fontSize: "11px", fill: "#3b82f6", fontWeight: 600 }} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -202,6 +252,8 @@ export default function ExamMainOverviewPanel() {
   const [selectedExamType, setSelectedExamType] = useState<ExamType>("PUBLIC");
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null);
   const [difficultySubjectId, setDifficultySubjectId] = useState<number | null>(null);
+  const [selectedScoreDistributionKey, setSelectedScoreDistributionKey] =
+    useState<ScoreDistributionKey>("TOTAL");
 
   async function loadStats(showLoading: boolean) {
     if (showLoading) setIsLoading(true);
@@ -244,6 +296,25 @@ export default function ExamMainOverviewPanel() {
     [data?.rows, selectedExamType]
   );
 
+  const availableExamTypes = useMemo<ExamType[]>(() => {
+    const rows = data?.rows ?? [];
+    const hasPublic = rows.some((row) => row.examType === "PUBLIC");
+    const hasCareer = rows.some((row) => row.examType === "CAREER");
+    const careerEnabled = data?.careerExamEnabled ?? true;
+
+    const next: ExamType[] = [];
+    if (hasPublic) next.push("PUBLIC");
+    if (careerEnabled && hasCareer) next.push("CAREER");
+
+    return next.length > 0 ? next : ["PUBLIC"];
+  }, [data?.careerExamEnabled, data?.rows]);
+
+  useEffect(() => {
+    if (!availableExamTypes.includes(selectedExamType)) {
+      setSelectedExamType(availableExamTypes[0]);
+    }
+  }, [availableExamTypes, selectedExamType]);
+
   const regionOptions = useMemo(() => {
     const map = new Map<number, string>();
     for (const row of rowsByExamType) {
@@ -251,7 +322,14 @@ export default function ExamMainOverviewPanel() {
         map.set(row.regionId, row.regionName);
       }
     }
-    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => {
+        const orderA = getRegionDisplayOrder(a.name);
+        const orderB = getRegionDisplayOrder(b.name);
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name, "ko-KR");
+      });
   }, [rowsByExamType]);
 
   useEffect(() => {
@@ -272,15 +350,48 @@ export default function ExamMainOverviewPanel() {
 
   const isCollecting = selectedRow !== null && selectedRow.participantCount < 10;
 
-  const difficultySubjects = useMemo(() => data?.difficulty?.subjects ?? [], [data?.difficulty?.subjects]);
+  const difficultySubjects = useMemo(() => {
+    const original = data?.difficulty?.subjects ?? [];
+
+    const mergedMap = new Map<string, DifficultySubject>();
+    const others: DifficultySubject[] = [];
+
+    original.forEach(sub => {
+      // 형사법과 경찰학은 직렬(공채, 경채) 구분 없이 공통 과목으로 합산 처리
+      if (sub.subjectName === "형사법" || sub.subjectName === "경찰학") {
+        if (!mergedMap.has(sub.subjectName)) {
+          mergedMap.set(sub.subjectName, {
+            ...sub,
+            subjectId: sub.subjectName === "형사법" ? -100 : -200
+          });
+        } else {
+          const existing = mergedMap.get(sub.subjectName)!;
+          const totalResp = existing.responses + sub.responses;
+          if (totalResp > 0) {
+            existing.veryEasy = (existing.veryEasy * existing.responses + sub.veryEasy * sub.responses) / totalResp;
+            existing.easy = (existing.easy * existing.responses + sub.easy * sub.responses) / totalResp;
+            existing.normal = (existing.normal * existing.responses + sub.normal * sub.responses) / totalResp;
+            existing.hard = (existing.hard * existing.responses + sub.hard * sub.responses) / totalResp;
+            existing.veryHard = (existing.veryHard * existing.responses + sub.veryHard * sub.responses) / totalResp;
+          }
+          existing.responses = totalResp;
+        }
+      } else {
+        others.push(sub);
+      }
+    });
+
+    const mergedSubjects = Array.from(mergedMap.values());
+    return [...others, ...mergedSubjects].sort((a, b) => b.subjectId - a.subjectId);
+  }, [data?.difficulty?.subjects]);
+
   useEffect(() => {
-    if (difficultySubjects.length < 1) {
-      setDifficultySubjectId(null);
-      return;
-    }
-    const exists = difficultySubjects.some((subject) => subject.subjectId === difficultySubjectId);
-    if (!exists) {
-      setDifficultySubjectId(difficultySubjects[0].subjectId);
+    // difficultySubjectId가 null 이 아닐 때만 유효성 검증
+    if (difficultySubjectId !== null) {
+      const exists = difficultySubjects.some((subject) => subject.subjectId === difficultySubjectId);
+      if (!exists) {
+        setDifficultySubjectId(null);
+      }
     }
   }, [difficultySubjects, difficultySubjectId]);
 
@@ -316,21 +427,34 @@ export default function ExamMainOverviewPanel() {
     ];
   }, [difficultySummary]);
 
-  const distributionSeries = useMemo(
-    () => (data?.subjectScoreDistribution.series ?? []).filter((item) => item.examType === selectedExamType),
-    [data?.subjectScoreDistribution.series, selectedExamType]
+  const scoreDistributionItems = useMemo(() => {
+    if (!data) return [];
+    return data.scoreDistributions[selectedExamType] ?? [];
+  }, [data, selectedExamType]);
+
+  useEffect(() => {
+    if (scoreDistributionItems.length < 1) return;
+    const exists = scoreDistributionItems.some(
+      (item) => item.key === selectedScoreDistributionKey
+    );
+    if (!exists) {
+      setSelectedScoreDistributionKey(scoreDistributionItems[0].key);
+    }
+  }, [scoreDistributionItems, selectedScoreDistributionKey]);
+
+  const selectedScoreDistribution = useMemo(
+    () =>
+      scoreDistributionItems.find((item) => item.key === selectedScoreDistributionKey) ??
+      scoreDistributionItems[0] ??
+      null,
+    [scoreDistributionItems, selectedScoreDistributionKey]
   );
 
-  const distributionData = useMemo(() => {
-    const buckets = ["69점 이하", "70~79점", "80~89점", "90점 이상"];
-    return buckets.map((bucket, index) => {
-      const row: Record<string, string | number> = { bucket };
-      for (const series of distributionSeries) {
-        row[`s_${series.subjectId}`] = series.counts[index] ?? 0;
-      }
-      return row;
-    });
-  }, [distributionSeries]);
+  const myScoreBucketLabel = useMemo(
+    () =>
+      selectedScoreDistribution?.buckets.find((bucket) => bucket.isMine)?.label ?? null,
+    [selectedScoreDistribution]
+  );
 
   const competitiveRows = useMemo(() => {
     const base = rowsByExamType
@@ -377,149 +501,168 @@ export default function ExamMainOverviewPanel() {
         </section>
       ) : null}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-900 bg-[radial-gradient(circle_at_top_right,#10257a,#050b31_60%,#02051c)] p-5 text-white">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white p-5 sm:p-6 sm:pb-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <p className="text-2xl font-black tracking-tight">
+          <p className="text-xl font-bold tracking-tight text-police-600">
             {data.liveStats.examYear}.{String(data.liveStats.examRound).padStart(2, "0")} 시행
           </p>
-          <p className="text-xs text-emerald-300">UPDATE {formatDateTime(data.updatedAt)}</p>
+          <p className="text-xs font-semibold text-slate-400">UPDATE {formatDateTime(data.updatedAt)}</p>
         </div>
-        <h2 className="mt-5 text-2xl font-black">직렬별 실시간 합격예측 분석</h2>
+        <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">직렬별 실시간 합격예측 분석</h2>
 
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <div className="overflow-hidden rounded-xl border border-white/20 bg-black/20">
+        <div className="mt-6 inline-flex gap-1 rounded-md bg-slate-100 p-1">
+          {availableExamTypes.map((examType) => {
+            const active = selectedExamType === examType;
+            return (
+              <button
+                key={examType}
+                type="button"
+                onClick={() => setSelectedExamType(examType)}
+                className={`rounded-md px-6 py-2 text-sm font-bold transition ${active
+                  ? "bg-white text-police-600 border border-slate-200/50"
+                  : "text-slate-500 hover:text-slate-700"
+                  }`}
+              >
+                {examType === "PUBLIC" ? "공채" : "경행경채"}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-5">
+          <p className="text-sm font-bold text-slate-800">지역 선택</p>
+          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+            {regionOptions.map((region) => {
+              const active = region.id === selectedRegionId;
+              return (
+                <button
+                  key={region.id}
+                  type="button"
+                  className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${active
+                    ? "border-police-600 bg-police-600 text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                    }`}
+                  onClick={() => setSelectedRegionId(region.id)}
+                >
+                  {region.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <p className="mt-6 text-sm font-bold text-police-600">
+          {selectedRow ? `${getExamTypeLabel(selectedExamType)} : ${selectedRow.regionName}` : "지역을 선택해 주세요."}
+        </p>
+
+        <div className="mt-3 grid gap-4 xl:grid-cols-2">
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
             <table className="w-full border-collapse text-sm">
-              <tbody>
-                <tr>
-                  <th className="w-[180px] border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">
+              <tbody className="divide-y divide-slate-200">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
                     지역-직렬
                   </th>
-                  <td className="border border-white/20 px-3 py-2 font-bold">
+                  <td className="px-4 py-3.5 font-bold text-slate-900">
                     {selectedRow ? `${selectedRow.regionName}-${getExamTypeLabel(selectedRow.examType)}` : "-"}
                   </td>
                 </tr>
-                <tr>
-                  <th className="border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">선발인원</th>
-                  <td className="border border-white/20 px-3 py-2">{selectedRow ? `${selectedRow.recruitCount.toLocaleString("ko-KR")}명` : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">선발인원</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow ? `${selectedRow.recruitCount.toLocaleString("ko-KR")}명` : "-"}
+                  </td>
                 </tr>
-                <tr>
-                  <th className="border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">접수인원</th>
-                  <td className="border border-white/20 px-3 py-2">{selectedRow ? `${selectedRow.estimatedApplicants.toLocaleString("ko-KR")}명` : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">접수인원</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow ? `${selectedRow.estimatedApplicants.toLocaleString("ko-KR")}명` : "-"}
+                  </td>
                 </tr>
-                <tr>
-                  <th className="border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">경쟁률</th>
-                  <td className="border border-white/20 px-3 py-2">{selectedRow ? formatCompetition(selectedRow.competitionRate) : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">경쟁률</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow ? formatCompetition(selectedRow.competitionRate) : "-"}
+                  </td>
                 </tr>
-                <tr>
-                  <th className="border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">실시간 평균점수</th>
-                  <td className="border border-white/20 px-3 py-2">{selectedRow ? (isCollecting ? "데이터 수집 중" : formatScore(selectedRow.averageFinalScore)) : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">실시간 참여인원</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow ? `${selectedRow.participantCount.toLocaleString("ko-KR")}명` : "-"}
+                  </td>
                 </tr>
-                <tr>
-                  <th className="border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">합격가능권</th>
-                  <td className="border border-white/20 px-3 py-2">{selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.possibleRange)) : "-"}</td>
-                </tr>
-                <tr>
-                  <th className="border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">합격유력권</th>
-                  <td className="border border-white/20 px-3 py-2">{selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.likelyRange)) : "-"}</td>
-                </tr>
-                <tr>
-                  <th className="border border-white/20 bg-black/30 px-3 py-2 text-left text-emerald-300">합격확실권</th>
-                  <td className="border border-white/20 px-3 py-2">{selectedRow ? (isCollecting ? "데이터 수집 중" : `${formatScore(selectedRow.sureMinScore).replace("점", "")}점 이상`) : "-"}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div className="rounded-xl border border-white/20 bg-black/20 p-4">
-            <p className="text-xs text-white/70">지역 선택</p>
-            <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-4">
-              {regionOptions.map((region) => {
-                const active = region.id === selectedRegionId;
-                return (
-                  <button
-                    key={region.id}
-                    type="button"
-                    className={`rounded-full border px-2 py-2 text-xs font-semibold transition ${
-                      active
-                        ? "border-emerald-300 bg-emerald-500/20 text-emerald-200"
-                        : "border-white/30 bg-white/5 text-white/80 hover:bg-white/15"
-                    }`}
-                    onClick={() => setSelectedRegionId(region.id)}
-                  >
-                    {region.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <h3 className="text-xl font-black text-slate-900">
-            직렬별 <span className="text-emerald-600">실시간</span> 합격예측 분석
-          </h3>
-          <div className="w-full max-w-md">
-            <select
-              className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm"
-              value={selectedRegionId === null ? "" : String(selectedRegionId)}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                setSelectedRegionId(Number.isFinite(next) ? next : null);
-              }}
-            >
-              {regionOptions.map((region) => (
-                <option key={region.id} value={region.id}>
-                  {getExamTypeLabel(selectedExamType)} : {region.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <table className="w-full border-collapse text-sm">
-              <tbody>
-                <tr>
-                  <th className="w-[180px] border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">합격가능권</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.possibleRange)) : "-"}</td>
-                </tr>
-                <tr>
-                  <th className="border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">합격유력권</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.likelyRange)) : "-"}</td>
-                </tr>
-                <tr>
-                  <th className="border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">합격확실권</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? (isCollecting ? "데이터 수집 중" : `${formatScore(selectedRow.sureMinScore).replace("점", "")}점 이상`) : "-"}</td>
-                </tr>
-                <tr>
-                  <th className="border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">1배수 입력자 컷</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? (isCollecting ? "데이터 수집 중" : formatScore(selectedRow.oneMultipleCutScore)) : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
+                    실시간 평균점수
+                  </th>
+                  <td className="px-4 py-3.5 font-bold text-police-700">
+                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatScore(selectedRow.averageFinalScore)) : "-"}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-slate-200">
+          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
             <table className="w-full border-collapse text-sm">
-              <tbody>
-                <tr>
-                  <th className="w-[180px] border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">실시간 평균점수</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? (isCollecting ? "데이터 수집 중" : formatScore(selectedRow.averageFinalScore)) : "-"}</td>
+              <tbody className="divide-y divide-slate-200">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격가능권</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.possibleRange)) : "-"}
+                  </td>
                 </tr>
-                <tr>
-                  <th className="border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">선발인원</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? `${selectedRow.recruitCount.toLocaleString("ko-KR")}명` : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">합격유력권</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.likelyRange)) : "-"}
+                  </td>
                 </tr>
-                <tr>
-                  <th className="border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">접수인원</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? `${selectedRow.estimatedApplicants.toLocaleString("ko-KR")}명` : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">합격확실권</th>
+                  <td className="px-4 py-3.5 font-bold text-police-700">
+                    {selectedRow
+                      ? isCollecting
+                        ? "데이터 수집 중"
+                        : `${formatScore(selectedRow.sureMinScore).replace("점", "")}점 이상`
+                      : "-"}
+                  </td>
                 </tr>
-                <tr>
-                  <th className="border border-slate-200 bg-slate-100 px-3 py-3 text-center text-slate-700">경쟁률</th>
-                  <td className="border border-slate-200 px-3 py-3">{selectedRow ? formatCompetition(selectedRow.competitionRate) : "-"}</td>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
+                    1배수 컷 점수
+                  </th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatScore(selectedRow.oneMultipleCutScore)) : "-"}
+                  </td>
+                </tr>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
+                    실제 1배수 끝등수
+                  </th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow
+                      ? isCollecting
+                        ? "데이터 수집 중"
+                        : selectedRow.oneMultipleActualRank === null
+                          ? "-"
+                          : `${selectedRow.oneMultipleActualRank.toLocaleString("ko-KR")}등 (기준 ${selectedRow.oneMultipleBaseRank.toLocaleString("ko-KR")}등)`
+                      : "-"}
+                  </td>
+                </tr>
+                <tr className="divide-x divide-slate-200">
+                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
+                    1배수 동점 인원
+                  </th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                    {selectedRow
+                      ? isCollecting
+                        ? "데이터 수집 중"
+                        : selectedRow.oneMultipleTieCount === null
+                          ? "-"
+                          : `${selectedRow.oneMultipleTieCount.toLocaleString("ko-KR")}명`
+                      : "-"}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -527,44 +670,54 @@ export default function ExamMainOverviewPanel() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <h3 className="text-2xl font-black text-slate-900">
-          과목별 체감난이도 <span className="text-emerald-600">설문 결과</span>
+      <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
+        <h3 className="text-xl font-bold tracking-tight text-slate-900">
+          과목별 체감난이도 <span className="text-police-600">설문 결과</span>
         </h3>
 
-        <div className="mt-4 rounded-lg border border-slate-200 p-4">
+        <div className="mt-5 rounded-md bg-slate-50 p-4 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="text-sm font-semibold text-slate-700">
+            <label className="text-sm font-bold text-slate-700">
               과목 선택
               <select
                 className="ml-3 h-10 min-w-[180px] rounded-md border border-slate-300 px-3 text-sm"
                 value={difficultySubjectId ?? ""}
                 onChange={(event) => {
-                  const next = Number(event.target.value);
-                  setDifficultySubjectId(Number.isFinite(next) ? next : null);
+                  const val = event.target.value;
+                  if (val === "") {
+                    setDifficultySubjectId(null);
+                  } else {
+                    const next = Number(val);
+                    setDifficultySubjectId(Number.isFinite(next) ? next : null);
+                  }
                 }}
               >
+                <option value="">전체 과목 (평균)</option>
                 {difficultySubjects.map((subject) => (
                   <option key={subject.subjectId} value={subject.subjectId}>
-                    {subject.subjectName} ({getExamTypeLabel(subject.examType)})
+                    {subject.subjectName} {subject.subjectId < 0 ? "(공통)" : `(${getExamTypeLabel(subject.examType)})`}
                   </option>
                 ))}
               </select>
             </label>
-            <div className="rounded-full bg-slate-700 px-6 py-2 text-center text-sm font-bold text-white">
-              {difficultySubjects.find((item) => item.subjectId === difficultySubjectId)?.subjectName ?? "전체"}
+            <div className="rounded-md bg-slate-800 px-5 py-2 text-center text-sm font-bold text-white">
+              {difficultySubjects.find((item) => item.subjectId === difficultySubjectId)?.subjectName ?? "전체 과목 (평균)"}
             </div>
           </div>
 
-          <div className="mt-5 h-[340px]">
+          <div className="mt-8 h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={difficultyChartData} margin={{ top: 10, right: 16, left: 6, bottom: 8 }}>
-                <CartesianGrid stroke="#fecaca" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
-                <Tooltip formatter={(value: unknown) => `${Number(value ?? 0).toFixed(1)}%`} />
-                <Bar dataKey="value" fill="#ef4444" radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey="value" position="top" formatter={(v: unknown) => `${Number(v ?? 0).toFixed(1)}%`} />
+              <BarChart data={difficultyChartData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} dy={10} />
+                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ fill: "#f1f5f9" }}
+                  contentStyle={{ borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}
+                  formatter={(value: unknown) => `${Number(value ?? 0).toFixed(1)}%`}
+                />
+                <Bar dataKey="value" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                  <LabelList dataKey="value" position="top" formatter={(v: unknown) => `${Number(v ?? 0).toFixed(1)}%`} style={{ fontSize: "12px", fill: "#64748b", fontWeight: 600 }} dy={-4} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -572,38 +725,115 @@ export default function ExamMainOverviewPanel() {
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <h3 className="text-base font-black text-slate-900">실시간 최대/최소 경쟁 예상지역 TOP5</h3>
-        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
+        <h3 className="text-xl font-bold tracking-tight text-slate-900">실시간 최대/최소 경쟁 예상지역 TOP5</h3>
+        <div className="mt-5 grid gap-4 xl:grid-cols-2">
           <CompetitiveChart title="실시간 최대 경쟁 예상지역 TOP5" data={competitiveRows.top} />
           <CompetitiveChart title="실시간 최소 경쟁 예상지역 TOP5" data={competitiveRows.least} />
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
-        <h3 className="text-base font-black text-slate-900">필수과목: 채점자 성적 분포</h3>
-        {distributionSeries.length > 0 ? (
-          <div className="mt-4 h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={distributionData} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="bucket" />
-                <YAxis allowDecimals={false} />
-                <Tooltip formatter={(value: unknown) => `${Number(value ?? 0).toLocaleString("ko-KR")}명`} />
-                <Legend />
-                {distributionSeries.map((series, index) => (
-                  <Line
-                    key={series.subjectId}
-                    type="monotone"
-                    dataKey={`s_${series.subjectId}`}
-                    name={series.subjectName}
-                    stroke={["#f97316", "#eab308", "#2563eb", "#10b981", "#ef4444"][index % 5]}
-                    strokeWidth={2.4}
-                    dot={{ r: 4 }}
+      <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
+        <h3 className="text-xl font-bold tracking-tight text-slate-900">채점자 성적분포도</h3>
+        {scoreDistributionItems.length > 0 && selectedScoreDistribution ? (
+          <div className="mt-5 rounded-md bg-slate-50 p-4 sm:p-6">
+            <div className="flex flex-wrap gap-2">
+              {scoreDistributionItems.map((item) => {
+                const active = item.key === selectedScoreDistribution.key;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition ${active
+                        ? "border-police-700 bg-police-700 text-white"
+                        : "border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-700"
+                      }`}
+                    onClick={() => setSelectedScoreDistributionKey(item.key)}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-600 sm:text-sm">
+              <span className="rounded-full bg-white px-3 py-1">만점 {selectedScoreDistribution.maxScore}점</span>
+              {selectedScoreDistribution.failThreshold !== null ? (
+                <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">
+                  과락 {selectedScoreDistribution.failThreshold}점 미만
+                </span>
+              ) : null}
+              <span className="rounded-full bg-white px-3 py-1">
+                내 점수{" "}
+                {selectedScoreDistribution.myScore === null
+                  ? "-"
+                  : `${selectedScoreDistribution.myScore.toFixed(1)}점`}
+              </span>
+              {selectedScoreDistribution.failThreshold !== null && selectedScoreDistribution.isFail !== null ? (
+                <span
+                  className={`rounded-full px-3 py-1 ${selectedScoreDistribution.isFail
+                      ? "bg-rose-100 text-rose-700"
+                      : "bg-emerald-100 text-emerald-700"
+                    }`}
+                >
+                  {selectedScoreDistribution.isFail ? "내 상태: 과락" : "내 상태: 통과"}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="mt-6 h-[320px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={selectedScoreDistribution.buckets}
+                  margin={{ top: 16, right: 8, left: -12, bottom: 8 }}
+                >
+                  <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    axisLine={false}
+                    tickLine={false}
+                    dy={8}
                   />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 11, fill: "#94a3b8" }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{ borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}
+                    formatter={(value: unknown) => `${Number(value ?? 0).toLocaleString("ko-KR")}명`}
+                  />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={42}>
+                    {selectedScoreDistribution.buckets.map((bucket) => {
+                      const color = bucket.isMine
+                        ? "#1d4ed8"
+                        : bucket.isFailRange
+                          ? "#ef4444"
+                          : "#0ea5e9";
+                      return <Cell key={bucket.key} fill={color} />;
+                    })}
+                    <LabelList
+                      dataKey="count"
+                      position="top"
+                      formatter={(value: unknown) => Number(value ?? 0).toLocaleString("ko-KR")}
+                      style={{ fontSize: "11px", fill: "#64748b", fontWeight: 600 }}
+                    />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              {selectedScoreDistribution.failThreshold !== null ? (
+                <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">빨강: 과락 구간</span>
+              ) : null}
+              <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">파랑: 내 위치</span>
+              <span className="rounded-full bg-white px-3 py-1">
+                {myScoreBucketLabel ? `내 위치 구간: ${myScoreBucketLabel}` : "내 점수 데이터 없음"}
+              </span>
+            </div>
           </div>
         ) : (
           <p className="mt-3 text-sm text-slate-500">표시할 성적 분포 데이터가 없습니다.</p>

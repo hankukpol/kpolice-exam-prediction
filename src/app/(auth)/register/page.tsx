@@ -12,8 +12,9 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { normalizePhone, validateRegisterInput } from "@/lib/validations";
 
 interface RegisterResponse {
-  message?: string;
+  error?: string;
   errors?: string[];
+  message?: string;
 }
 
 export default function RegisterPage() {
@@ -58,7 +59,7 @@ export default function RegisterPage() {
       const data = (await response.json()) as RegisterResponse;
 
       if (!response.ok) {
-        const message = data.message ?? "회원가입 처리 중 오류가 발생했습니다.";
+        const message = data.error ?? "회원가입 처리 중 오류가 발생했습니다.";
         setErrorMessage(message);
         showErrorToast(message);
         return;

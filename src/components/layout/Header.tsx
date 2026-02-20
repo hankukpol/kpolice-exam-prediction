@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
+import NotificationBell from "@/components/layout/NotificationBell";
 import { Button } from "@/components/ui/button";
 
 interface SiteSettingsResponse {
@@ -13,7 +14,7 @@ interface SiteSettingsResponse {
 
 export default function Header() {
   const { data: session, status } = useSession();
-  const [siteTitle, setSiteTitle] = useState("경찰 필기 합격예측");
+  const [siteTitle, setSiteTitle] = useState("한국경찰학원 합격 예측 서비스");
 
   useEffect(() => {
     (async () => {
@@ -31,8 +32,8 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="border-b border-slate-800 bg-black text-white">
-      <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-3 px-4 py-2">
+    <header className="border-b border-police-600 bg-police-600 text-white">
+      <div className="mx-auto flex min-h-16 w-full max-w-[1200px] items-center justify-between gap-3 px-4 py-2">
         <Link href="/" className="text-base font-black tracking-tight text-white sm:text-lg">
           {siteTitle}
         </Link>
@@ -45,6 +46,7 @@ export default function Header() {
               <p className="font-medium">{session.user.name}</p>
               <p>{session.user.phone}</p>
             </div>
+            <NotificationBell />
             <Button
               variant="outline"
               size="sm"

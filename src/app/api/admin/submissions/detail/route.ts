@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 
+function maskPhone(phone: string): string {
+  // "01012345678" → "010****5678", "010-1234-5678" → "010-****-5678"
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 8) return "***";
+  return digits.slice(0, 3) + "****" + digits.slice(-4);
+}
+
 export const runtime = "nodejs";
 
 function parsePositiveInt(value: string | null): number | null {
@@ -100,7 +107,7 @@ export async function GET(request: NextRequest) {
         examRound: submission.exam.round,
         userId: submission.userId,
         userName: submission.user.name,
-        userPhone: submission.user.phone,
+        userPhone: maskPhone(submission.user.phone),
         regionId: submission.regionId,
         regionName: submission.region.name,
         examType: submission.examType,

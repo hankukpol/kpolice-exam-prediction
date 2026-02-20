@@ -1,7 +1,6 @@
 import { ExamType } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import BannerImage from "@/components/landing/BannerImage";
-import DifficultyPanel from "@/components/landing/DifficultyPanel";
 import EventCard from "@/components/landing/EventCard";
 import ExamFunctionArea from "@/components/landing/ExamFunctionArea";
 import HeroFallback from "@/components/landing/HeroFallback";
@@ -9,7 +8,6 @@ import LiveStatsCounter, { type LandingLiveStats } from "@/components/landing/Li
 import NoticeBar from "@/components/landing/NoticeBar";
 import { authOptions } from "@/lib/auth";
 import { getActiveBanners, groupBannersByZone } from "@/lib/banners";
-import { getDifficultyStats } from "@/lib/difficulty";
 import { getActiveEvents } from "@/lib/events";
 import { prisma } from "@/lib/prisma";
 import { getActiveNotices, getSiteSettings } from "@/lib/site-settings";
@@ -87,12 +85,12 @@ async function getHasSubmission(userId: number): Promise<boolean> {
   const submissionCount = await prisma.submission.count({
     where: activeExam
       ? {
-          userId,
-          examId: activeExam.id,
-        }
+        userId,
+        examId: activeExam.id,
+      }
       : {
-          userId,
-        },
+        userId,
+      },
   });
 
   return submissionCount > 0;
@@ -102,15 +100,15 @@ export default async function HomePage() {
   const session = await getServerSession(authOptions);
   const userId = Number(session?.user?.id ?? 0);
   const isLoggedIn = Boolean(session?.user && Number.isInteger(userId) && userId > 0);
+  const isAdmin = session?.user?.role === "ADMIN";
 
-  const [liveStats, siteSettings, activeNotices, activeBanners, activeEvents, difficultyStats, hasSubmission] =
+  const [liveStats, siteSettings, activeNotices, activeBanners, activeEvents, hasSubmission] =
     await Promise.all([
       getLiveStats(),
       getSiteSettings(),
       getActiveNotices(),
       getActiveBanners(),
       getActiveEvents(),
-      getDifficultyStats(),
       isLoggedIn ? getHasSubmission(userId) : Promise.resolve(false),
     ]);
 
@@ -118,31 +116,34 @@ export default async function HomePage() {
   const heroBanner = bannersByZone.hero[0] ?? null;
   const heroSubBanners = bannersByZone.hero.slice(1);
   const heroBadge = String(siteSettings["site.heroBadge"] ?? "2026년 경찰 1차 필기시험 합격예측");
+  const careerExamEnabled = Boolean(siteSettings["site.careerExamEnabled"] ?? true);
   const heroTitle = String(
     siteSettings["site.heroTitle"] ?? "OMR 입력부터 합격권 예측까지\n한 번에 확인하세요."
   );
   const heroSubtitle = String(
     siteSettings["site.heroSubtitle"] ??
-      "응시정보와 OMR 답안을 입력하면 과목별 분석, 석차, 배수 위치, 합격권 등급을 실시간으로 제공합니다."
+    "응시정보와 OMR 답안을 입력하면 과목별 분석, 석차, 배수 위치, 합격권 등급을 실시간으로 제공합니다."
   );
 
   return (
-    <main className="pb-16">
-      <section className="relative overflow-hidden bg-[linear-gradient(180deg,#090909_0%,#8a0000_45%,#d90b0b_72%,#f3f4f6_100%)] pb-10 pt-8 sm:pt-10">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4">
-          {heroBanner ? (
-            <BannerImage
-              banner={heroBanner}
-              className="h-auto w-full rounded-[30px] border border-black/20 object-cover shadow-[0_24px_70px_-22px_rgba(0,0,0,0.85)]"
-            />
-          ) : (
+    <main>
+      <section className="relative overflow-hidden bg-[linear-gradient(180deg,#0a2540_0%,#1d4ed8_45%,#2563eb_72%,#f3f4f6_100%)] pb-10 pt-0">
+        {heroBanner ? (
+          <div className="w-full">
+            <BannerImage banner={heroBanner} fullWidth={true} />
+          </div>
+        ) : (
+          <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 pt-8 sm:pt-10">
             <HeroFallback
               badge={heroBadge}
               title={heroTitle}
               subtitle={heroSubtitle}
               isLoggedIn={isLoggedIn}
             />
-          )}
+          </div>
+        )}
+
+        <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 mt-8 sm:mt-10">
 
           {heroSubBanners.length > 0 ? (
             <div className="grid gap-3 md:grid-cols-2">
@@ -156,35 +157,39 @@ export default async function HomePage() {
             </div>
           ) : null}
 
-          <LiveStatsCounter stats={liveStats} />
+          <LiveStatsCounter stats={liveStats} careerExamEnabled={careerExamEnabled} />
           <NoticeBar notices={activeNotices} />
-          <ExamFunctionArea isAuthenticated={isLoggedIn} hasSubmission={hasSubmission} />
+          <ExamFunctionArea
+            isAuthenticated={isLoggedIn}
+            hasSubmission={hasSubmission}
+            isAdmin={isAdmin}
+          />
         </div>
       </section>
 
-      <section className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 pt-8">
-        {difficultyStats && difficultyStats.totalResponses > 0 ? (
-          <DifficultyPanel difficulty={difficultyStats} />
-        ) : null}
+      {bannersByZone.middle.length > 0 ? (
+        <section className="flex w-full flex-col">
+          {bannersByZone.middle.map((banner) => (
+            <BannerImage key={`middle-${banner.id}`} banner={banner} fullWidth={true} />
+          ))}
+        </section>
+      ) : null}
 
-        {bannersByZone.middle.length > 0 ? (
-          <div className="space-y-4">
-            {bannersByZone.middle.map((banner) => (
-              <BannerImage key={`middle-${banner.id}`} banner={banner} />
-            ))}
-          </div>
-        ) : null}
+      {activeEvents.length > 0 ? (
+        <section className="flex w-full flex-col">
+          {activeEvents.map((event) => (
+            <EventCard key={event.id} event={event} fullWidth={true} />
+          ))}
+        </section>
+      ) : null}
 
-        {activeEvents.length > 0 ? activeEvents.map((event) => <EventCard key={event.id} event={event} />) : null}
-
-        {bannersByZone.bottom.length > 0 ? (
-          <div className="space-y-4">
-            {bannersByZone.bottom.map((banner) => (
-              <BannerImage key={`bottom-${banner.id}`} banner={banner} />
-            ))}
-          </div>
-        ) : null}
-      </section>
+      {bannersByZone.bottom.length > 0 ? (
+        <section className="flex w-full flex-col">
+          {bannersByZone.bottom.map((banner) => (
+            <BannerImage key={`bottom-${banner.id}`} banner={banner} fullWidth={true} />
+          ))}
+        </section>
+      ) : null}
     </main>
   );
 }
