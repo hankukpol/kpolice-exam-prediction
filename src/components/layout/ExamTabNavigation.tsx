@@ -33,22 +33,23 @@ export default function ExamTabNavigation({ hasSubmission }: ExamTabNavigationPr
   const pathname = usePathname();
 
   const tabs: TabItem[] = [
-    { href: "/exam/input", label: "응시정보 입력", disabled: false },
+    { href: "/exam/main", label: "풀서비스 메인", disabled: false },
+    { href: "/exam/input", label: "빠른 채점 서비스", disabled: false },
     {
       href: "/exam/result",
-      label: "내 성적 분석",
+      label: "채점결과 분석",
       disabled: !hasSubmission,
       tooltip: "답안을 먼저 제출해주세요.",
     },
     {
       href: "/exam/prediction",
-      label: "합격 컷/경쟁자 정보",
+      label: "합격예측 분석",
       disabled: !hasSubmission,
       tooltip: "답안을 먼저 제출해주세요.",
     },
     {
       href: "/exam/comments",
-      label: "실시간 댓글",
+      label: "댓글",
       disabled: !hasSubmission,
       tooltip: "답안을 먼저 제출해주세요.",
     },

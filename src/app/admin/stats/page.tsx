@@ -55,10 +55,14 @@ interface DifficultySubjectStat {
   subjectName: string;
   examType: "PUBLIC" | "CAREER";
   responses: number;
+  veryEasy: number;
   easy: number;
   normal: number;
   hard: number;
-  dominantLabel: "쉬움" | "보통" | "어려움";
+  veryHard: number;
+  easyCombined: number;
+  hardCombined: number;
+  dominantLabel: "매우 쉬움" | "쉬움" | "보통" | "어려움" | "매우 어려움";
 }
 
 interface DifficultyStatSummary {
@@ -66,10 +70,14 @@ interface DifficultyStatSummary {
   examName: string;
   totalResponses: number;
   overall: {
+    veryEasy: number;
     easy: number;
     normal: number;
     hard: number;
-    dominantLabel: "쉬움" | "보통" | "어려움";
+    veryHard: number;
+    easyCombined: number;
+    hardCombined: number;
+    dominantLabel: "매우 쉬움" | "쉬움" | "보통" | "어려움" | "매우 어려움";
   };
   subjects: DifficultySubjectStat[];
 }

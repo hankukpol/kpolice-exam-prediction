@@ -2,20 +2,27 @@ import "server-only";
 import { ExamType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
-export const DIFFICULTY_RATINGS = ["EASY", "NORMAL", "HARD"] as const;
+export const DIFFICULTY_RATINGS = ["VERY_EASY", "EASY", "NORMAL", "HARD", "VERY_HARD"] as const;
 export type DifficultyRatingValue = (typeof DIFFICULTY_RATINGS)[number];
+export type DifficultyDominantLabel = "매우 쉬움" | "쉬움" | "보통" | "어려움" | "매우 어려움";
 
 interface CountAccumulator {
+  VERY_EASY: number;
   EASY: number;
   NORMAL: number;
   HARD: number;
+  VERY_HARD: number;
 }
 
 export interface DifficultyOverallStat {
+  veryEasy: number;
   easy: number;
   normal: number;
   hard: number;
-  dominantLabel: "쉬움" | "보통" | "어려움";
+  veryHard: number;
+  easyCombined: number;
+  hardCombined: number;
+  dominantLabel: DifficultyDominantLabel;
 }
 
 export interface DifficultySubjectStat extends DifficultyOverallStat {
@@ -39,13 +46,53 @@ function toPercent(part: number, total: number): number {
 }
 
 export function getDominantLabel(
+  veryEasy: number,
   easy: number,
   normal: number,
-  hard: number
-): "쉬움" | "보통" | "어려움" {
-  if (hard >= easy && hard >= normal) return "어려움";
-  if (easy >= normal && easy >= hard) return "쉬움";
-  return "보통";
+  hard: number,
+  veryHard: number
+): DifficultyDominantLabel {
+  const candidates: Array<{ label: DifficultyDominantLabel; value: number }> = [
+    { label: "매우 쉬움", value: veryEasy },
+    { label: "쉬움", value: easy },
+    { label: "보통", value: normal },
+    { label: "어려움", value: hard },
+    { label: "매우 어려움", value: veryHard },
+  ];
+
+  candidates.sort((a, b) => b.value - a.value);
+  return candidates[0]?.label ?? "보통";
+}
+
+function createEmptyCounts(): CountAccumulator {
+  return {
+    VERY_EASY: 0,
+    EASY: 0,
+    NORMAL: 0,
+    HARD: 0,
+    VERY_HARD: 0,
+  };
+}
+
+function buildStatFromCounts(counts: CountAccumulator): DifficultyOverallStat {
+  const total =
+    counts.VERY_EASY + counts.EASY + counts.NORMAL + counts.HARD + counts.VERY_HARD;
+  const veryEasy = toPercent(counts.VERY_EASY, total);
+  const easy = toPercent(counts.EASY, total);
+  const normal = toPercent(counts.NORMAL, total);
+  const hard = toPercent(counts.HARD, total);
+  const veryHard = toPercent(counts.VERY_HARD, total);
+
+  return {
+    veryEasy,
+    easy,
+    normal,
+    hard,
+    veryHard,
+    easyCombined: toPercent(counts.VERY_EASY + counts.EASY, total),
+    hardCombined: toPercent(counts.HARD + counts.VERY_HARD, total),
+    dominantLabel: getDominantLabel(veryEasy, easy, normal, hard, veryHard),
+  };
 }
 
 async function getTargetExam(examId?: number) {
@@ -64,12 +111,10 @@ async function getTargetExam(examId?: number) {
   });
   if (active) return active;
 
-  const latest = await prisma.exam.findFirst({
+  return prisma.exam.findFirst({
     orderBy: [{ examDate: "desc" }, { id: "desc" }],
     select: { id: true, name: true },
   });
-
-  return latest;
 }
 
 export async function getDifficultyStats(examId?: number): Promise<DifficultyStatsResult | null> {
@@ -93,12 +138,7 @@ export async function getDifficultyStats(examId?: number): Promise<DifficultySta
       examId: exam.id,
       examName: exam.name,
       totalResponses: 0,
-      overall: {
-        easy: 0,
-        normal: 0,
-        hard: 0,
-        dominantLabel: "보통",
-      },
+      overall: buildStatFromCounts(createEmptyCounts()),
       subjects: [],
     };
   }
@@ -117,20 +157,16 @@ export async function getDifficultyStats(examId?: number): Promise<DifficultySta
 
   const subjectMap = new Map(subjects.map((subject) => [subject.id, subject] as const));
   const perSubject = new Map<number, CountAccumulator>();
-  const overallCounts: CountAccumulator = {
-    EASY: 0,
-    NORMAL: 0,
-    HARD: 0,
-  };
+  const overallCounts = createEmptyCounts();
 
   for (const row of grouped) {
-    if (!DIFFICULTY_RATINGS.includes(row.rating as DifficultyRatingValue)) {
+    const rating = String(row.rating) as DifficultyRatingValue;
+    if (!DIFFICULTY_RATINGS.includes(rating)) {
       continue;
     }
 
-    const rating = row.rating as DifficultyRatingValue;
     const count = row._count._all;
-    const current = perSubject.get(row.subjectId) ?? { EASY: 0, NORMAL: 0, HARD: 0 };
+    const current = perSubject.get(row.subjectId) ?? createEmptyCounts();
     current[rating] += count;
     perSubject.set(row.subjectId, current);
     overallCounts[rating] += count;
@@ -142,20 +178,16 @@ export async function getDifficultyStats(examId?: number): Promise<DifficultySta
     const subject = subjectMap.get(subjectId);
     if (!subject) continue;
 
-    const responses = counts.EASY + counts.NORMAL + counts.HARD;
-    const easy = toPercent(counts.EASY, responses);
-    const normal = toPercent(counts.NORMAL, responses);
-    const hard = toPercent(counts.HARD, responses);
+    const stat = buildStatFromCounts(counts);
+    const responses =
+      counts.VERY_EASY + counts.EASY + counts.NORMAL + counts.HARD + counts.VERY_HARD;
 
     subjectStats.push({
       subjectId,
       subjectName: subject.name,
       examType: subject.examType,
       responses,
-      easy,
-      normal,
-      hard,
-      dominantLabel: getDominantLabel(easy, normal, hard),
+      ...stat,
     });
   }
 
@@ -166,21 +198,18 @@ export async function getDifficultyStats(examId?: number): Promise<DifficultySta
     return a.subjectId - b.subjectId;
   });
 
-  const totalResponses = overallCounts.EASY + overallCounts.NORMAL + overallCounts.HARD;
-  const overallEasy = toPercent(overallCounts.EASY, totalResponses);
-  const overallNormal = toPercent(overallCounts.NORMAL, totalResponses);
-  const overallHard = toPercent(overallCounts.HARD, totalResponses);
+  const totalResponses =
+    overallCounts.VERY_EASY +
+    overallCounts.EASY +
+    overallCounts.NORMAL +
+    overallCounts.HARD +
+    overallCounts.VERY_HARD;
 
   return {
     examId: exam.id,
     examName: exam.name,
     totalResponses,
-    overall: {
-      easy: overallEasy,
-      normal: overallNormal,
-      hard: overallHard,
-      dominantLabel: getDominantLabel(overallEasy, overallNormal, overallHard),
-    },
+    overall: buildStatFromCounts(overallCounts),
     subjects: subjectStats,
   };
 }

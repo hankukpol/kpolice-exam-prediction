@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,14 +55,14 @@ const ZONE_HINTS: Record<BannerZone, string> = {
   bottom: "권장 해상도 1920×300~500px",
 };
 
-function createEmptyZoneState(): ZoneFormState {
+function createEmptyZoneState(sortOrder = 0): ZoneFormState {
   return {
     id: null,
     imageUrl: null,
     linkUrl: "",
     altText: "",
     isActive: true,
-    sortOrder: 0,
+    sortOrder,
     file: null,
   };
 }
@@ -79,7 +80,20 @@ function toZoneState(banner: BannerItem | undefined): ZoneFormState {
   };
 }
 
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 export default function AdminBannersPage() {
+  const [allBanners, setAllBanners] = useState<BannerItem[]>([]);
   const [zoneStates, setZoneStates] = useState<Record<BannerZone, ZoneFormState>>({
     hero: createEmptyZoneState(),
     middle: createEmptyZoneState(),
@@ -87,13 +101,10 @@ export default function AdminBannersPage() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [savingZone, setSavingZone] = useState<BannerZone | null>(null);
-  const [deletingZone, setDeletingZone] = useState<BannerZone | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [notice, setNotice] = useState<NoticeState>(null);
 
-  const hasAnyBanner = useMemo(
-    () => ZONE_ORDER.some((zone) => zoneStates[zone].id !== null),
-    [zoneStates]
-  );
+  const hasAnyBanner = useMemo(() => allBanners.length > 0, [allBanners.length]);
 
   async function loadBanners() {
     setIsLoading(true);
@@ -108,14 +119,14 @@ export default function AdminBannersPage() {
         throw new Error(data.error ?? "배너 목록을 불러오지 못했습니다.");
       }
 
+      const sorted = [...(data.banners ?? [])].sort(
+        (a, b) => a.sortOrder - b.sortOrder || a.id - b.id
+      );
+      setAllBanners(sorted);
+
       const primaryByZone: Partial<Record<BannerZone, BannerItem>> = {};
       for (const zone of ZONE_ORDER) {
-        const matched = (data.banners ?? [])
-          .filter((item) => item.zone === zone)
-          .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)[0];
-        if (matched) {
-          primaryByZone[zone] = matched;
-        }
+        primaryByZone[zone] = sorted.find((item) => item.zone === zone);
       }
 
       setZoneStates({
@@ -136,6 +147,25 @@ export default function AdminBannersPage() {
   useEffect(() => {
     void loadBanners();
   }, []);
+
+  function bannersByZone(zone: BannerZone) {
+    return allBanners.filter((item) => item.zone === zone);
+  }
+
+  function setCreateMode(zone: BannerZone) {
+    const nextSort = bannersByZone(zone).length;
+    setZoneStates((prev) => ({
+      ...prev,
+      [zone]: createEmptyZoneState(nextSort),
+    }));
+  }
+
+  function setEditMode(zone: BannerZone, banner: BannerItem) {
+    setZoneStates((prev) => ({
+      ...prev,
+      [zone]: toZoneState(banner),
+    }));
+  }
 
   function updateZoneState(zone: BannerZone, next: Partial<ZoneFormState>) {
     setZoneStates((prev) => ({
@@ -203,24 +233,15 @@ export default function AdminBannersPage() {
     }
   }
 
-  async function handleDeleteZone(zone: BannerZone) {
-    const current = zoneStates[zone];
-    if (!current.id) {
-      setNotice({
-        type: "error",
-        message: `${ZONE_LABELS[zone]}에 삭제할 배너가 없습니다.`,
-      });
-      return;
-    }
-
-    const confirmed = window.confirm(`${ZONE_LABELS[zone]} 배너를 삭제하시겠습니까?`);
+  async function handleDeleteBanner(id: number) {
+    const confirmed = window.confirm("선택한 배너를 삭제하시겠습니까?");
     if (!confirmed) return;
 
-    setDeletingZone(zone);
+    setDeletingId(id);
     setNotice(null);
 
     try {
-      const response = await fetch(`/api/admin/banners?id=${current.id}`, {
+      const response = await fetch(`/api/admin/banners?id=${id}`, {
         method: "DELETE",
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
@@ -230,7 +251,7 @@ export default function AdminBannersPage() {
 
       setNotice({
         type: "success",
-        message: `${ZONE_LABELS[zone]} 배너가 삭제되었습니다.`,
+        message: "배너가 삭제되었습니다.",
       });
       await loadBanners();
     } catch (error) {
@@ -239,7 +260,7 @@ export default function AdminBannersPage() {
         message: error instanceof Error ? error.message : "배너 삭제에 실패했습니다.",
       });
     } finally {
-      setDeletingZone(null);
+      setDeletingId(null);
     }
   }
 
@@ -252,7 +273,11 @@ export default function AdminBannersPage() {
       <header>
         <h1 className="text-xl font-semibold text-slate-900">배너 관리</h1>
         <p className="mt-1 text-sm text-slate-600">
-          디자이너 배너 이미지를 업로드하여 메인 랜딩 페이지 상/중/하단에 배치합니다.
+          존별로 배너를 다중 등록하고 정렬 순서/활성 상태를 운영할 수 있습니다.
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          이벤트/공지는 <Link className="font-semibold underline" href="/admin/events">이벤트 관리</Link>,{" "}
+          <Link className="font-semibold underline" href="/admin/site">사이트 설정</Link>에서 함께 운영하세요.
         </p>
       </header>
 
@@ -270,33 +295,36 @@ export default function AdminBannersPage() {
 
       {!hasAnyBanner ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          등록된 배너가 없습니다. 상단 히어로는 사이트 기본 설정 텍스트로 fallback 표시됩니다.
+          등록된 배너가 없습니다. 상단 히어로는 사이트 기본 설정 텍스트로 표시됩니다.
         </p>
       ) : null}
 
       {ZONE_ORDER.map((zone) => {
         const current = zoneStates[zone];
         const isSaving = savingZone === zone;
-        const isDeleting = deletingZone === zone;
+        const zoneBannerList = bannersByZone(zone);
 
         return (
           <section key={zone} className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-              <h2 className="text-base font-semibold text-slate-900">{ZONE_LABELS[zone]}</h2>
-              <p className="text-xs text-slate-500">{ZONE_HINTS[zone]}</p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">{ZONE_LABELS[zone]}</h2>
+                <p className="text-xs text-slate-500">{ZONE_HINTS[zone]}</p>
+              </div>
+              <Button type="button" variant="outline" onClick={() => setCreateMode(zone)}>
+                + 새 배너 등록 모드
+              </Button>
             </div>
 
             <div className="space-y-2">
-              <p className="text-sm text-slate-700">현재 이미지</p>
+              <p className="text-sm text-slate-700">편집 대상 이미지 {current.id ? `(ID ${current.id})` : "(신규)"}</p>
               {current.imageUrl ? (
-                <>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={current.imageUrl}
-                    alt={current.altText || `${ZONE_LABELS[zone]} 배너`}
-                    className="max-h-56 w-full rounded-lg border border-slate-200 object-contain"
-                  />
-                </>
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={current.imageUrl}
+                  alt={current.altText || `${ZONE_LABELS[zone]} 배너`}
+                  className="max-h-56 w-full rounded-lg border border-slate-200 object-contain"
+                />
               ) : (
                 <p className="rounded-md border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
                   등록된 배너가 없습니다.
@@ -360,17 +388,66 @@ export default function AdminBannersPage() {
             </label>
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => void handleSaveZone(zone)} disabled={isSaving || isDeleting}>
+              <Button type="button" onClick={() => void handleSaveZone(zone)} disabled={isSaving}>
                 {isSaving ? "저장 중..." : "저장"}
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void handleDeleteZone(zone)}
-                disabled={isSaving || isDeleting}
-              >
-                {isDeleting ? "삭제 중..." : "삭제"}
-              </Button>
+              {current.id ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleDeleteBanner(current.id as number)}
+                  disabled={deletingId === current.id}
+                >
+                  {deletingId === current.id ? "삭제 중..." : "현재 편집 배너 삭제"}
+                </Button>
+              ) : null}
+            </div>
+
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">
+                등록된 배너 목록 ({zoneBannerList.length})
+              </p>
+              {zoneBannerList.length < 1 ? (
+                <p className="text-sm text-slate-500">등록된 배너가 없습니다.</p>
+              ) : (
+                <div className="space-y-2">
+                  {zoneBannerList.map((banner) => (
+                    <div
+                      key={banner.id}
+                      className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex items-center gap-3">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={banner.imageUrl}
+                          alt={banner.altText || "배너"}
+                          className="h-14 w-24 rounded-md border border-slate-200 object-cover"
+                        />
+                        <div className="text-xs text-slate-600">
+                          <p>ID #{banner.id}</p>
+                          <p>정렬 {banner.sortOrder}</p>
+                          <p>{banner.isActive ? "활성" : "비활성"} · {formatDateTime(banner.updatedAt)}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="button" size="sm" variant="outline" onClick={() => setEditMode(zone, banner)}>
+                          폼 불러오기
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="text-rose-600 hover:text-rose-700"
+                          onClick={() => void handleDeleteBanner(banner.id)}
+                          disabled={deletingId === banner.id}
+                        >
+                          삭제
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         );

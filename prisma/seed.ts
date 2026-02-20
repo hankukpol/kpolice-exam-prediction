@@ -89,6 +89,8 @@ const siteSettings = [
   { key: "site.bannerLink", value: "" },
   { key: "site.maintenanceMode", value: "false" },
   { key: "site.maintenanceMessage", value: "시스템 점검 중입니다." },
+  { key: "site.mainPageAutoRefresh", value: "true" },
+  { key: "site.mainPageRefreshInterval", value: "60" },
 ];
 
 const noticeSamples = [

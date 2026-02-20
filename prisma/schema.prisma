@@ -30,6 +30,14 @@ enum BonusType {
   HERO_5
 }
 
+enum DifficultyRatingLevel {
+  VERY_EASY
+  EASY
+  NORMAL
+  HARD
+  VERY_HARD
+}
+
 model User {
   id          Int          @id @default(autoincrement())
   name        String
@@ -63,6 +71,8 @@ model Region {
   name               String       @unique
   recruitCount       Int
   recruitCountCareer Int
+  applicantCount       Int?
+  applicantCountCareer Int?
   submissions        Submission[]
 }
 
@@ -225,7 +235,7 @@ model DifficultyRating {
   id           Int        @id @default(autoincrement())
   submissionId Int
   subjectId    Int
-  rating       String
+  rating       DifficultyRatingLevel
   createdAt    DateTime   @default(now())
   submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   subject      Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict)

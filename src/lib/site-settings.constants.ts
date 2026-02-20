@@ -7,7 +7,9 @@ export type SiteSettingKey =
   | "site.bannerImageUrl"
   | "site.bannerLink"
   | "site.maintenanceMode"
-  | "site.maintenanceMessage";
+  | "site.maintenanceMessage"
+  | "site.mainPageAutoRefresh"
+  | "site.mainPageRefreshInterval";
 
 export type SiteSettingValueType = "string" | "nullable-string" | "boolean";
 
@@ -23,6 +25,8 @@ export const SITE_SETTING_TYPES: Record<SiteSettingKey, SiteSettingValueType> = 
   "site.bannerLink": "nullable-string",
   "site.maintenanceMode": "boolean",
   "site.maintenanceMessage": "string",
+  "site.mainPageAutoRefresh": "boolean",
+  "site.mainPageRefreshInterval": "string",
 };
 
 export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
@@ -37,4 +41,6 @@ export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
   "site.bannerLink": null,
   "site.maintenanceMode": false,
   "site.maintenanceMessage": "시스템 점검 중입니다.",
+  "site.mainPageAutoRefresh": true,
+  "site.mainPageRefreshInterval": "60",
 };

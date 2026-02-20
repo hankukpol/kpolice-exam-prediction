@@ -31,23 +31,24 @@ export default function Header() {
   }, []);
 
   return (
-    <header className="border-b border-slate-200 bg-white">
+    <header className="border-b border-slate-800 bg-black text-white">
       <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-3 px-4 py-2">
-        <Link href="/" className="text-base font-semibold text-slate-900 sm:text-lg">
+        <Link href="/" className="text-base font-black tracking-tight text-white sm:text-lg">
           {siteTitle}
         </Link>
 
         {status === "loading" ? (
-          <p className="text-sm text-slate-500">세션 확인 중...</p>
+          <p className="text-sm text-white/60">세션 확인 중...</p>
         ) : session?.user ? (
           <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden text-right text-sm leading-tight text-slate-700 sm:block">
+            <div className="hidden text-right text-sm leading-tight text-white/80 sm:block">
               <p className="font-medium">{session.user.name}</p>
               <p>{session.user.phone}</p>
             </div>
             <Button
               variant="outline"
               size="sm"
+              className="border-white/40 bg-white/10 text-white hover:bg-white/20"
               onClick={() => signOut({ callbackUrl: "/login" })}
             >
               로그아웃
@@ -56,10 +57,16 @@ export default function Header() {
         ) : (
           <div className="flex items-center gap-1.5 sm:gap-2">
             <Link href="/login">
-              <Button size="sm">로그인</Button>
+              <Button size="sm" className="bg-rose-600 text-white hover:bg-rose-700">
+                로그인
+              </Button>
             </Link>
             <Link href="/register">
-              <Button size="sm" variant="outline">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-white/40 bg-white/10 text-white hover:bg-white/20"
+              >
                 회원가입
               </Button>
             </Link>

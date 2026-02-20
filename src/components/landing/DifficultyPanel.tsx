@@ -9,11 +9,15 @@ export default function DifficultyPanel({ difficulty }: DifficultyPanelProps) {
   if (difficulty.totalResponses < 1) return null;
 
   const dominantEmoji =
-    difficulty.overall.dominantLabel === "쉬움"
+    difficulty.overall.dominantLabel === "매우 쉬움"
+      ? "😄"
+      : difficulty.overall.dominantLabel === "쉬움"
       ? "😊"
       : difficulty.overall.dominantLabel === "보통"
         ? "😐"
-        : "😰";
+        : difficulty.overall.dominantLabel === "어려움"
+          ? "😰"
+          : "🥵";
 
   if (difficulty.totalResponses < 10) {
     return (
@@ -46,14 +50,14 @@ export default function DifficultyPanel({ difficulty }: DifficultyPanelProps) {
         <div className="flex items-center justify-between text-sm text-slate-700">
           <p className="font-medium text-slate-900">전체 난이도</p>
           <p>
-            쉬움 {difficulty.overall.easy}% · 보통 {difficulty.overall.normal}% · 어려움{" "}
-            {difficulty.overall.hard}%
+            쉬움 {difficulty.overall.easyCombined}% · 보통 {difficulty.overall.normal}% · 어려움{" "}
+            {difficulty.overall.hardCombined}%
           </p>
         </div>
         <DifficultyBar
-          easy={difficulty.overall.easy}
+          easy={difficulty.overall.easyCombined}
           normal={difficulty.overall.normal}
-          hard={difficulty.overall.hard}
+          hard={difficulty.overall.hardCombined}
         />
       </div>
 
@@ -73,10 +77,14 @@ export default function DifficultyPanel({ difficulty }: DifficultyPanelProps) {
                 </p>
               </div>
               <div className="mt-2 text-xs text-slate-600">
-                쉬움 {subject.easy}% · 보통 {subject.normal}% · 어려움 {subject.hard}%
+                쉬움 {subject.easyCombined}% · 보통 {subject.normal}% · 어려움 {subject.hardCombined}%
               </div>
               <div className="mt-2">
-                <DifficultyBar easy={subject.easy} normal={subject.normal} hard={subject.hard} />
+                <DifficultyBar
+                  easy={subject.easyCombined}
+                  normal={subject.normal}
+                  hard={subject.hardCombined}
+                />
               </div>
             </article>
           ))}

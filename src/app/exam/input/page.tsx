@@ -19,6 +19,13 @@ type AnswersBySubject = Record<string, Record<number, number | null>>;
 type DifficultyBySubject = Record<string, DifficultyRating>;
 
 const OMR_INPUT_MODE_STORAGE_KEY = "exam.omr.input-mode";
+const DIFFICULTY_LABEL: Record<DifficultyRating, string> = {
+  VERY_EASY: "매우 쉬움",
+  EASY: "쉬움",
+  NORMAL: "보통",
+  HARD: "어려움",
+  VERY_HARD: "매우 어려움",
+};
 
 interface ExamSummary {
   id: number;
@@ -590,7 +597,7 @@ export default function ExamInputPage({
                 </span>
                 {rating ? (
                   <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                    {rating === "EASY" ? "쉬움" : rating === "NORMAL" ? "보통" : "어려움"}
+                    {DIFFICULTY_LABEL[rating]}
                   </span>
                 ) : null}
               </button>

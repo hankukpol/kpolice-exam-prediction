@@ -5,10 +5,21 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
+interface RegionRowWithApplicants {
+  id: number;
+  name: string;
+  recruitCount: number;
+  recruitCountCareer: number;
+  applicantCount: number | null;
+  applicantCountCareer: number | null;
+}
+
 interface RegionUpdateItem {
   id?: unknown;
   recruitCount?: unknown;
   recruitCountCareer?: unknown;
+  applicantCount?: unknown;
+  applicantCountCareer?: unknown;
 }
 
 interface RegionUpdatePayload {
@@ -26,6 +37,19 @@ function parseNonNegativeInt(value: unknown): number | null {
   }
 
   return null;
+}
+
+function parseNullableNonNegativeInt(value: unknown): { ok: boolean; value: number | null } {
+  if (value === undefined || value === null || value === "") {
+    return { ok: true, value: null };
+  }
+
+  const parsed = parseNonNegativeInt(value);
+  if (parsed === null) {
+    return { ok: false, value: null };
+  }
+
+  return { ok: true, value: parsed };
 }
 
 function parsePositiveInt(value: unknown): number | null {
@@ -61,11 +85,17 @@ export async function GET() {
 
   try {
     const [regions, groupedCounts] = await Promise.all([
-      prisma.region.findMany({
-        orderBy: {
-          name: "asc",
-        },
-      }),
+      prisma.$queryRaw<RegionRowWithApplicants[]>`
+        SELECT
+          id,
+          name,
+          recruitCount,
+          recruitCountCareer,
+          applicantCount,
+          applicantCountCareer
+        FROM Region
+        ORDER BY name ASC
+      `,
       prisma.submission.groupBy({
         by: ["regionId", "examType"],
         _count: {
@@ -114,6 +144,8 @@ export async function GET() {
           name: region.name,
           recruitCount: region.recruitCount,
           recruitCountCareer: region.recruitCountCareer,
+          applicantCount: region.applicantCount,
+          applicantCountCareer: region.applicantCountCareer,
           passMultiplePublic: formatPassMultiple(region.recruitCount),
           passMultipleCareer: formatPassMultiple(region.recruitCountCareer),
           submissionCount: counts.total,
@@ -143,11 +175,17 @@ export async function PUT(request: NextRequest) {
       const id = parsePositiveInt(item.id);
       const recruitCount = parseNonNegativeInt(item.recruitCount);
       const recruitCountCareer = parseNonNegativeInt(item.recruitCountCareer);
+      const applicantCountParsed = parseNullableNonNegativeInt(item.applicantCount);
+      const applicantCountCareerParsed = parseNullableNonNegativeInt(item.applicantCountCareer);
 
       return {
         id,
         recruitCount,
         recruitCountCareer,
+        applicantCount: applicantCountParsed.value,
+        applicantCountCareer: applicantCountCareerParsed.value,
+        applicantCountValid: applicantCountParsed.ok,
+        applicantCountCareerValid: applicantCountCareerParsed.ok,
       };
     });
 
@@ -157,6 +195,9 @@ export async function PUT(request: NextRequest) {
       }
       if (row.recruitCount === null || row.recruitCountCareer === null) {
         return NextResponse.json({ error: "모집인원은 0 이상의 정수여야 합니다." }, { status: 400 });
+      }
+      if (!row.applicantCountValid || !row.applicantCountCareerValid) {
+        return NextResponse.json({ error: "출원인원은 비워두거나 0 이상의 정수여야 합니다." }, { status: 400 });
       }
     }
 
@@ -186,13 +227,15 @@ export async function PUT(request: NextRequest) {
 
     await prisma.$transaction(
       normalized.map((row) =>
-        prisma.region.update({
-          where: { id: row.id as number },
-          data: {
-            recruitCount: row.recruitCount as number,
-            recruitCountCareer: row.recruitCountCareer as number,
-          },
-        })
+        prisma.$executeRaw`
+          UPDATE Region
+          SET
+            recruitCount = ${row.recruitCount as number},
+            recruitCountCareer = ${row.recruitCountCareer as number},
+            applicantCount = ${row.applicantCount},
+            applicantCountCareer = ${row.applicantCountCareer}
+          WHERE id = ${row.id as number}
+        `
       )
     );
 

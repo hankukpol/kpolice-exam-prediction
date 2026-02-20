@@ -1,6 +1,6 @@
 "use client";
 
-export type DifficultyRating = "EASY" | "NORMAL" | "HARD";
+export type DifficultyRating = "VERY_EASY" | "EASY" | "NORMAL" | "HARD" | "VERY_HARD";
 
 interface DifficultySelectorProps {
   subjectName: string;
@@ -13,6 +13,10 @@ const options: Array<{
   label: string;
 }> = [
   {
+    value: "VERY_EASY",
+    label: "매우 쉬움",
+  },
+  {
     value: "EASY",
     label: "쉬움",
   },
@@ -23,6 +27,10 @@ const options: Array<{
   {
     value: "HARD",
     label: "어려움",
+  },
+  {
+    value: "VERY_HARD",
+    label: "매우 어려움",
   },
 ];
 

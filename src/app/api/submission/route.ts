@@ -46,12 +46,14 @@ interface SubmissionRequestBody {
   answers?: unknown;
 }
 
-type DifficultyRatingValue = "EASY" | "NORMAL" | "HARD";
+type DifficultyRatingValue = "VERY_EASY" | "EASY" | "NORMAL" | "HARD" | "VERY_HARD";
 
 const ALLOWED_DIFFICULTY_RATINGS: ReadonlySet<DifficultyRatingValue> = new Set([
+  "VERY_EASY",
   "EASY",
   "NORMAL",
   "HARD",
+  "VERY_HARD",
 ]);
 
 function parsePositiveInt(value: unknown): number | null {
@@ -139,7 +141,7 @@ function parseDifficulty(
 
     const normalizedRating = ratingRaw.trim().toUpperCase() as DifficultyRatingValue;
     if (!ALLOWED_DIFFICULTY_RATINGS.has(normalizedRating)) {
-      throw new Error("체감 난이도 값은 EASY, NORMAL, HARD만 가능합니다.");
+      throw new Error("체감 난이도 값은 VERY_EASY, EASY, NORMAL, HARD, VERY_HARD만 가능합니다.");
     }
 
     deduped.set(normalizeSubjectName(subjectName), {

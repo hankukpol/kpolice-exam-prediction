@@ -265,7 +265,7 @@ export default function ExamCommentsPage({ embedded = false }: ExamCommentsPageP
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-lg font-semibold text-slate-900">실시간 댓글</h1>
+          <h1 className="text-lg font-semibold text-slate-900">댓글</h1>
           <p className="text-sm text-slate-500">
             총 댓글 수: <span className="font-semibold text-slate-700">{totalCount.toLocaleString()}개</span>
             {isPolling ? " · 새 댓글 확인 중..." : ""}

@@ -187,10 +187,18 @@ export default function AdminSitePage() {
     setIsSavingSystem(true);
     setNotice(null);
     try {
+      const refreshIntervalRaw = String(settings["site.mainPageRefreshInterval"] ?? "60").trim();
+      const refreshInterval = Number(refreshIntervalRaw);
+      if (!Number.isFinite(refreshInterval) || refreshInterval < 10) {
+        throw new Error("메인 페이지 갱신 간격은 10초 이상의 숫자여야 합니다.");
+      }
+
       await saveSettings(
         {
           "site.maintenanceMode": Boolean(settings["site.maintenanceMode"]),
           "site.maintenanceMessage": String(settings["site.maintenanceMessage"] ?? ""),
+          "site.mainPageAutoRefresh": Boolean(settings["site.mainPageAutoRefresh"]),
+          "site.mainPageRefreshInterval": String(Math.floor(refreshInterval)),
         },
         "시스템 설정이 저장되었습니다."
       );
@@ -551,6 +559,26 @@ export default function AdminSitePage() {
           />
           점검 모드 활성화 (체크 시 사용자 접근 제한)
         </label>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={Boolean(settings["site.mainPageAutoRefresh"])}
+            onChange={(event) => updateSettingBoolean("site.mainPageAutoRefresh", event.target.checked)}
+          />
+          메인 탭 자동 갱신 활성화
+        </label>
+
+        <div className="space-y-2">
+          <Label htmlFor="main-refresh-interval">메인 탭 갱신 간격(초)</Label>
+          <Input
+            id="main-refresh-interval"
+            type="number"
+            min={10}
+            value={String(settings["site.mainPageRefreshInterval"] ?? "60")}
+            onChange={(event) => updateSettingString("site.mainPageRefreshInterval", event.target.value)}
+          />
+        </div>
 
         <div className="space-y-2">
           <Label htmlFor="maintenance-message">점검 메시지</Label>

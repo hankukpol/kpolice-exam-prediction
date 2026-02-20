@@ -76,6 +76,20 @@ export function getPrimaryBannerByZone(banners: PublicBannerItem[]) {
   return grouped;
 }
 
+export function groupBannersByZone(banners: PublicBannerItem[]) {
+  const grouped: Record<BannerZone, PublicBannerItem[]> = {
+    hero: [],
+    middle: [],
+    bottom: [],
+  };
+
+  for (const banner of banners) {
+    grouped[banner.zone].push(banner);
+  }
+
+  return grouped;
+}
+
 export function revalidateBannerCache() {
   revalidateTag(ACTIVE_BANNERS_TAG, "max");
 }

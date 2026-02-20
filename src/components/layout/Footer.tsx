@@ -30,9 +30,9 @@ export default function Footer() {
   }, []);
 
   return (
-    <footer className="border-t border-slate-200 bg-white">
+    <footer className="border-t border-slate-800 bg-black">
       <div className="mx-auto w-full max-w-6xl px-4 py-5">
-        <p className="text-xs leading-relaxed text-slate-600 sm:text-sm">{disclaimer}</p>
+        <p className="text-xs leading-relaxed text-white/70 sm:text-sm">{disclaimer}</p>
       </div>
     </footer>
   );

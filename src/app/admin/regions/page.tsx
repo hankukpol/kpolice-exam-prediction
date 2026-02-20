@@ -8,6 +8,8 @@ interface RegionItem {
   name: string;
   recruitCount: number;
   recruitCountCareer: number;
+  applicantCount: number | null;
+  applicantCountCareer: number | null;
   passMultiplePublic: string;
   passMultipleCareer: string;
   submissionCount: number;
@@ -24,7 +26,10 @@ type NoticeState = {
   message: string;
 } | null;
 
-type EditableRegionItem = Pick<RegionItem, "id" | "name" | "recruitCount" | "recruitCountCareer"> &
+type EditableRegionItem = Pick<
+  RegionItem,
+  "id" | "name" | "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
+> &
   Pick<RegionItem, "submissionCount" | "submissionCountPublic" | "submissionCountCareer">;
 
 function getPassMultipleText(recruitCount: number): string {
@@ -48,6 +53,14 @@ function toSafeNonNegativeInt(value: string): number {
   return Math.max(0, Math.floor(parsed));
 }
 
+function toSafeNullableNonNegativeInt(value: string): number | null {
+  if (!value.trim()) {
+    return null;
+  }
+
+  return toSafeNonNegativeInt(value);
+}
+
 export default function AdminRegionsPage() {
   const [regions, setRegions] = useState<EditableRegionItem[]>([]);
   const [originalById, setOriginalById] = useState<Map<number, EditableRegionItem>>(new Map());
@@ -63,7 +76,9 @@ export default function AdminRegionsPage() {
 
       if (
         original.recruitCount !== row.recruitCount ||
-        original.recruitCountCareer !== row.recruitCountCareer
+        original.recruitCountCareer !== row.recruitCountCareer ||
+        original.applicantCount !== row.applicantCount ||
+        original.applicantCountCareer !== row.applicantCountCareer
       ) {
         count += 1;
       }
@@ -90,6 +105,8 @@ export default function AdminRegionsPage() {
         name: item.name,
         recruitCount: item.recruitCount,
         recruitCountCareer: item.recruitCountCareer,
+        applicantCount: item.applicantCount ?? null,
+        applicantCountCareer: item.applicantCountCareer ?? null,
         submissionCount: item.submissionCount,
         submissionCountPublic: item.submissionCountPublic,
         submissionCountCareer: item.submissionCountCareer,
@@ -111,20 +128,30 @@ export default function AdminRegionsPage() {
     void loadRegions();
   }, []);
 
-  function updateRegionValue(id: number, field: "recruitCount" | "recruitCountCareer", value: string) {
+  function updateRegionValue(
+    id: number,
+    field: "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer",
+    value: string
+  ) {
     setRegions((prev) =>
       prev.map((row) =>
         row.id === id
           ? {
               ...row,
-              [field]: toSafeNonNegativeInt(value),
+              [field]:
+                field === "applicantCount" || field === "applicantCountCareer"
+                  ? toSafeNullableNonNegativeInt(value)
+                  : toSafeNonNegativeInt(value),
             }
           : row
       )
     );
   }
 
-  function isFieldChanged(row: EditableRegionItem, field: "recruitCount" | "recruitCountCareer"): boolean {
+  function isFieldChanged(
+    row: EditableRegionItem,
+    field: "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
+  ): boolean {
     const original = originalById.get(row.id);
     if (!original) return false;
     return original[field] !== row[field];
@@ -160,6 +187,8 @@ export default function AdminRegionsPage() {
             id: row.id,
             recruitCount: row.recruitCount,
             recruitCountCareer: row.recruitCountCareer,
+            applicantCount: row.applicantCount,
+            applicantCountCareer: row.applicantCountCareer,
           })),
         }),
       });
@@ -217,13 +246,15 @@ export default function AdminRegionsPage() {
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="min-w-[980px] w-full divide-y divide-slate-200 text-sm">
+          <table className="min-w-[1220px] w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">지역</th>
                 <th className="px-4 py-3">공채 모집인원</th>
+                <th className="px-4 py-3">공채 출원인원</th>
                 <th className="px-4 py-3">공채 합격배수</th>
                 <th className="px-4 py-3">경행경채 모집인원</th>
+                <th className="px-4 py-3">경행경채 출원인원</th>
                 <th className="px-4 py-3">경행경채 합격배수</th>
                 <th className="px-4 py-3">참여 현황</th>
               </tr>
@@ -252,6 +283,21 @@ export default function AdminRegionsPage() {
                       type="number"
                       min={0}
                       step={1}
+                      value={row.applicantCount ?? ""}
+                      onChange={(event) => updateRegionValue(row.id, "applicantCount", event.target.value)}
+                      className={`h-9 w-32 rounded-md border px-2 text-right text-sm ${
+                        isFieldChanged(row, "applicantCount")
+                          ? "border-amber-300 bg-amber-50"
+                          : "border-slate-300 bg-white"
+                      }`}
+                      placeholder="추정 사용"
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
                       value={row.recruitCountCareer}
                       onChange={(event) =>
                         updateRegionValue(row.id, "recruitCountCareer", event.target.value)
@@ -261,6 +307,23 @@ export default function AdminRegionsPage() {
                           ? "border-amber-300 bg-amber-50"
                           : "border-slate-300 bg-white"
                       }`}
+                    />
+                  </td>
+                  <td className="px-4 py-3">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={row.applicantCountCareer ?? ""}
+                      onChange={(event) =>
+                        updateRegionValue(row.id, "applicantCountCareer", event.target.value)
+                      }
+                      className={`h-9 w-32 rounded-md border px-2 text-right text-sm ${
+                        isFieldChanged(row, "applicantCountCareer")
+                          ? "border-amber-300 bg-amber-50"
+                          : "border-slate-300 bg-white"
+                      }`}
+                      placeholder="추정 사용"
                     />
                   </td>
                   <td className="px-4 py-3 text-slate-700">{getPassMultipleText(row.recruitCountCareer)}</td>
