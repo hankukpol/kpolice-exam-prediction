@@ -21,6 +21,17 @@ type NoticeState = {
   message: string;
 } | null;
 
+async function readResponseJson<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 interface MockActionSummary {
   examId: number | null;
   runKey?: string;
@@ -65,17 +76,17 @@ export default function AdminMockDataPage() {
 
   async function loadExams() {
     const response = await fetch(ADMIN_EXAM_API, { method: "GET", cache: "no-store" });
-    const data = (await response.json()) as {
+    const data = await readResponseJson<{
       exams?: ExamItem[];
       careerExamEnabled?: boolean;
       error?: string;
-    };
+    }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "시험 목록을 불러오지 못했습니다.");
+      throw new Error(data?.error ?? `시험 목록을 불러오지 못했습니다. (${response.status})`);
     }
 
-    const examItems = data.exams ?? [];
-    setCareerExamEnabled(data.careerExamEnabled ?? true);
+    const examItems = data?.exams ?? [];
+    setCareerExamEnabled(data?.careerExamEnabled ?? true);
     setExams(examItems);
     setSelectedExamId((current) => {
       if (current && examItems.some((exam) => exam.id === current)) {
@@ -129,13 +140,13 @@ export default function AdminMockDataPage() {
           resetBeforeGenerate,
         }),
       });
-      const data = (await response.json()) as {
+      const data = await readResponseJson<{
         success?: boolean;
         error?: string;
         result?: MockActionSummary;
-      };
-      if (!response.ok || !data.success || !data.result) {
-        throw new Error(data.error ?? "목업 데이터 생성에 실패했습니다.");
+      }>(response);
+      if (!response.ok || !data?.success || !data.result) {
+        throw new Error(data?.error ?? `목업 데이터 생성에 실패했습니다. (${response.status})`);
       }
 
       setLatestSummary(data.result);
@@ -170,13 +181,13 @@ export default function AdminMockDataPage() {
       const response = await fetch(`${MOCK_DATA_API}?examId=${selectedExamId}`, {
         method: "DELETE",
       });
-      const data = (await response.json()) as {
+      const data = await readResponseJson<{
         success?: boolean;
         error?: string;
         result?: MockActionSummary;
-      };
-      if (!response.ok || !data.success || !data.result) {
-        throw new Error(data.error ?? "선택 시험 목업 초기화에 실패했습니다.");
+      }>(response);
+      if (!response.ok || !data?.success || !data.result) {
+        throw new Error(data?.error ?? `선택 시험 목업 초기화에 실패했습니다. (${response.status})`);
       }
 
       setLatestSummary(data.result);
@@ -206,13 +217,13 @@ export default function AdminMockDataPage() {
       const response = await fetch(`${MOCK_DATA_API}?scope=all`, {
         method: "DELETE",
       });
-      const data = (await response.json()) as {
+      const data = await readResponseJson<{
         success?: boolean;
         error?: string;
         result?: MockActionSummary;
-      };
-      if (!response.ok || !data.success || !data.result) {
-        throw new Error(data.error ?? "전체 목업 초기화에 실패했습니다.");
+      }>(response);
+      if (!response.ok || !data?.success || !data.result) {
+        throw new Error(data?.error ?? `전체 목업 초기화에 실패했습니다. (${response.status})`);
       }
 
       setLatestSummary(data.result);

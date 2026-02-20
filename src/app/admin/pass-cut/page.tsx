@@ -30,6 +30,17 @@ type NoticeState = {
   message: string;
 } | null;
 
+async function readResponseJson<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) return null;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 function formatDateTime(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -56,11 +67,11 @@ export default function AdminPassCutPage() {
 
   async function loadExams() {
     const response = await fetch("/api/admin/exam", { method: "GET", cache: "no-store" });
-    const data = (await response.json()) as { exams?: ExamItem[]; error?: string };
+    const data = await readResponseJson<{ exams?: ExamItem[]; error?: string }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "시험 목록을 불러오지 못했습니다.");
+      throw new Error(data?.error ?? `시험 목록을 불러오지 못했습니다. (${response.status})`);
     }
-    const nextExams = data.exams ?? [];
+    const nextExams = data?.exams ?? [];
     setExams(nextExams);
     setSelectedExamId((current) => {
       if (current && nextExams.some((exam) => exam.id === current)) return current;
@@ -75,11 +86,11 @@ export default function AdminPassCutPage() {
       method: "GET",
       cache: "no-store",
     });
-    const data = (await response.json()) as { releases?: ReleaseItem[]; error?: string };
+    const data = await readResponseJson<{ releases?: ReleaseItem[]; error?: string }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "합격컷 발표 이력을 불러오지 못했습니다.");
+      throw new Error(data?.error ?? `합격컷 발표 이력을 불러오지 못했습니다. (${response.status})`);
     }
-    setReleases(data.releases ?? []);
+    setReleases(data?.releases ?? []);
   }
 
   useEffect(() => {
@@ -144,14 +155,14 @@ export default function AdminPassCutPage() {
           autoNotice: true,
         }),
       });
-      const data = (await response.json()) as {
+      const data = await readResponseJson<{
         success?: boolean;
         releaseNumber?: number;
         snapshotCount?: number;
         error?: string;
-      };
-      if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "합격컷 발표 처리에 실패했습니다.");
+      }>(response);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error ?? `합격컷 발표 처리에 실패했습니다. (${response.status})`);
       }
 
       setMemo("");

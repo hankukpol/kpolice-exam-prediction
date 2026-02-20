@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { generateMockData, resetMockData } from "@/lib/mock-data";
 import { getSiteSettings } from "@/lib/site-settings";
@@ -33,6 +34,21 @@ function parseBoolean(value: unknown, fallbackValue: boolean): boolean {
   return fallbackValue;
 }
 
+function toUserErrorMessage(error: unknown, fallbackMessage: string): string {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2022") {
+    return (
+      "데이터베이스 스키마가 최신 코드와 일치하지 않습니다. " +
+      "관리자에서 `npx prisma db push` 또는 마이그레이션 적용 후 다시 시도해 주세요."
+    );
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallbackMessage;
+}
+
 export async function POST(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
@@ -56,7 +72,7 @@ export async function POST(request: NextRequest) {
       result,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "목업 데이터 생성에 실패했습니다.";
+    const message = toUserErrorMessage(error, "목업 데이터 생성에 실패했습니다.");
     console.error("POST /api/admin/mock-data error", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -81,7 +97,7 @@ export async function DELETE(request: NextRequest) {
       result,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "목업 데이터 초기화에 실패했습니다.";
+    const message = toUserErrorMessage(error, "목업 데이터 초기화에 실패했습니다.");
     console.error("DELETE /api/admin/mock-data error", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
