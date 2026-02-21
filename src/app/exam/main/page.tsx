@@ -2,7 +2,9 @@ import { getServerSession } from "next-auth";
 import ExamFunctionArea from "@/components/landing/ExamFunctionArea";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
+
+export const dynamic = "force-dynamic";
 
 async function getHasSubmission(userId: number): Promise<boolean> {
   const activeExam = await prisma.exam.findFirst({
@@ -31,7 +33,7 @@ export default async function ExamMainPage() {
   const isAuthenticated = Number.isInteger(userId) && userId > 0;
   const isAdmin = session?.user?.role === "ADMIN";
   const hasSubmission = isAuthenticated ? await getHasSubmission(userId) : false;
-  const settings = await getSiteSettings();
+  const settings = await getSiteSettingsUncached();
   const finalPredictionEnabled = Boolean(settings["site.finalPredictionEnabled"] ?? false);
 
   return (

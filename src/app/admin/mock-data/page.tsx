@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,7 @@ interface MockActionSummary {
     submissions: number;
     subjectScores: number;
     difficultyRatings: number;
+    finalPredictions: number;
   };
 }
 
@@ -59,6 +60,7 @@ export default function AdminMockDataPage() {
   const [publicPerRegion, setPublicPerRegion] = useState("40");
   const [careerPerRegion, setCareerPerRegion] = useState("20");
   const [resetBeforeGenerate, setResetBeforeGenerate] = useState(true);
+  const [includeFinalPredictionMock, setIncludeFinalPredictionMock] = useState(true);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -138,6 +140,7 @@ export default function AdminMockDataPage() {
           publicPerRegion: Number(publicPerRegion),
           ...(careerExamEnabled ? { careerPerRegion: Number(careerPerRegion) } : {}),
           resetBeforeGenerate,
+          includeFinalPredictionMock,
         }),
       });
       const data = await readResponseJson<{
@@ -322,6 +325,15 @@ export default function AdminMockDataPage() {
           생성 전 같은 시험의 기존 MOCK 데이터를 먼저 초기화
         </label>
 
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={includeFinalPredictionMock}
+            onChange={(event) => setIncludeFinalPredictionMock(event.target.checked)}
+          />
+          최종 환산 예측용 MOCK 데이터도 함께 생성
+        </label>
+
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -368,6 +380,7 @@ export default function AdminMockDataPage() {
                 <p>생성 제출: {latestSummary.created.submissions}건</p>
                 <p>생성 과목점수: {latestSummary.created.subjectScores}건</p>
                 <p>생성 난이도응답: {latestSummary.created.difficultyRatings}건</p>
+                <p>생성 최종 환산 예측: {latestSummary.created.finalPredictions}건</p>
               </>
             ) : null}
             {latestSummary.deleted ? (

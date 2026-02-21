@@ -29,7 +29,7 @@ const tabs: TabItem[] = [
   { key: "main", label: "풀서비스 메인", requireSubmission: false },
   { key: "input", label: "응시정보 입력", requireSubmission: false },
   { key: "result", label: "내 성적 분석", requireSubmission: true },
-  { key: "final", label: "최종합산 계산", requireSubmission: true },
+  { key: "final", label: "최종 환산 예측", requireSubmission: true },
   { key: "prediction", label: "합격 컷/경쟁자 정보", requireSubmission: true },
   { key: "comments", label: "실시간 댓글", requireSubmission: true },
   { key: "notices", label: "공지사항", requireSubmission: false },

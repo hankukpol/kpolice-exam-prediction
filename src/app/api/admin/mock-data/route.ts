@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { generateMockData, resetMockData } from "@/lib/mock-data";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
 
@@ -11,6 +11,7 @@ interface GeneratePayload {
   publicPerRegion?: unknown;
   careerPerRegion?: unknown;
   resetBeforeGenerate?: unknown;
+  includeFinalPredictionMock?: unknown;
 }
 
 function parsePositiveInt(value: unknown): number | undefined {
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: "요청 본문(JSON) 형식이 올바르지 않습니다." }, { status: 400 });
     }
-    const settings = await getSiteSettings();
+    const settings = await getSiteSettingsUncached();
     const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
 
     const result = await generateMockData({
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
       careerPerRegion: parsePositiveInt(body.careerPerRegion),
       careerEnabled: careerExamEnabled,
       resetBeforeGenerate: parseBoolean(body.resetBeforeGenerate, true),
+      includeFinalPredictionMock: parseBoolean(body.includeFinalPredictionMock, true),
     });
 
     return NextResponse.json({

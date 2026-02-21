@@ -592,7 +592,7 @@ export default function AdminSitePage() {
             checked={Boolean(settings["site.finalPredictionEnabled"])}
             onChange={(event) => updateSettingBoolean("site.finalPredictionEnabled", event.target.checked)}
           />
-          최종 합격 예측 탭 공개 (체력시험 이후 오픈 권장)
+          최종 환산 예측 탭 공개 (체력시험 이후 오픈 권장)
         </label>
 
         <div className="space-y-2">

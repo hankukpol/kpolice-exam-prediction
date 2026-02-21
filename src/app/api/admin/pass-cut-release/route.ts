@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { buildPassCutPredictionRows } from "@/lib/pass-cut";
 import { prisma } from "@/lib/prisma";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
 
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const settings = await getSiteSettings();
+    const settings = await getSiteSettingsUncached();
     const rows = await buildPassCutPredictionRows({
       examId,
       includeCareerExamType: Boolean(settings["site.careerExamEnabled"] ?? true),

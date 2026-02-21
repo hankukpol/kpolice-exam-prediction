@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { buildPassCutPredictionRows, getCurrentPassCutSnapshot } from "@/lib/pass-cut";
 import { prisma } from "@/lib/prisma";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
 
@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const settings = await getSiteSettings();
+  const settings = await getSiteSettingsUncached();
   const currentRows = await buildPassCutPredictionRows({
     examId,
     includeCareerExamType: Boolean(settings["site.careerExamEnabled"] ?? true),

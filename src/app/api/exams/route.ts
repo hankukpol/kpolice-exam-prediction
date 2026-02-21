@@ -1,9 +1,10 @@
 import { ExamType } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const SUBJECT_ORDER: Record<ExamType, string[]> = {
   [ExamType.PUBLIC]: ["헌법", "형사법", "경찰학"],
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest) {
         maxScore: true,
       },
     }),
-    getSiteSettings(),
+    getSiteSettingsUncached(),
   ]);
 
   const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);

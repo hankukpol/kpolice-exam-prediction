@@ -2,9 +2,10 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 interface ExamPayload {
   name?: string;
@@ -73,7 +74,7 @@ function validateCreatePayload(payload: ExamPayload) {
 export async function GET(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
-  const settings = await getSiteSettings();
+  const settings = await getSiteSettingsUncached();
   const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
 
   const { searchParams } = new URL(request.url);

@@ -47,7 +47,7 @@ export default function ExamTabNavigation({
     },
     {
       href: "/exam/final",
-      label: "최종합산 계산",
+      label: "최종 환산 예측",
       disabled: !hasSubmission,
       tooltip: "답안 제출 후 이용할 수 있습니다.",
     },

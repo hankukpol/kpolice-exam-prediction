@@ -6,7 +6,7 @@ import { invalidateCorrectRateCache } from "@/lib/correct-rate";
 import { getRegionRecruitCount, normalizeSubjectName, parsePositiveInt } from "@/lib/exam-utils";
 import { getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
 import {
   calculateScore,
   getBonusPercent,
@@ -323,7 +323,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "채용유형은 PUBLIC 또는 CAREER만 가능합니다." }, { status: 400 });
     }
 
-    const settings = await getSiteSettings();
+    const settings = await getSiteSettingsUncached();
     const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
     if (examType === ExamType.CAREER && !careerExamEnabled) {
       return NextResponse.json(
@@ -587,7 +587,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "수정 권한이 없거나 답안을 찾을 수 없습니다." }, { status: 403 });
     }
 
-    const settings = await getSiteSettings();
+    const settings = await getSiteSettingsUncached();
     const maxEditLimit = (settings["site.submissionEditLimit"] as number) ?? 3;
     const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
     if (maxEditLimit === 0 || existingSubmission.editCount >= maxEditLimit) {

@@ -349,6 +349,10 @@ export default function ExamMainOverviewPanel() {
   );
 
   const isCollecting = selectedRow !== null && selectedRow.participantCount < 10;
+  const isLowSample =
+    selectedRow !== null &&
+    !isCollecting &&
+    selectedRow.participantCount < selectedRow.recruitCount;
 
   const difficultySubjects = useMemo(() => {
     const original = data?.difficulty?.subjects ?? [];
@@ -556,54 +560,59 @@ export default function ExamMainOverviewPanel() {
         </p>
 
         <div className="mt-3 grid gap-4 xl:grid-cols-2">
-          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
-            <table className="w-full border-collapse text-sm">
-              <tbody className="divide-y divide-slate-200">
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+          <div className="flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+            <table className="flex-1 w-full border-collapse text-sm">
+              <tbody className="flex h-full flex-col divide-y divide-slate-200">
+                <tr className="flex flex-1 divide-x divide-slate-200">
+                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
                     지역-직렬
                   </th>
-                  <td className="px-4 py-3.5 font-bold text-slate-900">
+                  <td className="flex flex-1 items-center px-4 py-3.5 font-bold text-slate-900">
                     {selectedRow ? `${selectedRow.regionName}-${getExamTypeLabel(selectedRow.examType)}` : "-"}
                   </td>
                 </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">선발인원</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                <tr className="flex flex-1 divide-x divide-slate-200">
+                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">선발인원</th>
+                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? `${selectedRow.recruitCount.toLocaleString("ko-KR")}명` : "-"}
                   </td>
                 </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">접수인원</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                <tr className="flex flex-1 divide-x divide-slate-200">
+                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">접수인원</th>
+                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? `${selectedRow.estimatedApplicants.toLocaleString("ko-KR")}명` : "-"}
                   </td>
                 </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">경쟁률</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                <tr className="flex flex-1 divide-x divide-slate-200">
+                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">경쟁률</th>
+                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? formatCompetition(selectedRow.competitionRate) : "-"}
                   </td>
                 </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">실시간 참여인원</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
+                <tr className="flex flex-1 divide-x divide-slate-200">
+                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">실시간 참여인원</th>
+                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? `${selectedRow.participantCount.toLocaleString("ko-KR")}명` : "-"}
                   </td>
                 </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
+                <tr className="flex flex-1 divide-x divide-slate-200">
+                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
                     실시간 평균점수
                   </th>
-                  <td className="px-4 py-3.5 font-bold text-police-700">
-                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatScore(selectedRow.averageFinalScore)) : "-"}
+                  <td className="flex flex-1 items-center px-4 py-3.5 font-bold text-police-700">
+                    {selectedRow ? <>{formatScore(selectedRow.averageFinalScore)}</> : "-"}
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <div className="overflow-hidden rounded-md border border-slate-200 bg-white">
+          <div className="flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+            {isLowSample && selectedRow ? (
+              <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+                참여인원({selectedRow.participantCount.toLocaleString("ko-KR")}명)이 선발인원({selectedRow.recruitCount.toLocaleString("ko-KR")}명)보다 적어 예측 정확도가 낮습니다.
+              </div>
+            ) : null}
             <table className="w-full border-collapse text-sm">
               <tbody className="divide-y divide-slate-200">
                 <tr className="divide-x divide-slate-200">
@@ -622,9 +631,9 @@ export default function ExamMainOverviewPanel() {
                   <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">합격확실권</th>
                   <td className="px-4 py-3.5 font-bold text-police-700">
                     {selectedRow
-                      ? isCollecting
+                      ? isCollecting || selectedRow.sureMinScore === null
                         ? "데이터 수집 중"
-                        : `${formatScore(selectedRow.sureMinScore).replace("점", "")}점 이상`
+                        : `${selectedRow.sureMinScore.toFixed(2)}점 이상`
                       : "-"}
                   </td>
                 </tr>
@@ -633,34 +642,12 @@ export default function ExamMainOverviewPanel() {
                     1배수 컷 점수
                   </th>
                   <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatScore(selectedRow.oneMultipleCutScore)) : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
-                    실제 1배수 끝등수
-                  </th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow
-                      ? isCollecting
+                      ? isCollecting || selectedRow.oneMultipleCutScore === null
                         ? "데이터 수집 중"
-                        : selectedRow.oneMultipleActualRank === null
-                          ? "-"
-                          : `${selectedRow.oneMultipleActualRank.toLocaleString("ko-KR")}등 (기준 ${selectedRow.oneMultipleBaseRank.toLocaleString("ko-KR")}등)`
-                      : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
-                    1배수 동점 인원
-                  </th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow
-                      ? isCollecting
-                        ? "데이터 수집 중"
-                        : selectedRow.oneMultipleTieCount === null
-                          ? "-"
-                          : `${selectedRow.oneMultipleTieCount.toLocaleString("ko-KR")}명`
+                        : isLowSample
+                          ? <>{formatScore(selectedRow.oneMultipleCutScore)} <span className="text-xs text-amber-600">(현재 최저점 기준)</span></>
+                          : formatScore(selectedRow.oneMultipleCutScore)
                       : "-"}
                   </td>
                 </tr>
@@ -745,8 +732,8 @@ export default function ExamMainOverviewPanel() {
                     key={item.key}
                     type="button"
                     className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition ${active
-                        ? "border-police-700 bg-police-700 text-white"
-                        : "border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-700"
+                      ? "border-police-700 bg-police-700 text-white"
+                      : "border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-700"
                       }`}
                     onClick={() => setSelectedScoreDistributionKey(item.key)}
                   >
@@ -772,8 +759,8 @@ export default function ExamMainOverviewPanel() {
               {selectedScoreDistribution.failThreshold !== null && selectedScoreDistribution.isFail !== null ? (
                 <span
                   className={`rounded-full px-3 py-1 ${selectedScoreDistribution.isFail
-                      ? "bg-rose-100 text-rose-700"
-                      : "bg-emerald-100 text-emerald-700"
+                    ? "bg-rose-100 text-rose-700"
+                    : "bg-emerald-100 text-emerald-700"
                     }`}
                 >
                   {selectedScoreDistribution.isFail ? "내 상태: 과락" : "내 상태: 통과"}

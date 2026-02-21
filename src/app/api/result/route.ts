@@ -6,9 +6,10 @@ import { getCorrectRateRows } from "@/lib/correct-rate";
 import { parsePositiveInt } from "@/lib/exam-utils";
 import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
-import { getSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const SUBJECT_ORDER: Record<ExamType, string[]> = {
   [ExamType.PUBLIC]: ["헌법", "형사법", "경찰학"],
@@ -168,7 +169,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "조회할 성적 데이터가 없습니다." }, { status: 404 });
   }
 
-  const settings = await getSiteSettings();
+  const settings = await getSiteSettingsUncached();
   const maxEditLimit = (settings["site.submissionEditLimit"] as number) ?? 3;
   const finalPredictionEnabled = Boolean(settings["site.finalPredictionEnabled"] ?? false);
 

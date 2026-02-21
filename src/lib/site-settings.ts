@@ -113,36 +113,38 @@ function serializeSiteSettingValue(
   return { value: normalized };
 }
 
-const getCachedSiteSettings = unstable_cache(
-  async (): Promise<SiteSettingsMap> => {
-    const merged: SiteSettingsMap = { ...SITE_SETTING_DEFAULTS };
+async function readSiteSettingsFromDb(): Promise<SiteSettingsMap> {
+  const merged: SiteSettingsMap = { ...SITE_SETTING_DEFAULTS };
 
-    try {
-      const rows = await prisma.siteSetting.findMany({
-        where: {
-          key: {
-            in: Object.keys(SITE_SETTING_TYPES),
-          },
+  try {
+    const rows = await prisma.siteSetting.findMany({
+      where: {
+        key: {
+          in: Object.keys(SITE_SETTING_TYPES),
         },
-        select: {
-          key: true,
-          value: true,
-        },
-      });
+      },
+      select: {
+        key: true,
+        value: true,
+      },
+    });
 
-      for (const row of rows) {
-        if (!isSiteSettingKey(row.key)) {
-          continue;
-        }
-
-        merged[row.key] = parseStoredSiteSettingValue(row.key, row.value);
+    for (const row of rows) {
+      if (!isSiteSettingKey(row.key)) {
+        continue;
       }
-    } catch (error) {
-      console.error("사이트 설정 캐시 조회 중 오류가 발생했습니다.", error);
-    }
 
-    return merged;
-  },
+      merged[row.key] = parseStoredSiteSettingValue(row.key, row.value);
+    }
+  } catch (error) {
+    console.error("사이트 설정 캐시 조회 중 오류가 발생했습니다.", error);
+  }
+
+  return merged;
+}
+
+const getCachedSiteSettings = unstable_cache(
+  async (): Promise<SiteSettingsMap> => readSiteSettingsFromDb(),
   ["site-settings:all"],
   {
     revalidate: 60,
@@ -204,6 +206,10 @@ const getCachedActiveNotices = unstable_cache(
 
 export async function getSiteSettings(): Promise<SiteSettingsMap> {
   return getCachedSiteSettings();
+}
+
+export async function getSiteSettingsUncached(): Promise<SiteSettingsMap> {
+  return readSiteSettingsFromDb();
 }
 
 export async function getActiveNotices(): Promise<PublicNoticeItem[]> {

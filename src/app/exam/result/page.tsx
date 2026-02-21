@@ -405,7 +405,7 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
           ) : null}
           {result.features.finalPredictionEnabled ? (
             <Button type="button" variant="outline" onClick={() => router.push("/exam/final")}>
-              최종합산 계산
+              최종 환산 예측
             </Button>
           ) : null}
           <Button

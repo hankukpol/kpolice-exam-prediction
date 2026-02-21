@@ -50,12 +50,27 @@ interface SubmissionDraft {
   }>;
 }
 
+interface FinalPredictionSeedRow {
+  submissionId: number;
+  userId: number;
+  regionId: number;
+  examType: ExamType;
+  bonusType: BonusType;
+  writtenScore: number;
+  fitnessPassed: boolean;
+  martialBonusPoint: number;
+  additionalBonusPoint: number;
+  knownBonusPoint: number;
+  knownFinalScore: number | null;
+}
+
 export interface GenerateMockDataOptions {
   examId?: number;
   publicPerRegion?: number;
   careerPerRegion?: number;
   careerEnabled?: boolean;
   resetBeforeGenerate?: boolean;
+  includeFinalPredictionMock?: boolean;
 }
 
 export interface GenerateMockDataResult {
@@ -71,6 +86,7 @@ export interface GenerateMockDataResult {
     submissions: number;
     subjectScores: number;
     difficultyRatings: number;
+    finalPredictions: number;
   };
 }
 
@@ -131,6 +147,80 @@ function bonusRateOf(type: BonusType): number {
   return 0;
 }
 
+function isVeteranPreferredBonus(type: BonusType): boolean {
+  return type === BonusType.VETERAN_5 || type === BonusType.VETERAN_10;
+}
+
+function pickMartialDanLevel(): number {
+  const roll = Math.random();
+  if (roll < 0.16) return 4 + Math.floor(Math.random() * 3); // 4~6단
+  if (roll < 0.38) return 2 + Math.floor(Math.random() * 2); // 2~3단
+  if (roll < 0.52) return 1;
+  return 0;
+}
+
+function martialBonusPointByDanLevel(danLevel: number): number {
+  if (danLevel >= 4) return 2;
+  if (danLevel >= 2) return 1;
+  return 0;
+}
+
+function pickAdditionalBonusPoint(): number {
+  const roll = Math.random();
+  if (roll < 0.72) return 0;
+  if (roll < 0.92) return roundTwo(0.5 + Math.random() * 1.5); // 0.5 ~ 2.0
+  return roundTwo(2 + Math.random()); // 2.0 ~ 3.0
+}
+
+function compareFinalPredictionSeedRow(left: FinalPredictionSeedRow, right: FinalPredictionSeedRow): number {
+  const leftScore = left.knownFinalScore ?? -1;
+  const rightScore = right.knownFinalScore ?? -1;
+  if (rightScore !== leftScore) {
+    return rightScore - leftScore;
+  }
+
+  const veteranCompare = Number(isVeteranPreferredBonus(right.bonusType)) - Number(isVeteranPreferredBonus(left.bonusType));
+  if (veteranCompare !== 0) {
+    return veteranCompare;
+  }
+
+  if (right.writtenScore !== left.writtenScore) {
+    return right.writtenScore - left.writtenScore;
+  }
+
+  if (right.knownBonusPoint !== left.knownBonusPoint) {
+    return right.knownBonusPoint - left.knownBonusPoint;
+  }
+
+  return left.submissionId - right.submissionId;
+}
+
+function buildFinalPredictionRankMap(rows: FinalPredictionSeedRow[]): Map<number, number> {
+  const passRows = rows.filter((row) => row.fitnessPassed && row.knownFinalScore !== null);
+  const grouped = new Map<string, FinalPredictionSeedRow[]>();
+
+  for (const row of passRows) {
+    const key = `${row.regionId}:${row.examType}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.push(row);
+      continue;
+    }
+    grouped.set(key, [row]);
+  }
+
+  const rankMap = new Map<number, number>();
+
+  for (const groupRows of grouped.values()) {
+    const sorted = [...groupRows].sort(compareFinalPredictionSeedRow);
+    for (let index = 0; index < sorted.length; index += 1) {
+      rankMap.set(sorted[index].submissionId, index + 1);
+    }
+  }
+
+  return rankMap;
+}
+
 function pickDifficultyByPercent(percent: number): DifficultyRatingLevel {
   if (percent >= 90) return DifficultyRatingLevel.VERY_EASY;
   if (percent >= 80) return DifficultyRatingLevel.EASY;
@@ -164,6 +254,53 @@ function createScoreDraft(
       rating,
     };
   });
+}
+
+function buildFinalPredictionSeedRow(params: {
+  submissionId: number;
+  userId: number;
+  draft: SubmissionDraft;
+}): FinalPredictionSeedRow {
+  const hasCutoff = params.draft.subjectScores.some((score) => score.isFailed);
+  const passChance = hasCutoff
+    ? 0.08
+    : clamp(0.58 + (params.draft.finalScore / 250) * 0.35, 0.58, 0.95);
+  const fitnessPassed = Math.random() < passChance;
+
+  if (!fitnessPassed) {
+    return {
+      submissionId: params.submissionId,
+      userId: params.userId,
+      regionId: params.draft.regionId,
+      examType: params.draft.examType,
+      bonusType: params.draft.bonusType,
+      writtenScore: params.draft.finalScore,
+      fitnessPassed: false,
+      martialBonusPoint: 0,
+      additionalBonusPoint: 0,
+      knownBonusPoint: 0,
+      knownFinalScore: null,
+    };
+  }
+
+  const martialDanLevel = pickMartialDanLevel();
+  const martialBonusPoint = martialBonusPointByDanLevel(martialDanLevel);
+  const additionalBonusPoint = pickAdditionalBonusPoint();
+  const knownBonusPoint = roundTwo(martialBonusPoint + additionalBonusPoint);
+
+  return {
+    submissionId: params.submissionId,
+    userId: params.userId,
+    regionId: params.draft.regionId,
+    examType: params.draft.examType,
+    bonusType: params.draft.bonusType,
+    writtenScore: params.draft.finalScore,
+    fitnessPassed: true,
+    martialBonusPoint,
+    additionalBonusPoint,
+    knownBonusPoint,
+    knownFinalScore: roundTwo(params.draft.finalScore + knownBonusPoint),
+  };
 }
 
 function chunkArray<T>(items: T[], chunkSize: number): T[][] {
@@ -292,6 +429,7 @@ export async function generateMockData(
   );
   const careerEnabled = options.careerEnabled !== false;
   const resetBeforeGenerate = options.resetBeforeGenerate !== false;
+  const includeFinalPredictionMock = options.includeFinalPredictionMock !== false;
 
   const [regions, subjects] = await Promise.all([
     prisma.region.findMany({
@@ -489,11 +627,17 @@ export async function generateMockData(
 
     const subjectScoreRows: Prisma.SubjectScoreCreateManyInput[] = [];
     const difficultyRows: Prisma.DifficultyRatingCreateManyInput[] = [];
+    const finalPredictionSeeds: FinalPredictionSeedRow[] = [];
 
     for (const draft of drafts) {
       const submissionId = submissionIdByExamNumber.get(draft.examNumber);
       if (!submissionId) {
         throw new Error("Failed to map generated mock submissions.");
+      }
+
+      const userId = userIdByPhone.get(draft.phone);
+      if (!userId) {
+        throw new Error("Failed to map generated mock users.");
       }
 
       for (const score of draft.subjectScores) {
@@ -510,6 +654,16 @@ export async function generateMockData(
           rating: score.rating,
         });
       }
+
+      if (includeFinalPredictionMock) {
+        finalPredictionSeeds.push(
+          buildFinalPredictionSeedRow({
+            submissionId,
+            userId,
+            draft,
+          })
+        );
+      }
     }
 
     for (const chunk of chunkArray(subjectScoreRows, 1000)) {
@@ -524,6 +678,31 @@ export async function generateMockData(
       });
     }
 
+    let createdFinalPredictionCount = 0;
+    if (includeFinalPredictionMock && finalPredictionSeeds.length > 0) {
+      const rankMap = buildFinalPredictionRankMap(finalPredictionSeeds);
+      const finalPredictionRows: Prisma.FinalPredictionCreateManyInput[] = finalPredictionSeeds.map((row) => ({
+        submissionId: row.submissionId,
+        userId: row.userId,
+        fitnessScore: row.martialBonusPoint,
+        interviewScore: row.additionalBonusPoint,
+        interviewGrade: row.fitnessPassed ? "PASS" : "FAIL",
+        finalScore: row.knownFinalScore,
+        finalRank:
+          row.fitnessPassed && row.knownFinalScore !== null
+            ? (rankMap.get(row.submissionId) ?? null)
+            : null,
+      }));
+
+      for (const chunk of chunkArray(finalPredictionRows, 1000)) {
+        await tx.finalPrediction.createMany({
+          data: chunk,
+        });
+      }
+
+      createdFinalPredictionCount = finalPredictionRows.length;
+    }
+
     return {
       examId: targetExam.id,
       examName: targetExam.name,
@@ -534,6 +713,7 @@ export async function generateMockData(
         submissions: createdSubmissions.length,
         subjectScores: subjectScoreRows.length,
         difficultyRatings: difficultyRows.length,
+        finalPredictions: createdFinalPredictionCount,
       },
     };
   });

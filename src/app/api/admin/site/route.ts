@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
-import { getSiteSettings, normalizeSiteSettingUpdateEntries, upsertSiteSettings } from "@/lib/site-settings";
+import { getSiteSettingsUncached, normalizeSiteSettingUpdateEntries, upsertSiteSettings } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 interface SiteSettingUpdatePayload {
   settings?: Record<string, unknown>;
@@ -13,7 +14,7 @@ export async function GET() {
   if ("error" in guard) return guard.error;
 
   try {
-    const settings = await getSiteSettings();
+    const settings = await getSiteSettingsUncached();
     return NextResponse.json({ settings });
   } catch (error) {
     console.error("사이트 설정 조회 중 오류가 발생했습니다.", error);
