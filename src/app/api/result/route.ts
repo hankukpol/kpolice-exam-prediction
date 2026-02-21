@@ -22,6 +22,25 @@ type CountRow = {
   lowerCount: bigint | number | null;
 };
 
+type SubjectAggregateRow = {
+  subjectId: number;
+  averageScore: unknown;
+  highestScore: unknown;
+  top10Average: unknown;
+  top30Average: unknown;
+};
+
+type TotalAggregateRow = {
+  averageScore: unknown;
+  highestScore: unknown;
+  top10Average: unknown;
+  top30Average: unknown;
+};
+
+type LatestUpdatedRow = {
+  latestAt: Date | string | null;
+};
+
 function toAnswerKey(subjectId: number, questionNumber: number): string {
   return `${subjectId}:${questionNumber}`;
 }
@@ -33,6 +52,24 @@ function roundNumber(value: number): number {
 function toCount(value: bigint | number | null | undefined): number {
   if (typeof value === "bigint") return Number(value);
   if (typeof value === "number" && Number.isFinite(value)) return value;
+  return 0;
+}
+
+function toNumeric(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (value && typeof value === "object") {
+    const asNumber = Number(String(value));
+    return Number.isFinite(asNumber) ? asNumber : 0;
+  }
+  if (typeof value === "string") {
+    const asNumber = Number(value);
+    return Number.isFinite(asNumber) ? asNumber : 0;
+  }
   return 0;
 }
 
@@ -269,6 +306,76 @@ export async function GET(request: NextRequest) {
     ])
   );
 
+  const subjectAggregateRows =
+    subjectIds.length > 0
+      ? await prisma.$queryRaw<SubjectAggregateRow[]>(Prisma.sql`
+          WITH ranked_subject AS (
+            SELECT
+              ss.subjectId AS subjectId,
+              ss.rawScore AS rawScore,
+              ROW_NUMBER() OVER (PARTITION BY ss.subjectId ORDER BY ss.rawScore DESC, s.id ASC) AS rn,
+              COUNT(*) OVER (PARTITION BY ss.subjectId) AS cnt
+            FROM Submission s
+            INNER JOIN SubjectScore ss
+              ON ss.submissionId = s.id
+             AND ss.subjectId IN (${Prisma.join(subjectIds)})
+            WHERE s.examId = ${submission.examId}
+              AND s.regionId = ${submission.regionId}
+              AND s.examType = ${submission.examType}
+              ${populationConditionSql}
+          )
+          SELECT
+            subjectId,
+            ROUND(AVG(rawScore), 2) AS averageScore,
+            MAX(rawScore) AS highestScore,
+            ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.1)) THEN rawScore END), 2) AS top10Average,
+            ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.3)) THEN rawScore END), 2) AS top30Average
+          FROM ranked_subject
+          GROUP BY subjectId
+        `)
+      : [];
+
+  const subjectAggregateMap = new Map(
+    subjectAggregateRows.map((row) => [
+      row.subjectId,
+      {
+        averageScore: roundNumber(toNumeric(row.averageScore)),
+        highestScore: roundNumber(toNumeric(row.highestScore)),
+        top10Average: roundNumber(toNumeric(row.top10Average)),
+        top30Average: roundNumber(toNumeric(row.top30Average)),
+      },
+    ])
+  );
+
+  const [totalAggregateRow] = await prisma.$queryRaw<TotalAggregateRow[]>(Prisma.sql`
+    WITH ranked_total AS (
+      SELECT
+        s.totalScore AS totalScore,
+        ROW_NUMBER() OVER (ORDER BY s.totalScore DESC, s.id ASC) AS rn,
+        COUNT(*) OVER () AS cnt
+      FROM Submission s
+      WHERE s.examId = ${submission.examId}
+        AND s.regionId = ${submission.regionId}
+        AND s.examType = ${submission.examType}
+        ${populationConditionSql}
+    )
+    SELECT
+      ROUND(AVG(totalScore), 2) AS averageScore,
+      MAX(totalScore) AS highestScore,
+      ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.1)) THEN totalScore END), 2) AS top10Average,
+      ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.3)) THEN totalScore END), 2) AS top30Average
+    FROM ranked_total
+  `);
+
+  const [latestUpdatedRow] = await prisma.$queryRaw<LatestUpdatedRow[]>(Prisma.sql`
+    SELECT MAX(s.updatedAt) AS latestAt
+    FROM Submission s
+    WHERE s.examId = ${submission.examId}
+      AND s.regionId = ${submission.regionId}
+      AND s.examType = ${submission.examType}
+      ${populationConditionSql}
+  `);
+
   const answerKeyMap = new Map<string, number>();
   for (const k of answerKeys) {
     answerKeyMap.set(toAnswerKey(k.subjectId, k.questionNumber), k.correctAnswer);
@@ -380,6 +487,58 @@ export async function GET(request: NextRequest) {
       cutoffScore: score.cutoffScore,
     }));
 
+  const totalAggregate = {
+    averageScore: roundNumber(toNumeric(totalAggregateRow?.averageScore)),
+    highestScore: roundNumber(toNumeric(totalAggregateRow?.highestScore)),
+    top10Average: roundNumber(toNumeric(totalAggregateRow?.top10Average)),
+    top30Average: roundNumber(toNumeric(totalAggregateRow?.top30Average)),
+  };
+
+  const lastUpdated =
+    latestUpdatedRow?.latestAt === null || latestUpdatedRow?.latestAt === undefined
+      ? new Date().toISOString()
+      : new Date(latestUpdatedRow.latestAt).toISOString();
+
+  const totalMaxScore = roundNumber(
+    orderedSubjectScores.reduce((sum, score) => sum + Number(score.subject.maxScore), 0)
+  );
+
+  const analysisSummary = {
+    examType: submission.examType,
+    subjects: scores.map((score) => {
+      const aggregate = subjectAggregateMap.get(score.subjectId);
+      return {
+        subjectId: score.subjectId,
+        subjectName: score.subjectName,
+        myScore: score.rawScore,
+        maxScore: score.maxScore,
+        myRank: score.rank,
+        totalParticipants: score.totalParticipants,
+        averageScore: aggregate?.averageScore ?? 0,
+        highestScore: aggregate?.highestScore ?? 0,
+        top10Average: aggregate?.top10Average ?? 0,
+        top30Average: aggregate?.top30Average ?? 0,
+      };
+    }),
+    total: {
+      myScore: roundNumber(Number(submission.totalScore)),
+      maxScore: totalMaxScore,
+      myRank: totalRank,
+      totalParticipants,
+      averageScore: totalAggregate.averageScore,
+      highestScore: totalAggregate.highestScore,
+      top10Average: totalAggregate.top10Average,
+      top30Average: totalAggregate.top30Average,
+    },
+  };
+
+  const participantStatus = {
+    currentRank: totalRank,
+    totalParticipants,
+    percentile: totalPercentile,
+    lastUpdated,
+  };
+
   return NextResponse.json({
     features: {
       finalPredictionEnabled,
@@ -406,6 +565,8 @@ export async function GET(request: NextRequest) {
     },
     scores,
     subjectCorrectRateSummaries,
+    analysisSummary,
+    participantStatus,
     statistics: {
       totalParticipants,
       totalRank,
