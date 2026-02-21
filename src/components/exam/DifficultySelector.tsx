@@ -39,7 +39,7 @@ export default function DifficultySelector({ subjectName, value, onChange }: Dif
     <div className="flex items-center gap-2">
       <p className="text-xs text-slate-500">{subjectName} 체감 난이도</p>
       <div className="inline-flex overflow-hidden rounded-md border border-slate-300">
-        {options.map((option, index) => {
+        {options.map((option) => {
           const active = value === option.value;
           return (
             <button

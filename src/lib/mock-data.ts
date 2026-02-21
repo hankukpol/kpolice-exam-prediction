@@ -86,6 +86,8 @@ export interface ResetMockDataResult {
   };
 }
 
+type MockDbClient = Prisma.TransactionClient | typeof prisma;
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -173,23 +175,26 @@ function chunkArray<T>(items: T[], chunkSize: number): T[][] {
   return chunks;
 }
 
-async function resolveExam(examId?: number) {
+async function resolveExam(examId?: number, db: MockDbClient = prisma) {
   if (examId && Number.isInteger(examId) && examId > 0) {
-    const selected = await prisma.exam.findUnique({
+    const selected = await db.exam.findUnique({
       where: { id: examId },
       select: { id: true, name: true },
     });
     if (selected) return selected;
   }
 
-  return prisma.exam.findFirst({
+  return db.exam.findFirst({
     where: { isActive: true },
     orderBy: [{ examDate: "desc" }, { id: "desc" }],
     select: { id: true, name: true },
   });
 }
 
-export async function resetMockData(options: ResetMockDataOptions = {}): Promise<ResetMockDataResult> {
+async function resetMockDataWithClient(
+  db: MockDbClient,
+  options: ResetMockDataOptions = {}
+): Promise<ResetMockDataResult> {
   const examId = options.examId;
   const submissionWhere: Prisma.SubmissionWhereInput = {
     examNumber: {
@@ -198,7 +203,7 @@ export async function resetMockData(options: ResetMockDataOptions = {}): Promise
     ...(examId ? { examId } : {}),
   };
 
-  const existing = await prisma.submission.findMany({
+  const existing = await db.submission.findMany({
     where: submissionWhere,
     select: {
       id: true,
@@ -207,13 +212,11 @@ export async function resetMockData(options: ResetMockDataOptions = {}): Promise
   });
 
   const submissionIds = existing.map((row) => row.id);
-  const candidateUserIds: number[] = Array.from(
-    new Set<number>(existing.map((row) => row.userId))
-  );
+  const candidateUserIds: number[] = Array.from(new Set<number>(existing.map((row) => row.userId)));
 
   let deletedSubmissionCount = 0;
   for (const ids of chunkArray(submissionIds, 500)) {
-    const deleted = await prisma.submission.deleteMany({
+    const deleted = await db.submission.deleteMany({
       where: {
         id: { in: ids },
       },
@@ -242,13 +245,13 @@ export async function resetMockData(options: ResetMockDataOptions = {}): Promise
         };
 
   let deletedUserCount = 0;
-  const deletableUsers = await prisma.user.findMany({
+  const deletableUsers = await db.user.findMany({
     where: userDeleteWhere,
     select: { id: true },
   });
 
   for (const ids of chunkArray(deletableUsers.map((row) => row.id), 500)) {
-    const deleted = await prisma.user.deleteMany({
+    const deleted = await db.user.deleteMany({
       where: { id: { in: ids } },
     });
     deletedUserCount += deleted.count;
@@ -261,6 +264,10 @@ export async function resetMockData(options: ResetMockDataOptions = {}): Promise
       users: deletedUserCount,
     },
   };
+}
+
+export async function resetMockData(options: ResetMockDataOptions = {}): Promise<ResetMockDataResult> {
+  return prisma.$transaction(async (tx) => resetMockDataWithClient(tx, options));
 }
 
 export async function generateMockData(
@@ -285,10 +292,6 @@ export async function generateMockData(
   );
   const careerEnabled = options.careerEnabled !== false;
   const resetBeforeGenerate = options.resetBeforeGenerate !== false;
-
-  const deletedBeforeGenerate = resetBeforeGenerate
-    ? await resetMockData({ examId: targetExam.id })
-    : { examId: targetExam.id, deleted: { submissions: 0, users: 0 } };
 
   const [regions, subjects] = await Promise.all([
     prisma.region.findMany({
@@ -402,116 +405,125 @@ export async function generateMockData(
     throw new Error("생성 가능한 지역/직렬 데이터가 없어 목업 데이터 생성을 건너뛰었습니다.");
   }
 
-  await prisma.user.createMany({
-    data: mockUsers,
-  });
+  return prisma.$transaction(async (tx) => {
+    const deletedBeforeGenerate = resetBeforeGenerate
+      ? await resetMockDataWithClient(tx, { examId: targetExam.id })
+      : { examId: targetExam.id, deleted: { submissions: 0, users: 0 } };
 
-  const createdUsers = await prisma.user.findMany({
-    where: {
-      name: {
-        startsWith: `${MOCK_USER_PREFIX}:${targetExam.id}:${runKey}:`,
-      },
-      phone: {
-        startsWith: `${MOCK_PHONE_PREFIX}${runPhoneSeed}`,
-      },
-    },
-    select: {
-      id: true,
-      phone: true,
-    },
-  });
+    await tx.user.createMany({
+      data: mockUsers,
+    });
 
-  const userIdByPhone = new Map<string, number>(
-    createdUsers.map((user) => [user.phone, user.id] as const)
-  );
-  const submissionCreateData: Prisma.SubmissionCreateManyInput[] = drafts.map((draft) => {
-    const userId = userIdByPhone.get(draft.phone);
-    if (!userId) {
-      throw new Error("생성된 목업 사용자 매핑에 실패했습니다.");
+    const createdUsers = await tx.user.findMany({
+      where: {
+        name: {
+          startsWith: `${MOCK_USER_PREFIX}:${targetExam.id}:${runKey}:`,
+        },
+        phone: {
+          startsWith: `${MOCK_PHONE_PREFIX}${runPhoneSeed}`,
+        },
+      },
+      select: {
+        id: true,
+        phone: true,
+      },
+    });
+
+    const userIdByPhone = new Map<string, number>(
+      createdUsers.map((user) => [user.phone, user.id] as const)
+    );
+    const submissionCreateData: Prisma.SubmissionCreateManyInput[] = drafts.map((draft) => {
+      const userId = userIdByPhone.get(draft.phone);
+      if (!userId) {
+        throw new Error("Failed to map generated mock users.");
+      }
+
+      return {
+        examId: targetExam.id,
+        userId,
+        regionId: draft.regionId,
+        examType: draft.examType,
+        gender: draft.gender,
+        examNumber: draft.examNumber,
+        totalScore: draft.totalScore,
+        bonusType: draft.bonusType,
+        bonusRate: draft.bonusRate,
+        finalScore: draft.finalScore,
+      };
+    });
+
+    for (const chunk of chunkArray(submissionCreateData, 500)) {
+      await tx.submission.createMany({
+        data: chunk,
+      });
+    }
+
+    const createdSubmissions = await tx.submission.findMany({
+      where: {
+        examId: targetExam.id,
+        examNumber: {
+          startsWith: `${MOCK_EXAM_NUMBER_PREFIX}-${targetExam.id}-${runKey}-`,
+        },
+      },
+      select: {
+        id: true,
+        examNumber: true,
+      },
+    });
+
+    const submissionIdByExamNumber = new Map<string, number>(
+      createdSubmissions.map((submission) => [submission.examNumber, submission.id] as const)
+    );
+
+    const subjectScoreRows: Prisma.SubjectScoreCreateManyInput[] = [];
+    const difficultyRows: Prisma.DifficultyRatingCreateManyInput[] = [];
+
+    for (const draft of drafts) {
+      const submissionId = submissionIdByExamNumber.get(draft.examNumber);
+      if (!submissionId) {
+        throw new Error("Failed to map generated mock submissions.");
+      }
+
+      for (const score of draft.subjectScores) {
+        subjectScoreRows.push({
+          submissionId,
+          subjectId: score.subjectId,
+          rawScore: score.rawScore,
+          isFailed: score.isFailed,
+        });
+
+        difficultyRows.push({
+          submissionId,
+          subjectId: score.subjectId,
+          rating: score.rating,
+        });
+      }
+    }
+
+    for (const chunk of chunkArray(subjectScoreRows, 1000)) {
+      await tx.subjectScore.createMany({
+        data: chunk,
+      });
+    }
+
+    for (const chunk of chunkArray(difficultyRows, 1000)) {
+      await tx.difficultyRating.createMany({
+        data: chunk,
+      });
     }
 
     return {
       examId: targetExam.id,
-      userId,
-      regionId: draft.regionId,
-      examType: draft.examType,
-      gender: draft.gender,
-      examNumber: draft.examNumber,
-      totalScore: draft.totalScore,
-      bonusType: draft.bonusType,
-      bonusRate: draft.bonusRate,
-      finalScore: draft.finalScore,
+      examName: targetExam.name,
+      runKey,
+      deletedBeforeGenerate: deletedBeforeGenerate.deleted,
+      created: {
+        users: createdUsers.length,
+        submissions: createdSubmissions.length,
+        subjectScores: subjectScoreRows.length,
+        difficultyRatings: difficultyRows.length,
+      },
     };
   });
-
-  for (const chunk of chunkArray(submissionCreateData, 500)) {
-    await prisma.submission.createMany({
-      data: chunk,
-    });
-  }
-
-  const createdSubmissions = await prisma.submission.findMany({
-    where: {
-      examId: targetExam.id,
-      examNumber: {
-        startsWith: `${MOCK_EXAM_NUMBER_PREFIX}-${targetExam.id}-${runKey}-`,
-      },
-    },
-    select: {
-      id: true,
-      examNumber: true,
-    },
-  });
-
-  const submissionIdByExamNumber = new Map<string, number>(
-    createdSubmissions.map((submission) => [submission.examNumber, submission.id] as const)
-  );
-
-  const subjectScoreRows: Prisma.SubjectScoreCreateManyInput[] = [];
-  const difficultyRows: Prisma.DifficultyRatingCreateManyInput[] = [];
-
-  for (const draft of drafts) {
-    const submissionId = submissionIdByExamNumber.get(draft.examNumber);
-    if (!submissionId) continue;
-
-    for (const score of draft.subjectScores) {
-      subjectScoreRows.push({
-        submissionId,
-        subjectId: score.subjectId,
-        rawScore: score.rawScore,
-        isFailed: score.isFailed,
-      });
-
-      difficultyRows.push({
-        submissionId,
-        subjectId: score.subjectId,
-        rating: score.rating,
-      });
-    }
-  }
-
-  for (const chunk of chunkArray(subjectScoreRows, 1000)) {
-    await prisma.subjectScore.createMany({
-      data: chunk,
-    });
-  }
-
-  for (const chunk of chunkArray(difficultyRows, 1000)) {
-    await prisma.difficultyRating.createMany({
-      data: chunk,
-    });
-  }
-
-  return {
-    examId: targetExam.id,
-    examName: targetExam.name,
-    runKey,
-    deletedBeforeGenerate: deletedBeforeGenerate.deleted,
-    created: {
-      users: createdUsers.length,
-      submissions: createdSubmissions.length,
-      subjectScores: subjectScoreRows.length,
-      difficultyRatings: difficultyRows.length,
-    },
-  };
 }
+

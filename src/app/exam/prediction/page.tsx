@@ -34,7 +34,7 @@ interface PredictionPageResponse {
     likelyMultiple: number;
     passCount: number;
     passLineScore: number | null;
-    predictionGrade: "확실권" | "유력권" | "가능권" | "안전권";
+    predictionGrade: "확실권" | "유력권" | "가능권" | "도전권";
     disclaimer: string;
   };
   pyramid: {
@@ -456,7 +456,7 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
         <article className="rounded-xl border border-slate-200 bg-white p-6">
           <h2 className="text-base font-semibold text-slate-900">합격예측 피라미드</h2>
           <p className="mt-1 text-xs text-slate-500">
-            확실권 / 유력권 / 가능권 / 안전권 / 안전권 이하 5단계
+            확실권 / 유력권 / 가능권 / 도전권 / 도전권 이하 5단계
           </p>
 
           <div className="mt-5 space-y-3">

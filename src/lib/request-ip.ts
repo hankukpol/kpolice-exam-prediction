@@ -68,13 +68,13 @@ export function getClientIp(requestLike: unknown): string {
     return cfIp;
   }
 
-  // 3. X-Forwarded-For — 가장 마지막(rightmost) IP가 리버스 프록시가 추가한 값
-  //    Nginx에서 $remote_addr만 전달하도록 설정된 경우 첫 번째 값이 정확함
+  // 3. X-Forwarded-For — 일반적으로 leftmost가 원본 클라이언트 IP
+  //    Nginx에서 $remote_addr만 전달하도록 설정된 경우에도 첫 번째 값이 정확함
   const xForwardedFor = normalizeHeaderValue(readHeaderValue(headers, "x-forwarded-for"));
   if (xForwardedFor) {
     const parts = xForwardedFor.split(",").map((s) => s.trim()).filter(Boolean);
     if (parts.length > 0) {
-      return parts[parts.length - 1];
+      return parts[0];
     }
   }
 

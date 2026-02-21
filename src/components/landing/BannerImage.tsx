@@ -10,17 +10,22 @@ function isExternalUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
 }
 
+function joinClassNames(...parts: Array<string | undefined>): string {
+  return parts.filter(Boolean).join(" ");
+}
+
 export default function BannerImage({ banner, className, fullWidth = false }: BannerImageProps) {
   const image = (
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={banner.imageUrl}
       alt={banner.altText || "배너 이미지"}
-      className={
+      className={joinClassNames(
         fullWidth
           ? "shrink-0 h-auto max-w-none w-[160%] min-[1200px]:w-[1920px] object-cover object-center bg-white"
-          : "block h-auto w-full border border-slate-200 object-cover bg-white"
-      }
+          : "block h-auto w-full border border-slate-200 object-cover bg-white",
+        className
+      )}
     />
   );
 

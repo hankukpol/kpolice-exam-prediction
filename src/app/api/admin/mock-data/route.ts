@@ -43,7 +43,13 @@ function toUserErrorMessage(error: unknown, fallbackMessage: string): string {
   }
 
   if (error instanceof Error) {
-    return error.message;
+    const safeMessages = new Set([
+      "활성 시험이 없어 목업 데이터를 생성할 수 없습니다.",
+      "생성 가능한 지역/직렬 데이터가 없어 목업 데이터 생성을 건너뛰었습니다.",
+    ]);
+    if (safeMessages.has(error.message)) {
+      return error.message;
+    }
   }
 
   return fallbackMessage;

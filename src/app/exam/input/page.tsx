@@ -66,6 +66,27 @@ interface SubmissionResponse {
   submissionId: number;
 }
 
+type EditBonusType = "NONE" | "VETERAN_5" | "VETERAN_10" | "HERO_3" | "HERO_5";
+
+interface EditSubmissionResponse {
+  submission?: {
+    gender: Gender;
+    examType: ExamType;
+    regionId: number;
+    examNumber: string | null;
+    bonusType: EditBonusType;
+  };
+  scores: Array<{
+    subjectName: string;
+    difficulty: DifficultyRating | null;
+    answers: Array<{
+      questionNumber: number;
+      selectedAnswer: number;
+    }>;
+  }>;
+  error?: string;
+}
+
 interface ExamInputPageProps {
   embedded?: boolean;
   onSubmitted?: (submissionId: number) => void;
@@ -163,10 +184,11 @@ export default function ExamInputPage({
           throw new Error(data.error ?? "시험 정보를 불러오지 못했습니다.");
         }
 
-        let editData: any = null;
+        let editData: EditSubmissionResponse | null = null;
         if (editRes) {
-          editData = await editRes.json();
-          if (!editRes.ok) throw new Error(editData.error ?? "수정할 답안을 불러오지 못했습니다.");
+          const parsed = (await editRes.json()) as EditSubmissionResponse;
+          if (!editRes.ok) throw new Error(parsed.error ?? "수정할 답안을 불러오지 못했습니다.");
+          editData = parsed;
         }
 
         if (!isMounted) return;
@@ -176,13 +198,15 @@ export default function ExamInputPage({
         if (editData && editData.submission) {
           const sub = editData.submission;
           setGender(sub.gender);
-          const nextExamType =
+          const restoredExamType =
             sub.examType === ExamType.CAREER && !data.careerExamEnabled
               ? ExamType.PUBLIC
-              : (sub.examType as ExamType);
-          setExamType(nextExamType);
+              : sub.examType;
+          setExamType(restoredExamType);
           setRegionId(sub.regionId);
           setExamNumber(sub.examNumber || "");
+          setVeteranPercent(0);
+          setHeroPercent(0);
           if (sub.bonusType === "VETERAN_5") setVeteranPercent(5);
           else if (sub.bonusType === "VETERAN_10") setVeteranPercent(10);
           else if (sub.bonusType === "HERO_3") setHeroPercent(3);
@@ -197,15 +221,22 @@ export default function ExamInputPage({
             [ExamType.CAREER]: createEmptyDifficulty(data.subjectGroups.CAREER),
           };
 
-          editData.scores.forEach((score: any) => {
-            if (score.difficulty) {
-              newDiffStore[sub.examType as ExamType][score.subjectName] = score.difficulty;
+          editData.scores.forEach((score) => {
+            if (
+              score.difficulty &&
+              Object.prototype.hasOwnProperty.call(newDiffStore[restoredExamType], score.subjectName)
+            ) {
+              newDiffStore[restoredExamType][score.subjectName] = score.difficulty;
             }
-            if (score.answers) {
-              score.answers.forEach((ans: any) => {
-                newAnswerStore[sub.examType as ExamType][score.subjectName][ans.questionNumber] = ans.selectedAnswer;
-              });
-            }
+
+            const subjectAnswers = newAnswerStore[restoredExamType][score.subjectName];
+            if (!subjectAnswers) return;
+
+            score.answers.forEach((ans) => {
+              if (Object.prototype.hasOwnProperty.call(subjectAnswers, ans.questionNumber)) {
+                subjectAnswers[ans.questionNumber] = ans.selectedAnswer;
+              }
+            });
           });
 
           setAnswerStore(newAnswerStore);
@@ -236,7 +267,7 @@ export default function ExamInputPage({
     return () => {
       isMounted = false;
     };
-  }, [showErrorToast]);
+  }, [editId, showErrorToast]);
 
   const subjects = useMemo(() => {
     if (!meta) return [];

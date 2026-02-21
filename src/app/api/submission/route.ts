@@ -488,7 +488,7 @@ export async function PUT(request: Request) {
 
     const existingSubmission = await prisma.submission.findUnique({
       where: { id: submissionId },
-      select: { id: true, userId: true, editCount: true },
+      select: { id: true, userId: true, examId: true, editCount: true },
     });
 
     if (!existingSubmission || existingSubmission.userId !== userId) {
@@ -532,19 +532,20 @@ export async function PUT(request: Request) {
     const difficulty = parseDifficulty(body.difficulty);
 
     const requestedExamId = parsePositiveInt(body.examId);
-    const exam = requestedExamId
-      ? await prisma.exam.findUnique({
-        where: { id: requestedExamId },
-        select: { id: true, name: true, isActive: true },
-      })
-      : await prisma.exam.findFirst({
-        where: { isActive: true },
-        orderBy: [{ examDate: "desc" }, { id: "desc" }],
-        select: { id: true, name: true, isActive: true },
-      });
+    if (requestedExamId && requestedExamId !== existingSubmission.examId) {
+      return NextResponse.json(
+        { error: "기존 제출과 다른 시험으로는 수정할 수 없습니다." },
+        { status: 400 }
+      );
+    }
+
+    const exam = await prisma.exam.findUnique({
+      where: { id: existingSubmission.examId },
+      select: { id: true, name: true, isActive: true },
+    });
 
     if (!exam) {
-      return NextResponse.json({ error: "제출 가능한 시험이 없습니다." }, { status: 404 });
+      return NextResponse.json({ error: "기존 제출의 시험 정보를 찾을 수 없습니다." }, { status: 404 });
     }
 
     const region = await prisma.region.findUnique({
