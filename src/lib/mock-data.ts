@@ -433,6 +433,7 @@ export async function generateMockData(
 
   const [regions, subjects] = await Promise.all([
     prisma.region.findMany({
+      where: { isActive: true },
       orderBy: { name: "asc" },
       select: {
         id: true,

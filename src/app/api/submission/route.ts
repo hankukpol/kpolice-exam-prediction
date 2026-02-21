@@ -389,6 +389,7 @@ export async function POST(request: Request) {
       select: {
         id: true,
         name: true,
+        isActive: true,
         recruitCount: true,
         recruitCountCareer: true,
       },
@@ -396,6 +397,12 @@ export async function POST(request: Request) {
 
     if (!region) {
       return NextResponse.json({ error: "선택한 지역을 찾을 수 없습니다." }, { status: 404 });
+    }
+    if (!region.isActive) {
+      return NextResponse.json(
+        { error: "비활성화된 지역은 성적 입력이 불가능합니다. 관리자에게 문의해주세요." },
+        { status: 400 }
+      );
     }
 
     const examNumber = parseExamNumber(body.examNumber);
@@ -648,6 +655,7 @@ export async function PUT(request: Request) {
       select: {
         id: true,
         name: true,
+        isActive: true,
         recruitCount: true,
         recruitCountCareer: true,
       },
@@ -655,6 +663,12 @@ export async function PUT(request: Request) {
 
     if (!region) {
       return NextResponse.json({ error: "선택한 지역을 찾을 수 없습니다." }, { status: 404 });
+    }
+    if (!region.isActive) {
+      return NextResponse.json(
+        { error: "비활성화된 지역은 성적 입력이 불가능합니다. 관리자에게 문의해주세요." },
+        { status: 400 }
+      );
     }
 
     const examNumber = parseExamNumber(body.examNumber);

@@ -75,6 +75,7 @@ model Exam {
 model Region {
   id                 Int          @id @default(autoincrement())
   name               String       @unique
+  isActive           Boolean      @default(true)
   recruitCount       Int
   recruitCountCareer Int
   applicantCount       Int?

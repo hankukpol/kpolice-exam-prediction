@@ -1,11 +1,21 @@
-import { ExamType } from "@prisma/client";
+import { ExamType, Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-interface RegionRowWithApplicants {
+interface RegionRow {
+  id: number;
+  name: string;
+  isActive: boolean;
+  recruitCount: number;
+  recruitCountCareer: number;
+  applicantCount: number | null;
+  applicantCountCareer: number | null;
+}
+
+interface RegionRowLegacy {
   id: number;
   name: string;
   recruitCount: number;
@@ -16,6 +26,7 @@ interface RegionRowWithApplicants {
 
 interface RegionUpdateItem {
   id?: unknown;
+  isActive?: unknown;
   recruitCount?: unknown;
   recruitCountCareer?: unknown;
   applicantCount?: unknown;
@@ -52,6 +63,24 @@ function parseNullableNonNegativeInt(value: unknown): { ok: boolean; value: numb
   return { ok: true, value: parsed };
 }
 
+function parseBoolean(value: unknown): boolean | null | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+
+  return null;
+}
+
 function parsePositiveInt(value: unknown): number | null {
   if (typeof value === "number") {
     return Number.isInteger(value) && value > 0 ? value : null;
@@ -79,23 +108,126 @@ function formatPassMultiple(recruitCount: number): string {
   return `${(passCount / recruitCount).toFixed(1)}배`;
 }
 
+function isMissingColumnError(error: unknown, columnName: string): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : "";
+
+  return message.includes("Unknown column") && message.includes(columnName);
+}
+
+async function ensureRegionIsActiveColumnBestEffort(): Promise<void> {
+  try {
+    await prisma.$executeRawUnsafe(
+      "ALTER TABLE `Region` ADD COLUMN IF NOT EXISTS `isActive` BOOLEAN NOT NULL DEFAULT true"
+    );
+  } catch {
+    // Ignore and fall back to compatibility queries below.
+  }
+}
+
+async function fetchRegionsCompat(): Promise<{ rows: RegionRow[]; supportsIsActive: boolean }> {
+  try {
+    const rows = await prisma.$queryRaw<RegionRow[]>`
+      SELECT
+        id,
+        name,
+        isActive,
+        recruitCount,
+        recruitCountCareer,
+        applicantCount,
+        applicantCountCareer
+      FROM Region
+      ORDER BY isActive DESC, name ASC
+    `;
+    return { rows, supportsIsActive: true };
+  } catch (error) {
+    if (!isMissingColumnError(error, "isActive")) {
+      throw error;
+    }
+
+    const legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
+      SELECT
+        id,
+        name,
+        recruitCount,
+        recruitCountCareer,
+        applicantCount,
+        applicantCountCareer
+      FROM Region
+      ORDER BY name ASC
+    `;
+
+    return {
+      rows: legacyRows.map((row) => ({
+        ...row,
+        isActive: true,
+      })),
+      supportsIsActive: false,
+    };
+  }
+}
+
+async function fetchExistingRegionsCompat(ids: number[]): Promise<{ rows: RegionRow[]; supportsIsActive: boolean }> {
+  if (ids.length < 1) {
+    return { rows: [], supportsIsActive: true };
+  }
+
+  const idSql = Prisma.join(ids);
+
+  try {
+    const rows = await prisma.$queryRaw<RegionRow[]>`
+      SELECT
+        id,
+        name,
+        isActive,
+        recruitCount,
+        recruitCountCareer,
+        applicantCount,
+        applicantCountCareer
+      FROM Region
+      WHERE id IN (${idSql})
+    `;
+    return { rows, supportsIsActive: true };
+  } catch (error) {
+    if (!isMissingColumnError(error, "isActive")) {
+      throw error;
+    }
+
+    const legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
+      SELECT
+        id,
+        name,
+        recruitCount,
+        recruitCountCareer,
+        applicantCount,
+        applicantCountCareer
+      FROM Region
+      WHERE id IN (${idSql})
+    `;
+
+    return {
+      rows: legacyRows.map((row) => ({
+        ...row,
+        isActive: true,
+      })),
+      supportsIsActive: false,
+    };
+  }
+}
+
 export async function GET() {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
 
   try {
-    const [regions, groupedCounts] = await Promise.all([
-      prisma.$queryRaw<RegionRowWithApplicants[]>`
-        SELECT
-          id,
-          name,
-          recruitCount,
-          recruitCountCareer,
-          applicantCount,
-          applicantCountCareer
-        FROM Region
-        ORDER BY name ASC
-      `,
+    await ensureRegionIsActiveColumnBestEffort();
+
+    const [regionFetch, groupedCounts] = await Promise.all([
+      fetchRegionsCompat(),
       prisma.submission.groupBy({
         by: ["regionId", "examType"],
         _count: {
@@ -132,7 +264,7 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      regions: regions.map((region) => {
+      regions: regionFetch.rows.map((region) => {
         const counts = countByRegion.get(region.id) ?? {
           total: 0,
           publicCount: 0,
@@ -142,6 +274,7 @@ export async function GET() {
         return {
           id: region.id,
           name: region.name,
+          isActive: region.isActive,
           recruitCount: region.recruitCount,
           recruitCountCareer: region.recruitCountCareer,
           applicantCount: region.applicantCount,
@@ -173,6 +306,7 @@ export async function PUT(request: NextRequest) {
 
     const normalized = body.regions.map((item) => {
       const id = parsePositiveInt(item.id);
+      const isActive = parseBoolean(item.isActive);
       const recruitCount = parseNonNegativeInt(item.recruitCount);
       const recruitCountCareer = parseNonNegativeInt(item.recruitCountCareer);
       const applicantCountParsed = parseNullableNonNegativeInt(item.applicantCount);
@@ -180,6 +314,7 @@ export async function PUT(request: NextRequest) {
 
       return {
         id,
+        isActive,
         recruitCount,
         recruitCountCareer,
         applicantCount: applicantCountParsed.value,
@@ -192,6 +327,9 @@ export async function PUT(request: NextRequest) {
     for (const row of normalized) {
       if (!row.id) {
         return NextResponse.json({ error: "유효한 지역 ID가 필요합니다." }, { status: 400 });
+      }
+      if (row.isActive === null) {
+        return NextResponse.json({ error: "isActive 값이 올바르지 않습니다." }, { status: 400 });
       }
       if (row.recruitCount === null || row.recruitCountCareer === null) {
         return NextResponse.json({ error: "모집인원은 0 이상의 정수여야 합니다." }, { status: 400 });
@@ -210,42 +348,53 @@ export async function PUT(request: NextRequest) {
       uniqueIds.add(rowId);
     }
 
-    const existingRegions = await prisma.region.findMany({
-      where: {
-        id: {
-          in: Array.from(uniqueIds),
-        },
-      },
-      select: {
-        id: true,
-      },
-    });
+    await ensureRegionIsActiveColumnBestEffort();
 
-    if (existingRegions.length !== uniqueIds.size) {
+    const existingFetch = await fetchExistingRegionsCompat(Array.from(uniqueIds));
+    if (existingFetch.rows.length !== uniqueIds.size) {
       return NextResponse.json({ error: "존재하지 않는 지역 ID가 포함되어 있습니다." }, { status: 404 });
     }
 
+    const existingRegionById = new Map(existingFetch.rows.map((region) => [region.id, region] as const));
+
     await prisma.$transaction(
-      normalized.map((row) =>
-        prisma.$executeRaw`
+      normalized.map((row) => {
+        const regionId = row.id as number;
+        const nextIsActive = row.isActive ?? existingRegionById.get(regionId)?.isActive ?? true;
+
+        if (existingFetch.supportsIsActive) {
+          return prisma.$executeRaw`
+            UPDATE Region
+            SET
+              isActive = ${nextIsActive},
+              recruitCount = ${row.recruitCount as number},
+              recruitCountCareer = ${row.recruitCountCareer as number},
+              applicantCount = ${row.applicantCount},
+              applicantCountCareer = ${row.applicantCountCareer}
+            WHERE id = ${regionId}
+          `;
+        }
+
+        return prisma.$executeRaw`
           UPDATE Region
           SET
             recruitCount = ${row.recruitCount as number},
             recruitCountCareer = ${row.recruitCountCareer as number},
             applicantCount = ${row.applicantCount},
             applicantCountCareer = ${row.applicantCountCareer}
-          WHERE id = ${row.id as number}
-        `
-      )
+          WHERE id = ${regionId}
+        `;
+      })
     );
 
     return NextResponse.json({
       success: true,
       updatedCount: normalized.length,
-      message: `${normalized.length}개 지역 모집인원이 업데이트되었습니다.`,
+      message: `${normalized.length}개 지역 설정이 업데이트되었습니다.`,
     });
   } catch (error) {
     console.error("모집인원 저장 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "모집인원 저장에 실패했습니다." }, { status: 500 });
   }
 }
+

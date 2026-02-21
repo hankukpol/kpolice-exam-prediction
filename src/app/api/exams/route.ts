@@ -80,10 +80,12 @@ export async function GET(request: NextRequest) {
 
   const [regionsRaw, publicSubjectsRaw, careerSubjectsRaw, settings] = await Promise.all([
     prisma.region.findMany({
+      where: activeOnly ? { isActive: true } : undefined,
       orderBy: { id: "asc" },
       select: {
         id: true,
         name: true,
+        isActive: true,
         recruitCount: true,
         recruitCountCareer: true,
       },

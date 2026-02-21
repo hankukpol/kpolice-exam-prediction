@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 interface RegionItem {
   id: number;
   name: string;
+  isActive: boolean;
   recruitCount: number;
   recruitCountCareer: number;
   applicantCount: number | null;
@@ -29,7 +30,7 @@ type NoticeState = {
 
 type EditableRegionItem = Pick<
   RegionItem,
-  "id" | "name" | "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
+  "id" | "name" | "isActive" | "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
 > &
   Pick<RegionItem, "submissionCount" | "submissionCountPublic" | "submissionCountCareer">;
 
@@ -76,6 +77,7 @@ export default function AdminRegionsPage() {
       if (!original) continue;
 
       if (
+        original.isActive !== row.isActive ||
         original.recruitCount !== row.recruitCount ||
         original.recruitCountCareer !== row.recruitCountCareer ||
         original.applicantCount !== row.applicantCount ||
@@ -104,6 +106,7 @@ export default function AdminRegionsPage() {
       const nextRows = (data.regions ?? []).map((item) => ({
         id: item.id,
         name: item.name,
+        isActive: Boolean(item.isActive),
         recruitCount: item.recruitCount,
         recruitCountCareer: item.recruitCountCareer,
         applicantCount: item.applicantCount ?? null,
@@ -149,9 +152,22 @@ export default function AdminRegionsPage() {
     );
   }
 
+  function updateRegionActive(id: number, nextActive: boolean) {
+    setRegions((prev) =>
+      prev.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              isActive: nextActive,
+            }
+          : row
+      )
+    );
+  }
+
   function isFieldChanged(
     row: EditableRegionItem,
-    field: "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
+    field: "isActive" | "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
   ): boolean {
     const original = originalById.get(row.id);
     if (!original) return false;
@@ -165,12 +181,12 @@ export default function AdminRegionsPage() {
     }
 
     if (changedCount < 1) {
-      setNotice({ type: "error", message: "변경된 모집인원이 없습니다." });
+      setNotice({ type: "error", message: "변경된 지역 설정이 없습니다." });
       return;
     }
 
     const confirmed = window.confirm(
-      "모집인원 변경 시 합격예측 결과에 즉시 반영됩니다. 저장하시겠습니까?"
+      "지역 활성 상태/모집인원 변경은 성적 입력 및 합격예측에 즉시 반영됩니다. 저장하시겠습니까?"
     );
     if (!confirmed) {
       return;
@@ -186,6 +202,7 @@ export default function AdminRegionsPage() {
         body: JSON.stringify({
           regions: regions.map((row) => ({
             id: row.id,
+            isActive: row.isActive,
             recruitCount: row.recruitCount,
             recruitCountCareer: row.recruitCountCareer,
             applicantCount: row.applicantCount,
@@ -195,18 +212,18 @@ export default function AdminRegionsPage() {
       });
       const data = (await response.json()) as { success?: boolean; message?: string; error?: string };
       if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "모집인원 저장에 실패했습니다.");
+        throw new Error(data.error ?? "지역 설정 저장에 실패했습니다.");
       }
 
       setNotice({
         type: "success",
-        message: data.message ?? "모집인원이 저장되었습니다.",
+        message: data.message ?? "지역 설정이 저장되었습니다.",
       });
       setOriginalById(new Map(regions.map((row) => [row.id, { ...row }] as const)));
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "모집인원 저장에 실패했습니다.",
+        message: error instanceof Error ? error.message : "지역 설정 저장에 실패했습니다.",
       });
     } finally {
       setIsSaving(false);
@@ -216,20 +233,20 @@ export default function AdminRegionsPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-xl font-semibold text-slate-900">모집인원 관리</h1>
+        <h1 className="text-xl font-semibold text-slate-900">지역/모집인원 관리</h1>
         <p className="mt-1 text-sm text-slate-600">
-          합격배수 산출의 기준이 되는 지역별 선발인원을 관리합니다.
+          지역 활성/비활성 및 지역별 공채·경행경채 모집인원을 관리합니다.
         </p>
       </header>
 
       <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        <p className="font-semibold">⚠ 모집인원 변경 시 합격예측 결과에 즉시 반영됩니다.</p>
-        <p className="mt-1">변경 전 공고문의 정확한 수치를 확인해 주세요.</p>
+        <p className="font-semibold">비활성 지역은 사용자 성적 입력 및 예측 대상에서 제외됩니다.</p>
+        <p className="mt-1">대구/경북만 운영하려면 해당 지역만 활성으로 두고 저장하세요.</p>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
         <p>
-          1배수 기준 등수는 모집인원과 동일합니다. 실제 1배수 끝등수/동점 인원/컷 점수는{" "}
+          1배수 기준 인원은 모집인원과 동일합니다. 실제 1배수 끝등수/동점 인원/컷 점수는{" "}
           <Link href="/admin/stats" className="font-semibold text-slate-900 underline">
             참여 통계
           </Link>
@@ -250,23 +267,24 @@ export default function AdminRegionsPage() {
       ) : null}
 
       {isLoading ? (
-        <p className="text-sm text-slate-600">모집인원 데이터를 불러오는 중입니다...</p>
+        <p className="text-sm text-slate-600">지역 데이터를 불러오는 중입니다...</p>
       ) : regions.length === 0 ? (
         <p className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-600">
           등록된 지역이 없습니다.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="min-w-[1460px] w-full divide-y divide-slate-200 text-sm">
+          <table className="min-w-[1600px] w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">지역</th>
+                <th className="px-4 py-3">상태</th>
                 <th className="px-4 py-3">공채 모집인원</th>
-                <th className="px-4 py-3">공채 출원인원</th>
                 <th className="px-4 py-3">공채 합격배수</th>
+                <th className="px-4 py-3">공채 출원인원</th>
                 <th className="px-4 py-3">경행경채 모집인원</th>
-                <th className="px-4 py-3">경행경채 출원인원</th>
                 <th className="px-4 py-3">경행경채 합격배수</th>
+                <th className="px-4 py-3">경행경채 출원인원</th>
                 <th className="px-4 py-3">참여 현황</th>
               </tr>
             </thead>
@@ -274,6 +292,22 @@ export default function AdminRegionsPage() {
               {regions.map((row) => (
                 <tr key={row.id} className="bg-white">
                   <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
+                  <td className="px-4 py-3">
+                    <label
+                      className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-semibold ${
+                        isFieldChanged(row, "isActive")
+                          ? "border-amber-300 bg-amber-50"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={row.isActive}
+                        onChange={(event) => updateRegionActive(row.id, event.target.checked)}
+                      />
+                      {row.isActive ? "활성" : "비활성"}
+                    </label>
+                  </td>
                   <td className="px-4 py-3">
                     <input
                       type="number"
@@ -287,9 +321,7 @@ export default function AdminRegionsPage() {
                           : "border-slate-300 bg-white"
                       }`}
                     />
-                    <p className="mt-1 text-xs text-slate-500">
-                      1배수 기준 {row.recruitCount.toLocaleString("ko-KR")}등
-                    </p>
+                    <p className="mt-1 text-xs text-slate-500">1배수 기준 {row.recruitCount.toLocaleString("ko-KR")}명</p>
                   </td>
                   <td className="px-4 py-3 text-slate-700">{getPassMultipleText(row.recruitCount)}</td>
                   <td className="px-4 py-3">
@@ -324,10 +356,11 @@ export default function AdminRegionsPage() {
                     />
                     <p className="mt-1 text-xs text-slate-500">
                       {row.recruitCountCareer > 0
-                        ? `1배수 기준 ${row.recruitCountCareer.toLocaleString("ko-KR")}등`
+                        ? `1배수 기준 ${row.recruitCountCareer.toLocaleString("ko-KR")}명`
                         : "1배수 기준 없음"}
                     </p>
                   </td>
+                  <td className="px-4 py-3 text-slate-700">{getPassMultipleText(row.recruitCountCareer)}</td>
                   <td className="px-4 py-3">
                     <input
                       type="number"
@@ -345,7 +378,6 @@ export default function AdminRegionsPage() {
                       placeholder="추정 사용"
                     />
                   </td>
-                  <td className="px-4 py-3 text-slate-700">{getPassMultipleText(row.recruitCountCareer)}</td>
                   <td className="px-4 py-3 text-slate-700">
                     공채 {row.submissionCountPublic}명 / 경행경채 {row.submissionCountCareer}명
                     <span className="ml-2 text-xs text-slate-500">(합계 {row.submissionCount}명)</span>
@@ -358,7 +390,7 @@ export default function AdminRegionsPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-600">변경된 지역: {changedCount}개</p>
+        <p className="text-sm text-slate-600">변경된 지역 수: {changedCount}개</p>
         <Button type="button" onClick={handleSaveAll} disabled={isLoading || isSaving || changedCount < 1}>
           {isSaving ? "저장 중..." : "전체 저장"}
         </Button>

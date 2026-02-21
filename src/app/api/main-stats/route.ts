@@ -371,23 +371,43 @@ async function getRegionsWithApplicants(): Promise<RegionRow[]> {
         applicantCount,
         applicantCountCareer
       FROM Region
+      WHERE isActive = true
       ORDER BY name ASC
     `;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (!message.includes("applicantCount")) {
+    if (!message.includes("applicantCount") && !message.includes("isActive")) {
       throw error;
     }
 
-    const legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
-      SELECT
-        id,
-        name,
-        recruitCount,
-        recruitCountCareer
-      FROM Region
-      ORDER BY name ASC
-    `;
+    let legacyRows: RegionRowLegacy[] = [];
+    try {
+      legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
+        SELECT
+          id,
+          name,
+          recruitCount,
+          recruitCountCareer
+        FROM Region
+        WHERE isActive = true
+        ORDER BY name ASC
+      `;
+    } catch (legacyError) {
+      const legacyMessage = legacyError instanceof Error ? legacyError.message : "";
+      if (!legacyMessage.includes("isActive")) {
+        throw legacyError;
+      }
+
+      legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
+        SELECT
+          id,
+          name,
+          recruitCount,
+          recruitCountCareer
+        FROM Region
+        ORDER BY name ASC
+      `;
+    }
 
     return legacyRows.map((row) => ({
       ...row,
