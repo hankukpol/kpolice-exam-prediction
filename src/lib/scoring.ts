@@ -1,5 +1,6 @@
 import { BonusType, ExamType, Prisma } from "@prisma/client";
 import { invalidateCorrectRateCache } from "@/lib/correct-rate";
+import { normalizeSubjectName } from "@/lib/exam-utils";
 import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 
@@ -105,7 +106,7 @@ export interface RescoreOptions {
   reason?: string;
   adminUserId: number;
   examType: ExamType;
-  changedQuestions: RescoreChangedQuestion[];
+  changedQuestions?: RescoreChangedQuestion[];
 }
 
 export interface RescoreResult {
@@ -120,10 +121,6 @@ export interface RescoreResult {
 
 function toAnswerKey(subjectId: number, questionNo: number): string {
   return `${subjectId}:${questionNo}`;
-}
-
-function normalizeSubjectName(name: string): string {
-  return name.replace(/\s+/g, "").trim();
 }
 
 function roundScore(value: number): number {
@@ -305,10 +302,10 @@ function scoreByAnswerMap(params: {
     }
 
     const rawScore = roundScore(correctCount * subject.pointPerQuestion);
-    const bonusScore = roundScore(subject.maxScore * bonusRate);
-    const finalScore = roundScore(rawScore + bonusScore);
     const cutoffScore = roundScore(subject.maxScore * SUBJECT_CUTOFF_RATE);
     const isCutoff = rawScore < cutoffScore;
+    const bonusScore = isCutoff ? 0 : roundScore(subject.maxScore * bonusRate);
+    const finalScore = roundScore(rawScore + bonusScore);
 
     if (isCutoff) {
       hasCutoff = true;
@@ -454,8 +451,14 @@ export async function rescoreExam(examId: number, options?: RescoreOptions): Pro
     throw new Error("유효한 examId가 필요합니다.");
   }
 
+  const targetExamType = options?.examType;
+  const submissionWhere: Prisma.SubmissionWhereInput = {
+    examId,
+    ...(targetExamType ? { examType: targetExamType } : {}),
+  };
+
   const allSubmissions = await prisma.submission.findMany({
-    where: { examId },
+    where: submissionWhere,
     select: {
       id: true,
       userId: true,
@@ -483,14 +486,14 @@ export async function rescoreExam(examId: number, options?: RescoreOptions): Pro
     options !== undefined &&
     Number.isInteger(options.adminUserId) &&
     options.adminUserId > 0 &&
-    Array.isArray(options.changedQuestions) &&
-    options.changedQuestions.length > 0;
+    (options.examType === ExamType.PUBLIC || options.examType === ExamType.CAREER);
+  const changedQuestions = options?.changedQuestions ?? [];
 
   let rescoreEventId: number | null = null;
   if (detailedMode && options) {
     const summaryPayload = {
       examType: options.examType,
-      changedQuestions: options.changedQuestions,
+      changedQuestions,
     };
     const event = await prisma.rescoreEvent.create({
       data: {
@@ -653,7 +656,7 @@ export async function rescoreExam(examId: number, options?: RescoreOptions): Pro
 
   if (detailedMode && rescoreEventId !== null && detailRows.length > 0) {
     const newSubmissionScores = await prisma.submission.findMany({
-      where: { examId },
+      where: submissionWhere,
       select: {
         id: true,
         regionId: true,

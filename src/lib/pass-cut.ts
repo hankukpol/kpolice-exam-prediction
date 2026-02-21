@@ -1,4 +1,5 @@
 import { ExamType } from "@prisma/client";
+import { getRegionRecruitCount } from "@/lib/exam-utils";
 import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
 import { getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
@@ -83,10 +84,6 @@ function getScoreRange(
     max: getScoreAtRank(scoreBands, startRank),
     min: getScoreAtRank(scoreBands, endRank),
   };
-}
-
-function getRegionRecruitCount(region: RegionRow, examType: ExamType): number {
-  return examType === ExamType.PUBLIC ? region.recruitCount : region.recruitCountCareer;
 }
 
 function getRegionApplicantCount(region: RegionRow, examType: ExamType, recruitCount: number): number {

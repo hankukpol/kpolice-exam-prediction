@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { getCorrectRateRows } from "@/lib/correct-rate";
+import { parsePositiveInt } from "@/lib/exam-utils";
 import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettings } from "@/lib/site-settings";
@@ -19,12 +20,6 @@ type CountRow = {
   higherCount: bigint | number | null;
   lowerCount: bigint | number | null;
 };
-
-function parsePositiveInt(value: string | null): number | null {
-  if (!value) return null;
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
 
 function toAnswerKey(subjectId: number, questionNumber: number): string {
   return `${subjectId}:${questionNumber}`;
@@ -175,6 +170,7 @@ export async function GET(request: NextRequest) {
 
   const settings = await getSiteSettings();
   const maxEditLimit = (settings["site.submissionEditLimit"] as number) ?? 3;
+  const finalPredictionEnabled = Boolean(settings["site.finalPredictionEnabled"] ?? false);
 
   const answerKeys = await prisma.answerKey.findMany({
     where: { examId: submission.examId },
@@ -281,7 +277,7 @@ export async function GET(request: NextRequest) {
     const rawScore = Number(mySubjectScore.rawScore);
     const maxScore = Number(mySubjectScore.subject.maxScore);
     const pointPerQuestion = Number(mySubjectScore.subject.pointPerQuestion);
-    const bonusScore = roundNumber(maxScore * Number(submission.bonusRate));
+    const bonusScore = mySubjectScore.isFailed ? 0 : roundNumber(maxScore * Number(submission.bonusRate));
     const finalScore = roundNumber(rawScore + bonusScore);
 
     const stats = subjectStatsMap.get(mySubjectScore.subjectId);
@@ -384,6 +380,9 @@ export async function GET(request: NextRequest) {
     }));
 
   return NextResponse.json({
+    features: {
+      finalPredictionEnabled,
+    },
     submission: {
       id: submission.id,
       isOwner: submission.userId === userId,

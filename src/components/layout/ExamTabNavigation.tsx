@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 interface ExamTabNavigationProps {
   hasSubmission: boolean;
+  finalPredictionEnabled?: boolean;
 }
 
 interface TabItem {
@@ -29,36 +30,46 @@ function tabClassName(active: boolean, disabled: boolean): string {
   return `${base} border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800`;
 }
 
-export default function ExamTabNavigation({ hasSubmission }: ExamTabNavigationProps) {
+export default function ExamTabNavigation({
+  hasSubmission,
+  finalPredictionEnabled = false,
+}: ExamTabNavigationProps) {
   const pathname = usePathname();
 
   const tabs: TabItem[] = [
     { href: "/exam/main", label: "풀서비스 메인", disabled: false },
-    { href: "/exam/input", label: "빠른 채점 서비스", disabled: false },
+    { href: "/exam/input", label: "응시정보 입력", disabled: false },
     {
       href: "/exam/result",
-      label: "채점결과 분석",
+      label: "내 성적 분석",
       disabled: !hasSubmission,
-      tooltip: "답안을 먼저 제출해주세요.",
+      tooltip: "답안 제출 후 이용할 수 있습니다.",
+    },
+    {
+      href: "/exam/final",
+      label: "최종합산 계산",
+      disabled: !hasSubmission,
+      tooltip: "답안 제출 후 이용할 수 있습니다.",
     },
     {
       href: "/exam/prediction",
-      label: "합격예측 분석",
+      label: "합격 예측",
       disabled: !hasSubmission,
-      tooltip: "답안을 먼저 제출해주세요.",
+      tooltip: "답안 제출 후 이용할 수 있습니다.",
     },
     {
       href: "/exam/comments",
-      label: "댓글",
+      label: "실시간 댓글",
       disabled: !hasSubmission,
-      tooltip: "답안을 먼저 제출해주세요.",
+      tooltip: "답안 제출 후 이용할 수 있습니다.",
     },
   ];
+  const visibleTabs = tabs.filter((tab) => (tab.href === "/exam/final" ? finalPredictionEnabled : true));
 
   return (
     <nav className="overflow-x-auto border-b border-slate-200 bg-white">
       <div className="mx-auto flex w-full min-w-max max-w-7xl">
-        {tabs.map((tab) => {
+        {visibleTabs.map((tab) => {
           const active = pathname === tab.href;
           if (tab.disabled) {
             return (

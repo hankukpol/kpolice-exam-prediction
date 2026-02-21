@@ -60,7 +60,12 @@ export async function POST(request: NextRequest) {
   if ("error" in guard) return guard.error;
 
   try {
-    const body = (await request.json()) as GeneratePayload;
+    let body: GeneratePayload;
+    try {
+      body = (await request.json()) as GeneratePayload;
+    } catch {
+      return NextResponse.json({ error: "요청 본문(JSON) 형식이 올바르지 않습니다." }, { status: 400 });
+    }
     const settings = await getSiteSettings();
     const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
 
@@ -92,6 +97,10 @@ export async function DELETE(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const scope = searchParams.get("scope");
     const examId = parsePositiveInt(searchParams.get("examId"));
+
+    if (scope !== "all" && !examId) {
+      return NextResponse.json({ error: "scope=all 이 아니면 examId가 필요합니다." }, { status: 400 });
+    }
 
     const result = await resetMockData({
       examId: scope === "all" ? undefined : examId,

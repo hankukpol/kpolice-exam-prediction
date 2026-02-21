@@ -207,6 +207,7 @@ export default function AdminSitePage() {
           "site.mainPageAutoRefresh": Boolean(settings["site.mainPageAutoRefresh"]),
           "site.mainPageRefreshInterval": String(Math.floor(refreshInterval)),
           "site.submissionEditLimit": Math.floor(editLimit),
+          "site.finalPredictionEnabled": Boolean(settings["site.finalPredictionEnabled"]),
         },
         "시스템 설정이 저장되었습니다."
       );
@@ -583,6 +584,15 @@ export default function AdminSitePage() {
             onChange={(event) => updateSettingBoolean("site.mainPageAutoRefresh", event.target.checked)}
           />
           메인 탭 자동 갱신 활성화
+        </label>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={Boolean(settings["site.finalPredictionEnabled"])}
+            onChange={(event) => updateSettingBoolean("site.finalPredictionEnabled", event.target.checked)}
+          />
+          최종 합격 예측 탭 공개 (체력시험 이후 오픈 권장)
         </label>
 
         <div className="space-y-2">

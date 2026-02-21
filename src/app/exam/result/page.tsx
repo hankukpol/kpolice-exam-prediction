@@ -19,6 +19,9 @@ import { useToast } from "@/components/providers/ToastProvider";
 import { Button } from "@/components/ui/button";
 
 interface ResultResponse {
+  features: {
+    finalPredictionEnabled: boolean;
+  };
   submission: {
     id: number;
     isOwner: boolean;
@@ -398,6 +401,11 @@ export default function ExamResultPage({ embedded = false }: ExamResultPageProps
             <Button type="button" variant="outline" onClick={() => router.push(`/exam/input?edit=${result.submission.id}`)}>
               답안 수정 ({result.submission.maxEditLimit - result.submission.editCount}/
               {result.submission.maxEditLimit}회 남음)
+            </Button>
+          ) : null}
+          {result.features.finalPredictionEnabled ? (
+            <Button type="button" variant="outline" onClick={() => router.push("/exam/final")}>
+              최종합산 계산
             </Button>
           ) : null}
           <Button

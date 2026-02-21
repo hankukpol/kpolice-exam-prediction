@@ -371,7 +371,19 @@ export async function generateMockData(
         const totalScore = roundOne(subjectScores.reduce((sum, item) => sum + item.rawScore, 0));
         const bonusType = chooseBonusType(recruitCount);
         const bonusRate = bonusRateOf(bonusType);
-        const finalScore = roundTwo(totalScore * (1 + bonusRate));
+        const bonusScore = roundTwo(
+          subjectScores.reduce((sum, item) => {
+            if (item.isFailed) {
+              return sum;
+            }
+            const subject = subjectsOfType.find((candidate) => candidate.id === item.subjectId);
+            if (!subject) {
+              return sum;
+            }
+            return sum + subject.maxScore * bonusRate;
+          }, 0)
+        );
+        const finalScore = roundTwo(totalScore + bonusScore);
 
         const phone = `${MOCK_PHONE_PREFIX}${runPhoneSeed}${String(serial).padStart(4, "0")}`;
         const examNumber = `${MOCK_EXAM_NUMBER_PREFIX}-${targetExam.id}-${runKey}-${region.id}-${examType}-${String(

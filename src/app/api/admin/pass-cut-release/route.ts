@@ -218,6 +218,12 @@ export async function POST(request: NextRequest) {
       snapshotCount: rows.length,
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return NextResponse.json(
+        { error: "이미 같은 차수의 합격컷 발표가 등록되어 있습니다." },
+        { status: 409 }
+      );
+    }
     console.error("POST /api/admin/pass-cut-release error", error);
     const message = toUserErrorMessage(error, "합격컷 발표 처리에 실패했습니다.");
     return NextResponse.json({ error: message }, { status: 500 });

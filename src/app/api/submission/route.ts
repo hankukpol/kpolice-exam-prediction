@@ -3,6 +3,8 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { invalidateCorrectRateCache } from "@/lib/correct-rate";
+import { getRegionRecruitCount, normalizeSubjectName, parsePositiveInt } from "@/lib/exam-utils";
+import { getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettings } from "@/lib/site-settings";
 import {
@@ -57,19 +59,6 @@ const ALLOWED_DIFFICULTY_RATINGS: ReadonlySet<DifficultyRatingValue> = new Set([
   "HARD",
   "VERY_HARD",
 ]);
-
-function parsePositiveInt(value: unknown): number | null {
-  if (typeof value === "number") {
-    return Number.isInteger(value) && value > 0 ? value : null;
-  }
-
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-  }
-
-  return null;
-}
 
 function parseExamType(value: unknown): ExamType | null {
   if (value === ExamType.PUBLIC) return ExamType.PUBLIC;
@@ -155,10 +144,6 @@ function parseDifficulty(
   return Array.from(deduped.values());
 }
 
-function normalizeSubjectName(name: string): string {
-  return name.replace(/\s+/g, "").trim();
-}
-
 function parseAnswers(value: unknown): AnswerInput[] {
   if (!Array.isArray(value)) {
     throw new Error("답안 데이터 형식이 올바르지 않습니다.");
@@ -206,16 +191,6 @@ function parseAnswers(value: unknown): AnswerInput[] {
   return parsed;
 }
 
-function getRegionRecruitCount(
-  region: { recruitCount: number; recruitCountCareer: number },
-  examType: ExamType
-): number {
-  if (examType === ExamType.CAREER) {
-    return region.recruitCountCareer;
-  }
-  return region.recruitCount;
-}
-
 function resolveBonusType(body: SubmissionRequestBody): BonusType {
   if (typeof body.bonusType === "string") {
     if (!isValidBonusType(body.bonusType)) {
@@ -230,7 +205,98 @@ function resolveBonusType(body: SubmissionRequestBody): BonusType {
 }
 
 function inferErrorStatus(message: string): number {
+  if (message.includes("가산점") || message.includes("상한")) {
+    return 400;
+  }
   return BAD_REQUEST_ERROR_PATTERNS.some((pattern) => message.includes(pattern)) ? 400 : 500;
+}
+
+function isHeroBonusType(bonusType: BonusType): boolean {
+  return bonusType === BonusType.HERO_3 || bonusType === BonusType.HERO_5;
+}
+
+async function validateHeroBonusPassCap(params: {
+  examId: number;
+  regionId: number;
+  examType: ExamType;
+  recruitCount: number;
+  submissionId?: number;
+  bonusType: BonusType;
+  totalScore: number;
+  finalScore: number;
+  hasCutoff: boolean;
+}): Promise<void> {
+  if (!isHeroBonusType(params.bonusType) || params.hasCutoff) {
+    return;
+  }
+
+  const capCount = Math.floor(params.recruitCount * 0.1);
+  if (capCount < 1) {
+    throw new Error("의사상자 가산점 합격 상한(선발예정인원 10%)을 적용할 수 없는 모집단입니다.");
+  }
+
+  const passMultiple = getPassMultiple(params.recruitCount);
+  const passCount = Math.ceil(params.recruitCount * passMultiple);
+  if (passCount < 1) {
+    return;
+  }
+
+  const existingRows = await prisma.submission.findMany({
+    where: {
+      examId: params.examId,
+      regionId: params.regionId,
+      examType: params.examType,
+      subjectScores: {
+        some: {},
+        none: {
+          isFailed: true,
+        },
+      },
+    },
+    select: {
+      id: true,
+      totalScore: true,
+      finalScore: true,
+      bonusType: true,
+    },
+  });
+
+  const fallbackId =
+    existingRows.reduce((maxId, row) => (row.id > maxId ? row.id : maxId), 0) + 1;
+  const candidateId = params.submissionId ?? fallbackId;
+
+  const rows = existingRows
+    .filter((row) => row.id !== candidateId)
+    .map((row) => ({
+      id: row.id,
+      totalScore: Number(row.totalScore),
+      finalScore: Number(row.finalScore),
+      bonusType: row.bonusType,
+    }));
+
+  rows.push({
+    id: candidateId,
+    totalScore: params.totalScore,
+    finalScore: params.finalScore,
+    bonusType: params.bonusType,
+  });
+
+  const passByFinal = [...rows]
+    .sort((left, right) => right.finalScore - left.finalScore || left.id - right.id)
+    .slice(0, passCount);
+  const passByRaw = [...rows]
+    .sort((left, right) => right.totalScore - left.totalScore || left.id - right.id)
+    .slice(0, passCount);
+  const rawPasserIds = new Set(passByRaw.map((row) => row.id));
+  const heroBeneficiaries = passByFinal.filter(
+    (row) => isHeroBonusType(row.bonusType) && !rawPasserIds.has(row.id)
+  );
+
+  if (heroBeneficiaries.length > capCount) {
+    throw new Error(
+      `의사상자 가산점으로 합격 가능한 인원 상한(${capCount}명, 선발예정인원의 10%)을 초과합니다.`
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -240,7 +306,12 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as SubmissionRequestBody;
+    let body: SubmissionRequestBody;
+    try {
+      body = (await request.json()) as SubmissionRequestBody;
+    } catch {
+      return NextResponse.json({ error: "요청 본문(JSON) 형식이 올바르지 않습니다." }, { status: 400 });
+    }
 
     const userId = parsePositiveInt(session.user.id);
     if (!userId) {
@@ -292,6 +363,9 @@ export async function POST(request: Request) {
 
     if (!exam) {
       return NextResponse.json({ error: "제출 가능한 시험이 없습니다." }, { status: 404 });
+    }
+    if (!exam.isActive) {
+      return NextResponse.json({ error: "현재 활성화된 시험에만 성적 입력이 가능합니다." }, { status: 400 });
     }
 
     const existingSubmission = await prisma.submission.findFirst({
@@ -354,6 +428,19 @@ export async function POST(request: Request) {
       bonusType,
       bonusRate,
     });
+
+    if (isHeroBonusType(bonusType)) {
+      await validateHeroBonusPassCap({
+        examId: exam.id,
+        regionId: region.id,
+        examType,
+        recruitCount,
+        bonusType,
+        totalScore: scoreResult.totalScore,
+        finalScore: scoreResult.finalScore,
+        hasCutoff: scoreResult.hasCutoff,
+      });
+    }
 
     const submission = await prisma.$transaction(async (tx) => {
       const savedSubmission = await tx.submission.create({
@@ -474,7 +561,12 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as SubmissionRequestBody & { submissionId: unknown };
+    let body: SubmissionRequestBody & { submissionId: unknown };
+    try {
+      body = (await request.json()) as SubmissionRequestBody & { submissionId: unknown };
+    } catch {
+      return NextResponse.json({ error: "요청 본문(JSON) 형식이 올바르지 않습니다." }, { status: 400 });
+    }
     const submissionId = parsePositiveInt(body.submissionId);
 
     if (!submissionId) {
@@ -547,6 +639,9 @@ export async function PUT(request: Request) {
     if (!exam) {
       return NextResponse.json({ error: "기존 제출의 시험 정보를 찾을 수 없습니다." }, { status: 404 });
     }
+    if (!exam.isActive) {
+      return NextResponse.json({ error: "현재 활성화된 시험에만 성적 수정이 가능합니다." }, { status: 400 });
+    }
 
     const region = await prisma.region.findUnique({
       where: { id: regionId },
@@ -592,6 +687,20 @@ export async function PUT(request: Request) {
       bonusType,
       bonusRate,
     });
+
+    if (isHeroBonusType(bonusType)) {
+      await validateHeroBonusPassCap({
+        examId: exam.id,
+        regionId: region.id,
+        examType,
+        recruitCount,
+        submissionId,
+        bonusType,
+        totalScore: scoreResult.totalScore,
+        finalScore: scoreResult.finalScore,
+        hasCutoff: scoreResult.hasCutoff,
+      });
+    }
 
     const updated = await prisma.$transaction(async (tx) => {
       await tx.userAnswer.deleteMany({ where: { submissionId } });

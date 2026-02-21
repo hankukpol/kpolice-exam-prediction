@@ -11,7 +11,8 @@ export type SiteSettingKey =
   | "site.maintenanceMessage"
   | "site.mainPageAutoRefresh"
   | "site.mainPageRefreshInterval"
-  | "site.submissionEditLimit";
+  | "site.submissionEditLimit"
+  | "site.finalPredictionEnabled";
 
 export type SiteSettingValueType = "string" | "nullable-string" | "boolean" | "number";
 
@@ -31,6 +32,7 @@ export const SITE_SETTING_TYPES: Record<SiteSettingKey, SiteSettingValueType> = 
   "site.mainPageAutoRefresh": "boolean",
   "site.mainPageRefreshInterval": "string",
   "site.submissionEditLimit": "number",
+  "site.finalPredictionEnabled": "boolean",
 };
 
 export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
@@ -49,4 +51,5 @@ export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
   "site.mainPageAutoRefresh": true,
   "site.mainPageRefreshInterval": "60",
   "site.submissionEditLimit": 3,
+  "site.finalPredictionEnabled": false,
 };
