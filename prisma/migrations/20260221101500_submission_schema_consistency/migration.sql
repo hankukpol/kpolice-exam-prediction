@@ -1,10 +1,37 @@
 -- Align Submission table shape for environments created before edit support landed.
 
-ALTER TABLE `Submission`
-  ADD COLUMN IF NOT EXISTS `editCount` INTEGER NOT NULL DEFAULT 0;
+-- ADD COLUMN only if not already present (MySQL-compatible)
+SET @col_editCount_exists := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'Submission'
+    AND COLUMN_NAME = 'editCount'
+);
+SET @sql_add_editCount := IF(
+  @col_editCount_exists = 0,
+  'ALTER TABLE `Submission` ADD COLUMN `editCount` INTEGER NOT NULL DEFAULT 0',
+  'SELECT 1'
+);
+PREPARE stmt_editCount FROM @sql_add_editCount;
+EXECUTE stmt_editCount;
+DEALLOCATE PREPARE stmt_editCount;
 
-ALTER TABLE `Submission`
-  ADD COLUMN IF NOT EXISTS `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);
+SET @col_updatedAt_exists := (
+  SELECT COUNT(*)
+  FROM INFORMATION_SCHEMA.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'Submission'
+    AND COLUMN_NAME = 'updatedAt'
+);
+SET @sql_add_updatedAt := IF(
+  @col_updatedAt_exists = 0,
+  'ALTER TABLE `Submission` ADD COLUMN `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)',
+  'SELECT 1'
+);
+PREPARE stmt_updatedAt FROM @sql_add_updatedAt;
+EXECUTE stmt_updatedAt;
+DEALLOCATE PREPARE stmt_updatedAt;
 
 ALTER TABLE `Submission`
   MODIFY COLUMN `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3);

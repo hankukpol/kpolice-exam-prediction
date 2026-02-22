@@ -15,6 +15,8 @@ function joinClassNames(...parts: Array<string | undefined>): string {
 }
 
 export default function BannerImage({ banner, className, fullWidth = false }: BannerImageProps) {
+  const safeLinkUrl = banner.linkUrl && !banner.linkUrl.startsWith("//") ? banner.linkUrl : null;
+
   const image = (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -29,7 +31,7 @@ export default function BannerImage({ banner, className, fullWidth = false }: Ba
     />
   );
 
-  if (!banner.linkUrl) {
+  if (!safeLinkUrl) {
     return fullWidth ? (
       <div className="flex w-full justify-center overflow-hidden">
         {image}
@@ -39,11 +41,11 @@ export default function BannerImage({ banner, className, fullWidth = false }: Ba
     );
   }
 
-  const external = isExternalUrl(banner.linkUrl);
+  const external = isExternalUrl(safeLinkUrl);
 
   return (
     <a
-      href={banner.linkUrl}
+      href={safeLinkUrl}
       target={external ? "_blank" : undefined}
       rel={external ? "noreferrer noopener" : undefined}
       className={fullWidth ? "flex w-full justify-center overflow-hidden" : "block"}

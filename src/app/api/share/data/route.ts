@@ -12,6 +12,8 @@ type CountRow = {
   higherCount: bigint | number | null;
 };
 
+type RankingBasis = "ALL_PARTICIPANTS" | "NON_CUTOFF_PARTICIPANTS";
+
 function parsePositiveInt(value: string | null): number | null {
   if (!value) return null;
   const parsed = Number(value);
@@ -22,6 +24,21 @@ function toCount(value: bigint | number | null | undefined): number {
   if (typeof value === "bigint") return Number(value);
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return 0;
+}
+
+function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
+  if (submissionHasCutoff) {
+    return Prisma.empty;
+  }
+
+  return Prisma.sql`
+    AND NOT EXISTS (
+      SELECT 1
+      FROM SubjectScore sf
+      WHERE sf.submissionId = s.id
+        AND sf.isFailed = true
+    )
+  `;
 }
 
 export async function GET(request: NextRequest) {
@@ -54,6 +71,11 @@ export async function GET(request: NextRequest) {
       examType: true,
       totalScore: true,
       finalScore: true,
+      subjectScores: {
+        select: {
+          isFailed: true,
+        },
+      },
       exam: {
         select: {
           id: true,
@@ -80,6 +102,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "공유 가능한 제출 데이터가 없습니다." }, { status: 404 });
   }
 
+  const submissionHasCutoff = submission.subjectScores.some((score) => score.isFailed);
+  const rankingBasis: RankingBasis = submissionHasCutoff
+    ? "ALL_PARTICIPANTS"
+    : "NON_CUTOFF_PARTICIPANTS";
+  const populationConditionSql = getPopulationConditionSql(submissionHasCutoff);
+
   const [rankRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
     SELECT
       COUNT(*) AS totalCount,
@@ -88,6 +116,7 @@ export async function GET(request: NextRequest) {
     WHERE s.examId = ${submission.exam.id}
       AND s.regionId = ${submission.region.id}
       AND s.examType = ${submission.examType}
+      ${populationConditionSql}
   `);
 
   const totalParticipants = toCount(rankRow?.totalCount);
@@ -126,6 +155,7 @@ export async function GET(request: NextRequest) {
     finalScore: Number(submission.finalScore),
     rank,
     totalParticipants,
+    rankingBasis,
     predictionGrade,
   });
 }

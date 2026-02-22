@@ -192,6 +192,13 @@ export default function AdminBannersPage() {
       return;
     }
 
+    const confirmed = window.confirm(
+      current.id
+        ? `${ZONE_LABELS[zone]} 배너를 저장하시겠습니까?`
+        : `${ZONE_LABELS[zone]} 배너를 등록하시겠습니까?`
+    );
+    if (!confirmed) return;
+
     setSavingZone(zone);
     setNotice(null);
 

@@ -45,6 +45,7 @@ interface RegionPredictionStat {
   recruitCount: number;
   participantCount: number;
   oneMultipleBaseRank: number;
+  isOneMultipleCutConfirmed: boolean;
   oneMultipleActualRank: number | null;
   oneMultipleCutScore: number | null;
   oneMultipleTieCount: number | null;
@@ -76,7 +77,7 @@ interface DifficultySubjectStat {
   veryHard: number;
   easyCombined: number;
   hardCombined: number;
-  dominantLabel: "留ㅼ슦 ?ъ?" | "?ъ?" | "蹂댄넻" | "?대젮?" | "留ㅼ슦 ?대젮?";
+  dominantLabel: "매우 쉬움" | "쉬움" | "보통" | "어려움" | "매우 어려움";
 }
 
 interface DifficultyStatSummary {
@@ -91,7 +92,7 @@ interface DifficultyStatSummary {
     veryHard: number;
     easyCombined: number;
     hardCombined: number;
-    dominantLabel: "留ㅼ슦 ?ъ?" | "?ъ?" | "蹂댄넻" | "?대젮?" | "留ㅼ슦 ?대젮?";
+    dominantLabel: "매우 쉬움" | "쉬움" | "보통" | "어려움" | "매우 어려움";
   };
   subjects: DifficultySubjectStat[];
 }
@@ -144,12 +145,39 @@ function formatNullableScore(value: number | null): string {
   return value.toFixed(2);
 }
 
+function formatPredictionScore(value: number | null, isConfirmed: boolean): string {
+  if (!isConfirmed) return "데이터 수집 중";
+  return formatNullableScore(value);
+}
+
+function formatPredictionRank(value: number | null, isConfirmed: boolean): string {
+  if (!isConfirmed) return "데이터 수집 중";
+  if (value === null) return "-";
+  return `${value.toLocaleString("ko-KR")}등`;
+}
+
+function formatPredictionTieCount(value: number | null, isConfirmed: boolean): string {
+  if (!isConfirmed) return "데이터 수집 중";
+  if (value === null) return "-";
+  return `${value.toLocaleString("ko-KR")}명`;
+}
+
 function escapeCsvCell(value: string | number): string {
   const raw = String(value);
   if (raw.includes(",") || raw.includes('"') || raw.includes("\n")) {
     return `"${raw.replace(/"/g, '""')}"`;
   }
   return raw;
+}
+
+async function readResponseJson<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
 }
 
 function buildStatsCsvContent(stats: StatsResponse): string {
@@ -195,9 +223,9 @@ function buildStatsCsvContent(stats: StatsResponse): string {
         row.examType === "PUBLIC" ? "공채" : "경행경채",
         row.participantCount,
         row.oneMultipleBaseRank,
-        row.oneMultipleCutScore === null ? "-" : row.oneMultipleCutScore.toFixed(2),
-        row.oneMultipleActualRank === null ? "-" : row.oneMultipleActualRank,
-        row.oneMultipleTieCount === null ? "-" : row.oneMultipleTieCount,
+        formatPredictionScore(row.oneMultipleCutScore, row.isOneMultipleCutConfirmed),
+        formatPredictionRank(row.oneMultipleActualRank, row.isOneMultipleCutConfirmed),
+        formatPredictionTieCount(row.oneMultipleTieCount, row.isOneMultipleCutConfirmed),
       ]
         .map(escapeCsvCell)
         .join(",")
@@ -277,12 +305,12 @@ export default function AdminStatsPage() {
 
   const loadExamOptions = useCallback(async () => {
     const response = await fetch(ADMIN_EXAM_API, { method: "GET", cache: "no-store" });
-    const data = (await response.json()) as { exams?: ExamItem[]; error?: string };
+    const data = await readResponseJson<{ exams?: ExamItem[]; error?: string }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "?쒗뿕 紐⑸줉??遺덈윭?ㅼ? 紐삵뻽?듬땲??");
+      throw new Error(data?.error ?? `시험 목록을 불러오지 못했습니다. (${response.status})`);
     }
 
-    const examList = data.exams ?? [];
+    const examList = data?.exams ?? [];
     setExams(examList);
 
     setSelectedExamId((current) => {
@@ -299,9 +327,12 @@ export default function AdminStatsPage() {
       method: "GET",
       cache: "no-store",
     });
-    const data = (await response.json()) as StatsResponse & { error?: string };
+    const data = await readResponseJson<(StatsResponse & { error?: string }) | null>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "?듦퀎 議고쉶???ㅽ뙣?덉뒿?덈떎.");
+      throw new Error(data?.error ?? `참여 통계 조회에 실패했습니다. (${response.status})`);
+    }
+    if (!data) {
+      throw new Error("참여 통계 응답이 비어 있습니다. 잠시 후 다시 시도해 주세요.");
     }
     setStats(data);
   }
@@ -315,7 +346,7 @@ export default function AdminStatsPage() {
       } catch (error) {
         setNotice({
           type: "error",
-          message: error instanceof Error ? error.message : "?쒗뿕 紐⑸줉 議고쉶???ㅽ뙣?덉뒿?덈떎.",
+          message: error instanceof Error ? error.message : "시험 목록 조회에 실패했습니다.",
         });
       } finally {
         setIsLoading(false);
@@ -334,7 +365,7 @@ export default function AdminStatsPage() {
       } catch (error) {
         setNotice({
           type: "error",
-          message: error instanceof Error ? error.message : "?듦퀎 議고쉶???ㅽ뙣?덉뒿?덈떎.",
+          message: error instanceof Error ? error.message : "참여 통계 조회에 실패했습니다.",
         });
       } finally {
         setIsLoading(false);
@@ -344,7 +375,7 @@ export default function AdminStatsPage() {
 
   function handleDownloadCsv() {
     if (!stats) {
-      setNotice({ type: "error", message: "?ㅼ슫濡쒕뱶???듦퀎 ?곗씠?곌? ?놁뒿?덈떎." });
+      setNotice({ type: "error", message: "다운로드할 통계 데이터가 없습니다." });
       return;
     }
 
@@ -362,17 +393,17 @@ export default function AdminStatsPage() {
       ).padStart(2, "0")}`;
       const safeExamName = stats.exam.name.replace(/[\\/:*?"<>|]/g, "_");
       anchor.href = url;
-      anchor.download = `?⑷꺽?덉륫_?듦퀎_${safeExamName}_${dateText}.csv`;
+      anchor.download = `합격예측_참여통계_${safeExamName}_${dateText}.csv`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
 
-      setNotice({ type: "success", message: "CSV ?뚯씪 ?ㅼ슫濡쒕뱶媛 ?쒖옉?섏뿀?듬땲??" });
+      setNotice({ type: "success", message: "CSV 파일 다운로드가 시작되었습니다." });
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "CSV ?ㅼ슫濡쒕뱶 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.",
+        message: error instanceof Error ? error.message : "CSV 다운로드 중 오류가 발생했습니다.",
       });
     } finally {
       setIsDownloadingCsv(false);
@@ -383,17 +414,17 @@ export default function AdminStatsPage() {
     <div className="space-y-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">李몄뿬 ?듦퀎</h1>
-          <p className="mt-1 text-sm text-slate-600">?쒗뿕蹂?李몄뿬 ?꾪솴???좏삎, ?깅퀎, 吏??湲곗??쇰줈 ?뺤씤?⑸땲??</p>
+          <h1 className="text-xl font-semibold text-slate-900">참여 통계</h1>
+          <p className="mt-1 text-sm text-slate-600">시험별 참여 현황을 유형, 성별, 지역 기준으로 확인합니다.</p>
         </div>
         <Button type="button" variant="outline" onClick={handleDownloadCsv} disabled={!stats || isDownloadingCsv}>
-          {isDownloadingCsv ? "CSV ?앹꽦 以?.." : "CSV ?ㅼ슫濡쒕뱶"}
+          {isDownloadingCsv ? "CSV 생성 중..." : "CSV 다운로드"}
         </Button>
       </header>
 
       <section className="space-y-2">
         <label htmlFor="exam-select" className="text-sm font-medium text-slate-700">
-          ?쒗뿕 ?좏깮
+          시험 선택
         </label>
         <select
           id="exam-select"
@@ -402,10 +433,10 @@ export default function AdminStatsPage() {
           onChange={(event) => setSelectedExamId(Number(event.target.value))}
           disabled={isLoading || exams.length === 0}
         >
-          {exams.length === 0 ? <option value="">?쒗뿕 ?놁쓬</option> : null}
+          {exams.length === 0 ? <option value="">시험 없음</option> : null}
           {exams.map((exam) => (
             <option key={exam.id} value={exam.id}>
-              {exam.year}??{exam.round}李?- {exam.name}
+              {exam.year}년 {exam.round}차 - {exam.name}
             </option>
           ))}
         </select>
@@ -424,35 +455,35 @@ export default function AdminStatsPage() {
       ) : null}
 
       {isLoading ? (
-        <p className="text-sm text-slate-600">?듦퀎瑜?遺덈윭?ㅻ뒗 以묒엯?덈떎...</p>
+        <p className="text-sm text-slate-600">통계를 불러오는 중입니다...</p>
       ) : !stats ? (
         <p className="rounded-lg border border-dashed border-slate-300 p-6 text-sm text-slate-600">
-          ?쒖떆???듦퀎媛 ?놁뒿?덈떎.
+          표시할 통계가 없습니다.
         </p>
       ) : (
         <>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">珥?李몄뿬??</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">총 참여자</p>
               <p className="mt-2 text-2xl font-semibold text-slate-900">{stats.totalParticipants}</p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">怨듭콈</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">공채</p>
               <p className="mt-2 text-2xl font-semibold text-slate-900">{stats.byExamType.PUBLIC}</p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">寃쏀뻾寃쎌콈</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">경행경채</p>
               <p className="mt-2 text-2xl font-semibold text-slate-900">{stats.byExamType.CAREER}</p>
             </div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">?쒗뿕??</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">시험일</p>
               <p className="mt-2 text-lg font-semibold text-slate-900">{formatDate(stats.exam.examDate)}</p>
             </div>
           </section>
 
           <section className="grid gap-4 xl:grid-cols-2">
             <div className="rounded-lg border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-slate-900">?쇱옄蹂??쒖텧 異붿씠</h2>
+              <h2 className="text-sm font-semibold text-slate-900">일자별 제출 추이</h2>
               <div className="mt-3 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={recentDateStats}>
@@ -466,7 +497,7 @@ export default function AdminStatsPage() {
               </div>
               <div className="mt-3 space-y-1 text-xs text-slate-600">
                 {recentDateStats.length === 0 ? (
-                  <p>理쒓렐 ?쒖텧 ?곗씠?곌? ?놁뒿?덈떎.</p>
+                  <p>최근 제출 데이터가 없습니다.</p>
                 ) : (
                   recentDateStats.map((item) => (
                     <div key={item.date} className="flex items-center justify-between">
@@ -479,7 +510,7 @@ export default function AdminStatsPage() {
             </div>
 
             <div className="rounded-lg border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-slate-900">?먯닔 遺꾪룷 ?덉뒪?좉렇??(理쒖쥌?먯닔 湲곗?)</h2>
+              <h2 className="text-sm font-semibold text-slate-900">점수 분포 히스토그램(최종점수 기준)</h2>
               <div className="mt-3 h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stats.scoreDistribution}>
@@ -495,20 +526,20 @@ export default function AdminStatsPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <p className="mt-2 text-xs text-slate-500">怨쇰씫 援ш컙(100??誘몃쭔)? 鍮④컙?됱쑝濡??쒖떆?⑸땲??</p>
+              <p className="mt-2 text-xs text-slate-500">합격 구간(100점 미만)은 빨간색으로 표시됩니다.</p>
             </div>
           </section>
 
           <section className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border border-slate-200 p-4">
-              <h2 className="text-sm font-semibold text-slate-900">?깅퀎 李몄뿬</h2>
+              <h2 className="text-sm font-semibold text-slate-900">성별 참여</h2>
               <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-slate-600">?⑥꽦</p>
+                  <p className="text-slate-600">남성</p>
                   <p className="mt-1 text-xl font-semibold text-slate-900">{stats.byGender.MALE}</p>
                 </div>
                 <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-slate-600">?ъ꽦</p>
+                  <p className="text-slate-600">여성</p>
                   <p className="mt-1 text-xl font-semibold text-slate-900">{stats.byGender.FEMALE}</p>
                 </div>
               </div>
@@ -516,24 +547,24 @@ export default function AdminStatsPage() {
           </section>
 
           <section className="space-y-3">
-            <h2 className="text-base font-semibold text-slate-900">吏??퀎 李몄뿬</h2>
+            <h2 className="text-base font-semibold text-slate-900">지역별 참여</h2>
             <div className="overflow-x-auto rounded-lg border border-slate-200">
               <table className="min-w-[860px] w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">吏??</th>
-                    <th className="px-4 py-3">怨듭콈</th>
-                    <th className="px-4 py-3">寃쏀뻾寃쎌콈</th>
-                    <th className="px-4 py-3">?⑷퀎</th>
-                    <th className="px-4 py-3">?됯퇏 ?먯젏??</th>
-                    <th className="px-4 py-3">?됯퇏 理쒖쥌?먯닔</th>
+                    <th className="px-4 py-3">지역</th>
+                    <th className="px-4 py-3">공채</th>
+                    <th className="px-4 py-3">경행경채</th>
+                    <th className="px-4 py-3">합계</th>
+                    <th className="px-4 py-3">평균 원점수</th>
+                    <th className="px-4 py-3">평균 최종점수</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {stats.byRegion.length === 0 ? (
                     <tr>
                       <td className="px-4 py-4 text-slate-600" colSpan={6}>
-                        吏??퀎 ?곗씠?곌? ?놁뒿?덈떎.
+                        지역별 데이터가 없습니다.
                       </td>
                     </tr>
                   ) : (
@@ -601,16 +632,14 @@ export default function AdminStatsPage() {
                         <td className="px-4 py-3 font-medium text-slate-900">{row.regionName}</td>
                         <td className="px-4 py-3 text-slate-700">{row.participantCount.toLocaleString("ko-KR")}명</td>
                         <td className="px-4 py-3 text-slate-700">{row.oneMultipleBaseRank.toLocaleString("ko-KR")}등</td>
-                        <td className="px-4 py-3 text-slate-700">{formatNullableScore(row.oneMultipleCutScore)}</td>
                         <td className="px-4 py-3 text-slate-700">
-                          {row.oneMultipleActualRank === null
-                            ? "-"
-                            : `${row.oneMultipleActualRank.toLocaleString("ko-KR")}등`}
+                          {formatPredictionScore(row.oneMultipleCutScore, row.isOneMultipleCutConfirmed)}
                         </td>
                         <td className="px-4 py-3 text-slate-700">
-                          {row.oneMultipleTieCount === null
-                            ? "-"
-                            : `${row.oneMultipleTieCount.toLocaleString("ko-KR")}명`}
+                          {formatPredictionRank(row.oneMultipleActualRank, row.isOneMultipleCutConfirmed)}
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">
+                          {formatPredictionTieCount(row.oneMultipleTieCount, row.isOneMultipleCutConfirmed)}
                         </td>
                       </tr>
                     ))
@@ -621,37 +650,39 @@ export default function AdminStatsPage() {
             <p className="text-xs text-slate-500">
               모집인원이 곧 1배수 기준 등수이며, 실제 끝등수는 동점자 포함 기준입니다.
             </p>
+            <p className="text-xs text-slate-500">참여인원이 모집인원 미만이면 1배수 지표는 데이터 수집 중으로 표시됩니다.</p>
           </section>
           <section className="space-y-3">
-            <h2 className="text-base font-semibold text-slate-900">泥닿컧 ?쒖씠???꾪솴</h2>
+            <h2 className="text-base font-semibold text-slate-900">체감 난이도 현황</h2>
             {!stats.difficulty || stats.difficulty.totalResponses < 1 ? (
               <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-                ?쒖씠???묐떟 ?곗씠?곌? ?놁뒿?덈떎.
+                난이도 응답 데이터가 없습니다.
               </p>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-slate-700">
-                  ?꾩껜 ?묐떟:{" "}
+                  전체 응답:{" "}
                   <span className="font-semibold text-slate-900">
-                    {stats.difficulty.totalResponses.toLocaleString("ko-KR")}嫄?                  </span>
+                    {stats.difficulty.totalResponses.toLocaleString("ko-KR")}건
+                  </span>
                 </p>
                 <div className="overflow-x-auto rounded-lg border border-slate-200">
                   <table className="min-w-[760px] w-full divide-y divide-slate-200 text-sm">
                     <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <tr>
-                        <th className="px-4 py-3">怨쇰ぉ</th>
-                        <th className="px-4 py-3">?묐떟??</th>
-                        <th className="px-4 py-3">?ъ?</th>
-                        <th className="px-4 py-3">蹂댄넻</th>
-                        <th className="px-4 py-3">?대젮?</th>
-                        <th className="px-4 py-3">???</th>
+                        <th className="px-4 py-3">과목</th>
+                        <th className="px-4 py-3">응답수</th>
+                        <th className="px-4 py-3">쉬움</th>
+                        <th className="px-4 py-3">보통</th>
+                        <th className="px-4 py-3">어려움</th>
+                        <th className="px-4 py-3">우세</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {stats.difficulty.subjects.length === 0 ? (
                         <tr>
                           <td className="px-4 py-4 text-slate-600" colSpan={6}>
-                            怨쇰ぉ蹂??쒖씠???곗씠?곌? ?놁뒿?덈떎.
+                            과목별 난이도 데이터가 없습니다.
                           </td>
                         </tr>
                       ) : (
@@ -660,7 +691,7 @@ export default function AdminStatsPage() {
                             <td className="px-4 py-3 font-medium text-slate-900">
                               {subject.subjectName}
                               {subject.examType === "CAREER" ? (
-                                <span className="ml-1 text-xs font-medium text-sky-700">(寃쏀뻾寃쎌콈)</span>
+                                <span className="ml-1 text-xs font-medium text-sky-700">(경행경채)</span>
                               ) : null}
                             </td>
                             <td className="px-4 py-3 text-slate-700">{subject.responses}</td>
@@ -675,7 +706,7 @@ export default function AdminStatsPage() {
                   </table>
                 </div>
                 <p className="text-xs text-slate-500">
-                  ??寃쏀뻾寃쎌콈 怨쇰ぉ(踰붿즲??? 寃쏀뻾寃쎌콈 ?묒떆???묐떟留?吏묎퀎?⑸땲??
+                  * 경행경채 과목(범죄학)은 경행경채 응시자 응답만 집계합니다.
                 </p>
               </div>
             )}

@@ -24,6 +24,7 @@ interface MainStatsRow {
   examTypeLabel: string;
   recruitCount: number;
   estimatedApplicants: number;
+  isApplicantCountExact: boolean;
   competitionRate: number;
   participantCount: number;
   averageFinalScore: number | null;
@@ -83,6 +84,12 @@ interface ScoreDistributionItem {
 interface MainStatsResponse {
   updatedAt: string;
   careerExamEnabled: boolean;
+  sectionVisibility: {
+    overview: boolean;
+    difficulty: boolean;
+    competitive: boolean;
+    scoreDistribution: boolean;
+  };
   liveStats: {
     examName: string;
     examYear: number;
@@ -353,6 +360,11 @@ export default function ExamMainOverviewPanel() {
     selectedRow !== null &&
     !isCollecting &&
     selectedRow.participantCount < selectedRow.recruitCount;
+  const applicantCountLabel = selectedRow
+    ? selectedRow.isApplicantCountExact
+      ? "응시인원(실제)"
+      : "응시인원(추정)"
+    : "응시인원";
 
   const difficultySubjects = useMemo(() => {
     const original = data?.difficulty?.subjects ?? [];
@@ -497,6 +509,18 @@ export default function ExamMainOverviewPanel() {
     return <section className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-900">현재 집계 가능한 시험 데이터가 없습니다.</section>;
   }
 
+  const sectionVisibility = data.sectionVisibility ?? {
+    overview: true,
+    difficulty: true,
+    competitive: true,
+    scoreDistribution: true,
+  };
+  const hasVisibleSection =
+    sectionVisibility.overview ||
+    sectionVisibility.difficulty ||
+    sectionVisibility.competitive ||
+    sectionVisibility.scoreDistribution;
+
   return (
     <div className="space-y-5">
       {errorMessage ? (
@@ -505,6 +529,13 @@ export default function ExamMainOverviewPanel() {
         </section>
       ) : null}
 
+      {!hasVisibleSection ? (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          현재 관리자 설정에 의해 풀서비스 메인 카드가 모두 비활성화되어 있습니다.
+        </section>
+      ) : null}
+
+      {sectionVisibility.overview ? (
       <section className="overflow-hidden rounded-lg border border-slate-200 bg-white p-5 sm:p-6 sm:pb-8">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <p className="text-xl font-bold tracking-tight text-police-600">
@@ -559,47 +590,49 @@ export default function ExamMainOverviewPanel() {
           {selectedRow ? `${getExamTypeLabel(selectedExamType)} : ${selectedRow.regionName}` : "지역을 선택해 주세요."}
         </p>
 
-        <div className="mt-3 grid gap-4 xl:grid-cols-2">
-          <div className="flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
-            <table className="flex-1 w-full border-collapse text-sm">
-              <tbody className="flex h-full flex-col divide-y divide-slate-200">
-                <tr className="flex flex-1 divide-x divide-slate-200">
-                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+        <div className="mt-3 grid gap-4 xl:grid-cols-2 xl:items-stretch">
+          <div className="h-full overflow-hidden rounded-md border border-slate-200 bg-white">
+            <table className="w-full border-collapse text-sm">
+              <tbody className="divide-y divide-slate-200">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
                     지역-직렬
                   </th>
-                  <td className="flex flex-1 items-center px-4 py-3.5 font-bold text-slate-900">
+                  <td className="px-4 py-3.5 font-bold text-slate-900">
                     {selectedRow ? `${selectedRow.regionName}-${getExamTypeLabel(selectedRow.examType)}` : "-"}
                   </td>
                 </tr>
-                <tr className="flex flex-1 divide-x divide-slate-200">
-                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">선발인원</th>
-                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">선발인원</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? `${selectedRow.recruitCount.toLocaleString("ko-KR")}명` : "-"}
                   </td>
                 </tr>
-                <tr className="flex flex-1 divide-x divide-slate-200">
-                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">접수인원</th>
-                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+                    {applicantCountLabel}
+                  </th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? `${selectedRow.estimatedApplicants.toLocaleString("ko-KR")}명` : "-"}
                   </td>
                 </tr>
-                <tr className="flex flex-1 divide-x divide-slate-200">
-                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">경쟁률</th>
-                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">경쟁률</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? formatCompetition(selectedRow.competitionRate) : "-"}
                   </td>
                 </tr>
-                <tr className="flex flex-1 divide-x divide-slate-200">
-                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">실시간 참여인원</th>
-                  <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">실시간 참여인원</th>
+                  <td className="px-4 py-3.5 font-medium text-slate-700">
                     {selectedRow ? `${selectedRow.participantCount.toLocaleString("ko-KR")}명` : "-"}
                   </td>
                 </tr>
-                <tr className="flex flex-1 divide-x divide-slate-200">
-                  <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+                <tr className="divide-x divide-slate-200">
+                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
                     실시간 평균점수
                   </th>
-                  <td className="flex flex-1 items-center px-4 py-3.5 font-bold text-police-700">
+                  <td className="px-4 py-3.5 font-bold text-police-700">
                     {selectedRow ? <>{formatScore(selectedRow.averageFinalScore)}</> : "-"}
                   </td>
                 </tr>
@@ -607,56 +640,62 @@ export default function ExamMainOverviewPanel() {
             </table>
           </div>
 
-          <div className="flex flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+          <div className="flex h-full flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
             {isLowSample && selectedRow ? (
               <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
                 참여인원({selectedRow.participantCount.toLocaleString("ko-KR")}명)이 선발인원({selectedRow.recruitCount.toLocaleString("ko-KR")}명)보다 적어 예측 정확도가 낮습니다.
               </div>
             ) : null}
-            <table className="w-full border-collapse text-sm">
-              <tbody className="divide-y divide-slate-200">
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격가능권</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.possibleRange)) : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">합격유력권</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.likelyRange)) : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">합격확실권</th>
-                  <td className="px-4 py-3.5 font-bold text-police-700">
-                    {selectedRow
-                      ? isCollecting || selectedRow.sureMinScore === null
-                        ? "데이터 수집 중"
-                        : `${selectedRow.sureMinScore.toFixed(2)}점 이상`
-                      : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700">
-                    1배수 컷 점수
-                  </th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow
-                      ? isCollecting || selectedRow.oneMultipleCutScore === null
-                        ? "데이터 수집 중"
-                        : isLowSample
-                          ? <>{formatScore(selectedRow.oneMultipleCutScore)} <span className="text-xs text-amber-600">(현재 최저점 기준)</span></>
+            <div className="flex-1">
+              <table className="h-full w-full border-collapse text-sm">
+                <tbody className="flex h-full flex-col divide-y divide-slate-200 border-b border-slate-200">
+                  <tr className="flex flex-1 divide-x divide-slate-200">
+                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격가능권</th>
+                    <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                      {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.possibleRange)) : "-"}
+                    </td>
+                  </tr>
+                  <tr className="flex flex-1 divide-x divide-slate-200">
+                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격유력권</th>
+                    <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                      {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.likelyRange)) : "-"}
+                    </td>
+                  </tr>
+                  <tr className="flex flex-1 divide-x divide-slate-200">
+                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격확실권</th>
+                    <td className="flex flex-1 items-center px-4 py-3.5 font-bold text-police-700">
+                      {selectedRow
+                        ? isCollecting || selectedRow.sureMinScore === null
+                          ? "데이터 수집 중"
+                          : `${selectedRow.sureMinScore.toFixed(2)}점 이상`
+                        : "-"}
+                    </td>
+                  </tr>
+                  <tr className="flex flex-1 divide-x divide-slate-200">
+                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+                      1배수 컷 점수
+                    </th>
+                    <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                      {selectedRow
+                        ? isCollecting || isLowSample || selectedRow.oneMultipleCutScore === null
+                          ? "데이터 수집 중"
                           : formatScore(selectedRow.oneMultipleCutScore)
-                      : "-"}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                        : "-"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
+        <p className="mt-2 text-xs text-slate-500">
+          * 2026 기준: 필기 합격예측 점수는 취업지원대상자/의사상자 가산점이 반영된 최종점수 기준이며, 무도 가산점은
+          포함하지 않습니다.
+        </p>
       </section>
+      ) : null}
 
+      {sectionVisibility.difficulty ? (
       <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
         <h3 className="text-xl font-bold tracking-tight text-slate-900">
           과목별 체감난이도 <span className="text-police-600">설문 결과</span>
@@ -711,7 +750,9 @@ export default function ExamMainOverviewPanel() {
           </div>
         </div>
       </section>
+      ) : null}
 
+      {sectionVisibility.competitive ? (
       <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
         <h3 className="text-xl font-bold tracking-tight text-slate-900">실시간 최대/최소 경쟁 예상지역 TOP5</h3>
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
@@ -719,7 +760,9 @@ export default function ExamMainOverviewPanel() {
           <CompetitiveChart title="실시간 최소 경쟁 예상지역 TOP5" data={competitiveRows.least} />
         </div>
       </section>
+      ) : null}
 
+      {sectionVisibility.scoreDistribution ? (
       <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
         <h3 className="text-xl font-bold tracking-tight text-slate-900">채점자 성적분포도</h3>
         {scoreDistributionItems.length > 0 && selectedScoreDistribution ? (
@@ -826,6 +869,7 @@ export default function ExamMainOverviewPanel() {
           <p className="mt-3 text-sm text-slate-500">표시할 성적 분포 데이터가 없습니다.</p>
         )}
       </section>
+      ) : null}
     </div>
   );
 }

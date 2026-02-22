@@ -11,6 +11,7 @@ const SMALL_RECRUIT_PASS_COUNTS: Record<number, number> = {
 };
 
 const SCORE_KEY_SCALE = 1000000;
+const LIKELY_MULTIPLE_STANDARD = 1.2;
 const ESTIMATED_APPLICANTS_MULTIPLIER = parseEstimatedApplicantsMultiplier(
   process.env.ESTIMATED_APPLICANTS_MULTIPLIER
 );
@@ -55,6 +56,7 @@ export interface PredictionSummary {
   regionName: string;
   recruitCount: number;
   estimatedApplicants: number;
+  isApplicantCountExact: boolean;
   totalParticipants: number;
   myScore: number;
   myRank: number;
@@ -63,6 +65,7 @@ export interface PredictionSummary {
   oneMultipleActualRank: number | null;
   oneMultipleCutScore: number | null;
   oneMultipleTieCount: number | null;
+  isOneMultipleCutConfirmed: boolean;
   passMultiple: number;
   likelyMultiple: number;
   passCount: number;
@@ -144,6 +147,10 @@ export function getPassMultiple(recruitCount: number): number {
   return passCount / recruitCount;
 }
 
+export function getLikelyMultiple(passMultiple: number): number {
+  return Math.min(LIKELY_MULTIPLE_STANDARD, passMultiple);
+}
+
 function getRecruitCount(
   region: { recruitCount: number; recruitCountCareer: number },
   examType: ExamType
@@ -154,8 +161,27 @@ function getRecruitCount(
   return region.recruitCount;
 }
 
+function getRegionApplicantCount(
+  region: { applicantCount: number | null; applicantCountCareer: number | null },
+  examType: ExamType,
+  recruitCount: number
+): { applicantCount: number; isExact: boolean } {
+  const raw = examType === ExamType.PUBLIC ? region.applicantCount : region.applicantCountCareer;
+  if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+    return {
+      applicantCount: Math.floor(raw),
+      isExact: true,
+    };
+  }
+
+  return {
+    applicantCount: Math.max(0, Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER)),
+    isExact: false,
+  };
+}
+
 function classifyGrade(myMultiple: number, passMultiple: number): PredictionGrade {
-  const likelyMultiple = passMultiple * 0.8;
+  const likelyMultiple = getLikelyMultiple(passMultiple);
 
   if (myMultiple <= 1) return "확실권";
   if (myMultiple <= likelyMultiple) return "유력권";
@@ -171,10 +197,6 @@ function getMinScoreWithinRank(scoreBands: ScoreBand[], maxRank: number): number
   const atRank = getScoreBandAtRank(scoreBands, maxRank);
   if (atRank) {
     return atRank.score;
-  }
-
-  if (scoreBands.length > 0 && maxRank > 0) {
-    return scoreBands[scoreBands.length - 1].score;
   }
 
   return null;
@@ -319,6 +341,8 @@ export async function calculatePrediction(
         name: true,
         recruitCount: true,
         recruitCountCareer: true,
+        applicantCount: true,
+        applicantCountCareer: true,
       },
     },
     user: {
@@ -383,11 +407,12 @@ export async function calculatePrediction(
   }
 
   const passMultiple = getPassMultiple(recruitCount);
-  const likelyMultiple = passMultiple * 0.8;
+  const likelyMultiple = getLikelyMultiple(passMultiple);
   const challengeMultiple = passMultiple * 1.3;
   const passCount = Math.ceil(recruitCount * passMultiple);
   const likelyMaxRank = getMaxRankByMultiple(recruitCount, likelyMultiple);
   const challengeMaxRank = getMaxRankByMultiple(recruitCount, challengeMultiple);
+  const applicantCountInfo = getRegionApplicantCount(submission.region, submission.examType, recruitCount);
 
   const populationWhere = buildPopulationWhere(submission);
 
@@ -430,9 +455,10 @@ export async function calculatePrediction(
   const predictionGrade = classifyGrade(myMultiple, passMultiple);
   const passLineScore = getMinScoreWithinRank(scoreBands, passCount);
   const oneMultipleBand = getScoreBandAtRank(scoreBands, recruitCount) ?? getLastScoreBand(scoreBands);
+  const isOneMultipleCutConfirmed = totalParticipants >= recruitCount;
   const oneMultipleActualRank = oneMultipleBand?.endRank ?? null;
-  const oneMultipleCutScore = oneMultipleBand?.score ?? null;
-  const oneMultipleTieCount = oneMultipleBand?.count ?? null;
+  const oneMultipleCutScore = isOneMultipleCutConfirmed ? oneMultipleBand?.score ?? null : null;
+  const oneMultipleTieCount = isOneMultipleCutConfirmed ? oneMultipleBand?.count ?? null : null;
 
   const sureCount = countByRankRange(scoreBands, 0, recruitCount);
   const likelyCount = countByRankRange(scoreBands, recruitCount, likelyMaxRank);
@@ -560,7 +586,8 @@ export async function calculatePrediction(
       regionId: submission.region.id,
       regionName: submission.region.name,
       recruitCount,
-      estimatedApplicants: Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER),
+      estimatedApplicants: applicantCountInfo.applicantCount,
+      isApplicantCountExact: applicantCountInfo.isExact,
       totalParticipants,
       myScore,
       myRank,
@@ -569,6 +596,7 @@ export async function calculatePrediction(
       oneMultipleActualRank,
       oneMultipleCutScore: oneMultipleCutScore === null ? null : toSafeNumber(oneMultipleCutScore),
       oneMultipleTieCount,
+      isOneMultipleCutConfirmed,
       passMultiple: toSafeNumber(passMultiple),
       likelyMultiple: toSafeNumber(likelyMultiple),
       passCount,

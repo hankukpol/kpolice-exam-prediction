@@ -22,6 +22,7 @@ interface PredictionPageResponse {
     regionName: string;
     recruitCount: number;
     estimatedApplicants: number;
+    isApplicantCountExact: boolean;
     totalParticipants: number;
     myScore: number;
     myRank: number;
@@ -30,6 +31,7 @@ interface PredictionPageResponse {
     oneMultipleActualRank: number | null;
     oneMultipleCutScore: number | null;
     oneMultipleTieCount: number | null;
+    isOneMultipleCutConfirmed: boolean;
     passMultiple: number;
     likelyMultiple: number;
     passCount: number;
@@ -369,6 +371,7 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
 
   const { summary, pyramid, competitors } = prediction;
   const widths = [32, 44, 58, 74, 88];
+  const applicantCountLabel = summary.isApplicantCountExact ? "응시인원(실제)" : "응시인원(추정)";
 
   return (
     <div className="space-y-6">
@@ -400,7 +403,9 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
             </div>
             <div>
               <p className="text-xs text-slate-500">1배수 컷점수</p>
-              <p className="text-3xl font-bold text-blue-600">{formatScore(summary.oneMultipleCutScore)}</p>
+              <p className="text-3xl font-bold text-blue-600">
+                {summary.isOneMultipleCutConfirmed ? formatScore(summary.oneMultipleCutScore) : "데이터 수집 중"}
+              </p>
             </div>
           </div>
 
@@ -412,7 +417,7 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
               </p>
             </div>
             <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs text-slate-500">응시인원(추정)</p>
+              <p className="text-xs text-slate-500">{applicantCountLabel}</p>
               <p className="mt-1 font-semibold text-slate-900">
                 {summary.estimatedApplicants.toLocaleString("ko-KR")}
               </p>
@@ -435,14 +440,14 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
               <span className="font-semibold text-blue-700">
                 {summary.oneMultipleBaseRank.toLocaleString("ko-KR")}등
               </span>{" "}
-              / 실제 1배수 끝등수{" "}
+              / {summary.isOneMultipleCutConfirmed ? "실제 1배수 끝등수" : "현재 데이터 끝등수"}{" "}
               <span className="font-semibold text-blue-700">
                 {summary.oneMultipleActualRank
                   ? `${summary.oneMultipleActualRank.toLocaleString("ko-KR")}등`
                   : "-"}
               </span>
             </p>
-            {summary.oneMultipleTieCount ? (
+            {summary.isOneMultipleCutConfirmed && summary.oneMultipleTieCount ? (
               <p className="mt-1 text-xs text-slate-600">
                 동점 묶음 인원: {summary.oneMultipleTieCount.toLocaleString("ko-KR")}명
               </p>
@@ -460,35 +465,43 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
           </p>
 
           <div className="mt-5 space-y-3">
-            {pyramid.levels.map((level, index) => (
-              <div key={level.key} className="grid grid-cols-1 items-center gap-3 lg:grid-cols-[1fr_320px]">
-                <div className="mx-auto w-full max-w-xl">
-                  <div
-                    className={`mx-auto flex h-12 items-center justify-center rounded-sm px-3 text-sm font-semibold transition ${
-                      levelColor(level.key, level.isCurrent)
-                    } ${levelTextColor(level.key)} ${level.isCurrent ? "ring-2 ring-offset-2 ring-blue-300" : ""}`}
-                    style={{
-                      width: `${widths[index]}%`,
-                      clipPath: "polygon(8% 0, 92% 0, 100% 100%, 0 100%)",
-                    }}
-                  >
-                    {level.label} {level.count.toLocaleString("ko-KR")}명
+            {pyramid.levels.map((level, index) => {
+              const isCollectingLevel = level.key !== "belowChallenge" && level.minScore === null;
+
+              return (
+                <div key={level.key} className="grid grid-cols-1 items-center gap-3 lg:grid-cols-[1fr_320px]">
+                  <div className="mx-auto w-full max-w-xl">
+                    <div
+                      className={`mx-auto flex h-12 items-center justify-center rounded-sm px-3 text-sm font-semibold transition ${
+                        levelColor(level.key, level.isCurrent)
+                      } ${levelTextColor(level.key)} ${level.isCurrent ? "ring-2 ring-offset-2 ring-blue-300" : ""}`}
+                      style={{
+                        width: `${widths[index]}%`,
+                        clipPath: "polygon(8% 0, 92% 0, 100% 100%, 0 100%)",
+                      }}
+                    >
+                      {level.label} {level.count.toLocaleString("ko-KR")}명
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                    <p className="font-semibold text-slate-800">
+                      {isCollectingLevel
+                        ? "데이터 수집 중"
+                        : level.minScore === null
+                          ? "기준점수 미만"
+                          : `${level.minScore.toFixed(2)}점 이상`}
+                    </p>
+                    <p className="mt-1">
+                      배수:{" "}
+                      {level.maxMultiple === null
+                        ? `${level.minMultiple?.toFixed(2) ?? "-"}배 초과`
+                        : `${level.minMultiple === null ? "0.00" : level.minMultiple.toFixed(2)} ~ ${level.maxMultiple.toFixed(2)}배`}
+                    </p>
                   </div>
                 </div>
-
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                  <p className="font-semibold text-slate-800">
-                    {level.minScore === null ? "기준점수 미만" : `${level.minScore.toFixed(2)}점 이상`}
-                  </p>
-                  <p className="mt-1">
-                    배수:{" "}
-                    {level.maxMultiple === null
-                      ? `${level.minMultiple?.toFixed(2) ?? "-"}배 초과`
-                      : `${level.minMultiple === null ? "0.00" : level.minMultiple.toFixed(2)} ~ ${level.maxMultiple.toFixed(2)}배`}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </article>
       </section>

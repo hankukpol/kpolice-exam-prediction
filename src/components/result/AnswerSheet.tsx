@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 interface SubjectAnswerRow {
   questionNumber: number;
@@ -99,21 +99,18 @@ function AnswerRowsTable({ rows }: { rows: SubjectAnswerRow[] }) {
 export default function AnswerSheet({ subjects, summaries }: AnswerSheetProps) {
   const [selectedSubjectId, setSelectedSubjectId] = useState<number>(subjects[0]?.subjectId ?? 0);
 
-  useEffect(() => {
+  const effectiveSubjectId = useMemo(() => {
     if (subjects.length < 1) {
-      setSelectedSubjectId(0);
-      return;
+      return 0;
     }
-
-    const exists = subjects.some((subject) => subject.subjectId === selectedSubjectId);
-    if (!exists) {
-      setSelectedSubjectId(subjects[0].subjectId);
-    }
+    return subjects.some((subject) => subject.subjectId === selectedSubjectId)
+      ? selectedSubjectId
+      : subjects[0].subjectId;
   }, [selectedSubjectId, subjects]);
 
   const selectedSubject = useMemo(() => {
-    return subjects.find((subject) => subject.subjectId === selectedSubjectId) ?? subjects[0] ?? null;
-  }, [selectedSubjectId, subjects]);
+    return subjects.find((subject) => subject.subjectId === effectiveSubjectId) ?? subjects[0] ?? null;
+  }, [effectiveSubjectId, subjects]);
 
   if (!selectedSubject) {
     return (
@@ -135,7 +132,7 @@ export default function AnswerSheet({ subjects, summaries }: AnswerSheetProps) {
         <h2 className="text-base font-semibold text-slate-900">정오표 - 문항별 정답률 분석</h2>
         <select
           className="h-9 rounded-md border border-slate-300 px-3 text-sm"
-          value={selectedSubject.subjectId}
+          value={effectiveSubjectId}
           onChange={(event) => setSelectedSubjectId(Number(event.target.value))}
         >
           {subjects.map((subject) => (

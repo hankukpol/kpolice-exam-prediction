@@ -154,8 +154,8 @@ export default async function AdminDashboardPage() {
         SELECT DATE_FORMAT(createdAt, '%Y-%m-%d') AS date, COUNT(*) AS count
         FROM Submission
         WHERE examId = ${dbActiveExam.id}
-        GROUP BY DATE(createdAt)
-        ORDER BY DATE(createdAt)
+        GROUP BY DATE_FORMAT(createdAt, '%Y-%m-%d')
+        ORDER BY DATE_FORMAT(createdAt, '%Y-%m-%d')
       `;
 
       submissionTrend = trendRaw

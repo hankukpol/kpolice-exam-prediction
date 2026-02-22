@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { getDifficultyStats } from "@/lib/difficulty";
 import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
-import { getPassMultiple } from "@/lib/prediction";
+import { getLikelyMultiple, getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 import { getActiveNotices, getSiteSettings } from "@/lib/site-settings";
 
@@ -39,6 +39,7 @@ interface MainStatsRow {
   examTypeLabel: string;
   recruitCount: number;
   estimatedApplicants: number;
+  isApplicantCountExact: boolean;
   competitionRate: number;
   participantCount: number;
   averageFinalScore: number | null;
@@ -93,6 +94,13 @@ interface UserScoreSnapshot {
   totalScore: number;
   hasAnyFail: boolean;
   subjectScoresByName: Map<string, { score: number; isFail: boolean }>;
+}
+
+interface MainSectionVisibility {
+  overview: boolean;
+  difficulty: boolean;
+  competitive: boolean;
+  scoreDistribution: boolean;
 }
 
 function toSafePositiveInt(value: unknown, fallbackValue: number): number {
@@ -352,12 +360,22 @@ function getRegionRecruitCount(region: RegionRow, examType: ExamType): number {
   return examType === ExamType.PUBLIC ? region.recruitCount : region.recruitCountCareer;
 }
 
-function getRegionApplicantCount(region: RegionRow, examType: ExamType, recruitCount: number): number {
+function getRegionApplicantCount(
+  region: RegionRow,
+  examType: ExamType,
+  recruitCount: number
+): { applicantCount: number; isExact: boolean } {
   const actual = examType === ExamType.PUBLIC ? region.applicantCount : region.applicantCountCareer;
   if (typeof actual === "number" && Number.isFinite(actual) && actual >= 0) {
-    return Math.floor(actual);
+    return {
+      applicantCount: Math.floor(actual),
+      isExact: true,
+    };
   }
-  return Math.max(0, Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER));
+  return {
+    applicantCount: Math.max(0, Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER)),
+    isExact: false,
+  };
 }
 
 async function getRegionsWithApplicants(): Promise<RegionRow[]> {
@@ -439,6 +457,12 @@ export async function GET() {
 
     const [notices, settings] = await Promise.all([getActiveNotices(), getSiteSettings()]);
     const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
+    const sectionVisibility: MainSectionVisibility = {
+      overview: Boolean(settings["site.mainCardOverviewEnabled"] ?? true),
+      difficulty: Boolean(settings["site.mainCardDifficultyEnabled"] ?? true),
+      competitive: Boolean(settings["site.mainCardCompetitiveEnabled"] ?? true),
+      scoreDistribution: Boolean(settings["site.mainCardScoreDistributionEnabled"] ?? true),
+    };
     const enabledExamTypes: ExamType[] = careerExamEnabled
       ? [ExamType.PUBLIC, ExamType.CAREER]
       : [ExamType.PUBLIC];
@@ -449,6 +473,7 @@ export async function GET() {
         updatedAt: new Date().toISOString(),
         careerExamEnabled,
         liveStats: null,
+        sectionVisibility,
         notices,
         difficulty: null,
         rows: [],
@@ -633,7 +658,8 @@ export async function GET() {
         const participant = participantMap.get(key);
         const participantCount = participant?.participantCount ?? 0;
         const averageFinalScore = participant?.averageFinalScore ?? null;
-        const estimatedApplicants = getRegionApplicantCount(region, examType, recruitCount);
+        const applicantCountInfo = getRegionApplicantCount(region, examType, recruitCount);
+        const estimatedApplicants = applicantCountInfo.applicantCount;
         const competitionRate = recruitCount > 0 ? roundNumber(estimatedApplicants / recruitCount) : 0;
 
         const scoreBands = buildScoreBands(scoreBandMap.get(key) ?? []);
@@ -643,7 +669,7 @@ export async function GET() {
         const oneMultipleTieCount = oneMultipleBand?.count ?? null;
 
         const passMultiple = getPassMultiple(recruitCount);
-        const likelyMultiple = passMultiple * 0.8;
+        const likelyMultiple = getLikelyMultiple(passMultiple);
         const likelyMaxRank = Math.max(1, Math.floor(recruitCount * likelyMultiple));
         const passCount = Math.ceil(recruitCount * passMultiple);
 
@@ -658,6 +684,7 @@ export async function GET() {
           examTypeLabel: examTypeLabel(examType),
           recruitCount,
           estimatedApplicants,
+          isApplicantCountExact: applicantCountInfo.isExact,
           competitionRate,
           participantCount,
           averageFinalScore,
@@ -745,6 +772,7 @@ export async function GET() {
         updatedAt: new Date().toISOString(),
         careerExamEnabled,
         liveStats,
+        sectionVisibility,
         notices,
         difficulty,
         rows,

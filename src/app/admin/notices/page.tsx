@@ -126,6 +126,11 @@ export default function AdminNoticesPage() {
       return;
     }
 
+    const confirmed = window.confirm(
+      editingId ? "공지사항을 수정하시겠습니까?" : "공지사항을 등록하시겠습니까?"
+    );
+    if (!confirmed) return;
+
     try {
       setIsSaving(true);
       const endpoint = editingId ? `/api/admin/notices?id=${editingId}` : "/api/admin/notices";

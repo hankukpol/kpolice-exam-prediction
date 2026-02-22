@@ -26,6 +26,7 @@ export async function GET(request: Request) {
   const finalScore = toNumber(searchParams.get("finalScore"), 0);
   const rankRaw = searchParams.get("rank");
   const totalParticipantsRaw = searchParams.get("totalParticipants");
+  const rankingBasisLabel = searchParams.get("rankingBasisLabel");
   const predictionGrade = searchParams.get("predictionGrade");
 
   return new ImageResponse(
@@ -38,6 +39,7 @@ export async function GET(request: Request) {
         finalScore={finalScore}
         rank={rankRaw ? toNumber(rankRaw, 0) : null}
         totalParticipants={totalParticipantsRaw ? toNumber(totalParticipantsRaw, 0) : null}
+        rankingBasisLabel={rankingBasisLabel}
         predictionGrade={predictionGrade}
       />
     ),

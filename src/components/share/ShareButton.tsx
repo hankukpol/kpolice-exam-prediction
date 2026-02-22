@@ -3,6 +3,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { shareToKakao } from "@/lib/kakao";
 
+type RankingBasis = "ALL_PARTICIPANTS" | "NON_CUTOFF_PARTICIPANTS";
+
 interface ShareDataResponse {
   submissionId: number;
   exam: {
@@ -24,12 +26,17 @@ interface ShareDataResponse {
   finalScore: number;
   rank: number;
   totalParticipants: number;
+  rankingBasis: RankingBasis;
   predictionGrade: string | null;
 }
 
 interface ShareButtonProps {
   submissionId?: number;
   sharePath: "/exam/result" | "/exam/prediction";
+}
+
+function formatRankingBasisLabel(rankingBasis: RankingBasis): string {
+  return rankingBasis === "NON_CUTOFF_PARTICIPANTS" ? "과락 미해당자 기준" : "전체 참여자 기준";
 }
 
 function buildOgImageUrl(origin: string, data: ShareDataResponse): string {
@@ -41,6 +48,7 @@ function buildOgImageUrl(origin: string, data: ShareDataResponse): string {
     finalScore: data.finalScore.toFixed(2),
     rank: String(data.rank),
     totalParticipants: String(data.totalParticipants),
+    rankingBasisLabel: formatRankingBasisLabel(data.rankingBasis),
     predictionGrade: data.predictionGrade ?? "-",
   });
   return `${origin}/api/share/og-image?${query.toString()}`;
@@ -113,31 +121,31 @@ export default function ShareButton({ submissionId, sharePath }: ShareButtonProp
             className="w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60"
             onClick={() =>
               void execute(async (data, origin, shareUrl) => {
+                if (process.env.NEXT_PUBLIC_KAKAO_JS_KEY) {
+                  const imageUrl = buildOgImageUrl(origin, data);
+                  await shareToKakao({
+                    title: `${data.exam.name} 합격예측 결과`,
+                    description: `${data.user.name} · ${data.examTypeLabel} · ${data.region.name} (${formatRankingBasisLabel(data.rankingBasis)})`,
+                    imageUrl,
+                    linkUrl: shareUrl,
+                  });
+                  return;
+                }
+
                 if (navigator.share) {
                   await navigator.share({
                     title: `${data.exam.name} 합격예측 결과`,
-                    text: `${data.user.name}님의 ${data.examTypeLabel} ${data.region.name} 결과`,
+                    text: `${data.user.name}님의 ${data.examTypeLabel} ${data.region.name} 결과 (${formatRankingBasisLabel(data.rankingBasis)})`,
                     url: shareUrl,
                   });
                 } else {
                   await navigator.clipboard.writeText(shareUrl);
                   window.alert("공유 기능을 지원하지 않아 링크를 복사했습니다.");
                 }
-
-                // 카카오 공유 준비용 사전 로드 (키가 있으면 동작)
-                if (process.env.NEXT_PUBLIC_KAKAO_JS_KEY) {
-                  const imageUrl = buildOgImageUrl(origin, data);
-                  await shareToKakao({
-                    title: `${data.exam.name} 합격예측 결과`,
-                    description: `${data.user.name} · ${data.examTypeLabel} · ${data.region.name}`,
-                    imageUrl,
-                    linkUrl: shareUrl,
-                  });
-                }
               })
             }
           >
-            카카오/시스템 공유
+            카카오톡 공유
           </button>
           <button
             type="button"

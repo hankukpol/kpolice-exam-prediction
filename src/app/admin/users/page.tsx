@@ -107,6 +107,11 @@ export default function AdminUsersPage() {
       return;
     }
 
+    const confirmed = window.confirm(
+      `${user.name}님의 권한을 ${nextRole === "ADMIN" ? "관리자" : "일반 사용자"}로 저장하시겠습니까?`
+    );
+    if (!confirmed) return;
+
     setUpdatingUserId(user.id);
     setNotice(null);
     try {

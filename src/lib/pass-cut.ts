@@ -1,7 +1,7 @@
 import { ExamType } from "@prisma/client";
 import { getRegionRecruitCount } from "@/lib/exam-utils";
 import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
-import { getPassMultiple } from "@/lib/prediction";
+import { getLikelyMultiple, getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 
 const ESTIMATED_APPLICANTS_MULTIPLIER = parseEstimatedApplicantsMultiplier(
@@ -194,7 +194,7 @@ export async function buildPassCutPredictionRows(params: {
       const oneMultipleCutScore = getScoreAtRank(scoreBands, recruitCount);
 
       const passMultiple = getPassMultiple(recruitCount);
-      const likelyMultiple = passMultiple * 0.8;
+      const likelyMultiple = getLikelyMultiple(passMultiple);
       const likelyMaxRank = Math.max(1, Math.floor(recruitCount * likelyMultiple));
       const passCount = Math.ceil(recruitCount * passMultiple);
 

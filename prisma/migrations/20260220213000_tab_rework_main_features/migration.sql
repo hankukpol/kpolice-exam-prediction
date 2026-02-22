@@ -1,4 +1,4 @@
-﻿-- Add applicant counts to Region for actual applicant numbers by exam type.
+-- Add applicant counts to Region for actual applicant numbers by exam type.
 ALTER TABLE `Region`
   ADD COLUMN `applicantCount` INTEGER NULL,
   ADD COLUMN `applicantCountCareer` INTEGER NULL;

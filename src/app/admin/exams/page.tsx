@@ -133,6 +133,11 @@ export default function AdminExamsPage() {
       return;
     }
 
+    const confirmed = window.confirm(
+      isEditing ? "시험 정보를 수정하시겠습니까?" : "새 시험을 생성하시겠습니까?"
+    );
+    if (!confirmed) return;
+
     setIsSubmitting(true);
 
     try {

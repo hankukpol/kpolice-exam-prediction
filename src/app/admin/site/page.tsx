@@ -159,6 +159,9 @@ export default function AdminSitePage() {
   }
 
   async function handleSaveBasicSettings() {
+    const confirmed = window.confirm("기본 설정을 저장하시겠습니까?");
+    if (!confirmed) return;
+
     setIsSavingBasic(true);
     setNotice(null);
     try {
@@ -184,6 +187,9 @@ export default function AdminSitePage() {
   }
 
   async function handleSaveSystemSettings() {
+    const confirmed = window.confirm("시스템 설정을 저장하시겠습니까?");
+    if (!confirmed) return;
+
     setIsSavingSystem(true);
     setNotice(null);
     try {
@@ -206,6 +212,10 @@ export default function AdminSitePage() {
           "site.maintenanceMessage": String(settings["site.maintenanceMessage"] ?? ""),
           "site.mainPageAutoRefresh": Boolean(settings["site.mainPageAutoRefresh"]),
           "site.mainPageRefreshInterval": String(Math.floor(refreshInterval)),
+          "site.mainCardOverviewEnabled": Boolean(settings["site.mainCardOverviewEnabled"]),
+          "site.mainCardDifficultyEnabled": Boolean(settings["site.mainCardDifficultyEnabled"]),
+          "site.mainCardCompetitiveEnabled": Boolean(settings["site.mainCardCompetitiveEnabled"]),
+          "site.mainCardScoreDistributionEnabled": Boolean(settings["site.mainCardScoreDistributionEnabled"]),
           "site.submissionEditLimit": Math.floor(editLimit),
           "site.finalPredictionEnabled": Boolean(settings["site.finalPredictionEnabled"]),
         },
@@ -244,7 +254,6 @@ export default function AdminSitePage() {
 
   async function handleSubmitNotice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsSavingNotice(true);
     setNotice(null);
 
     try {
@@ -254,6 +263,12 @@ export default function AdminSitePage() {
       if (!noticeContent.trim()) {
         throw new Error("공지 내용을 입력해 주세요.");
       }
+      const confirmed = window.confirm(
+        editingNoticeId ? "공지사항을 수정하시겠습니까?" : "공지사항을 등록하시겠습니까?"
+      );
+      if (!confirmed) return;
+
+      setIsSavingNotice(true);
 
       const payload = {
         title: noticeTitle.trim(),
@@ -594,6 +609,49 @@ export default function AdminSitePage() {
           />
           최종 환산 예측 탭 공개 (체력시험 이후 오픈 권장)
         </label>
+
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-900">풀서비스 메인 카드 노출 설정</p>
+          <p className="mt-1 text-xs text-slate-500">
+            시험 진행 상황에 맞게 메인 카드 섹션을 숨김/노출할 수 있습니다.
+          </p>
+          <div className="mt-3 space-y-2">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(settings["site.mainCardOverviewEnabled"])}
+                onChange={(event) => updateSettingBoolean("site.mainCardOverviewEnabled", event.target.checked)}
+              />
+              직렬별 실시간 합격예측 분석 카드
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(settings["site.mainCardDifficultyEnabled"])}
+                onChange={(event) => updateSettingBoolean("site.mainCardDifficultyEnabled", event.target.checked)}
+              />
+              과목별 체감난이도 설문 결과 카드
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(settings["site.mainCardCompetitiveEnabled"])}
+                onChange={(event) => updateSettingBoolean("site.mainCardCompetitiveEnabled", event.target.checked)}
+              />
+              실시간 최대/최소 경쟁 예상지역 TOP5 카드
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={Boolean(settings["site.mainCardScoreDistributionEnabled"])}
+                onChange={(event) =>
+                  updateSettingBoolean("site.mainCardScoreDistributionEnabled", event.target.checked)
+                }
+              />
+              채점자 성적분포도 카드
+            </label>
+          </div>
+        </div>
 
         <div className="space-y-2">
           <Label htmlFor="main-refresh-interval">메인 탭 갱신 간격(초)</Label>

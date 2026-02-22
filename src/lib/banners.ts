@@ -23,32 +23,29 @@ export function isBannerZone(value: string): value is BannerZone {
   return (BANNER_ZONES as readonly string[]).includes(value);
 }
 
-const getCachedActiveBanners = unstable_cache(
-  async (): Promise<PublicBannerItem[]> => {
-    try {
-      const banners = await prisma.banner.findMany({
-        where: { isActive: true },
-        orderBy: [{ zone: "asc" }, { sortOrder: "asc" }, { id: "asc" }],
-      });
+async function fetchActiveBannersFromDb(): Promise<PublicBannerItem[]> {
+  const banners = await prisma.banner.findMany({
+    where: { isActive: true },
+    orderBy: [{ zone: "asc" }, { sortOrder: "asc" }, { id: "asc" }],
+  });
 
-      return banners
-        .filter((banner) => isBannerZone(banner.zone))
-        .map((banner) => ({
-          id: banner.id,
-          zone: banner.zone as BannerZone,
-          imageUrl: banner.imageUrl,
-          linkUrl: banner.linkUrl,
-          altText: banner.altText,
-          isActive: banner.isActive,
-          sortOrder: banner.sortOrder,
-          createdAt: banner.createdAt.toISOString(),
-          updatedAt: banner.updatedAt.toISOString(),
-        }));
-    } catch (error) {
-      console.error("활성 배너 조회 중 오류가 발생했습니다.", error);
-      return [];
-    }
-  },
+  return banners
+    .filter((banner) => isBannerZone(banner.zone))
+    .map((banner) => ({
+      id: banner.id,
+      zone: banner.zone as BannerZone,
+      imageUrl: banner.imageUrl,
+      linkUrl: banner.linkUrl,
+      altText: banner.altText,
+      isActive: banner.isActive,
+      sortOrder: banner.sortOrder,
+      createdAt: banner.createdAt.toISOString(),
+      updatedAt: banner.updatedAt.toISOString(),
+    }));
+}
+
+const getCachedActiveBanners = unstable_cache(
+  fetchActiveBannersFromDb,
   ["banners:active"],
   {
     revalidate: 60,
@@ -57,7 +54,12 @@ const getCachedActiveBanners = unstable_cache(
 );
 
 export async function getActiveBanners(): Promise<PublicBannerItem[]> {
-  return getCachedActiveBanners();
+  try {
+    return await getCachedActiveBanners();
+  } catch (error) {
+    console.error("활성 배너 캐시 조회 중 오류가 발생해 DB 직접 조회를 시도합니다.", error);
+    return fetchActiveBannersFromDb();
+  }
 }
 
 export function getPrimaryBannerByZone(banners: PublicBannerItem[]) {

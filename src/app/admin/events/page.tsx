@@ -151,14 +151,24 @@ export default function AdminEventsPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsSaving(true);
     setNotice(null);
 
-    try {
-      if (!title.trim()) {
-        throw new Error("이벤트 제목을 입력해 주세요.");
-      }
+    if (!title.trim()) {
+      setNotice({
+        type: "error",
+        message: "이벤트 제목을 입력해 주세요.",
+      });
+      return;
+    }
 
+    const confirmed = window.confirm(
+      editingId ? "이벤트를 수정하시겠습니까?" : "이벤트를 등록하시겠습니까?"
+    );
+    if (!confirmed) return;
+
+    setIsSaving(true);
+
+    try {
       const formData = new FormData();
       formData.append("title", title.trim());
       formData.append("description", description.trim());

@@ -8,6 +8,7 @@ interface ShareCardProps {
   finalScore: number;
   rank: number | null;
   totalParticipants: number | null;
+  rankingBasisLabel?: string | null;
   predictionGrade?: string | null;
 }
 
@@ -19,6 +20,7 @@ export default function ShareCard({
   finalScore,
   rank,
   totalParticipants,
+  rankingBasisLabel,
   predictionGrade,
 }: ShareCardProps) {
   return (
@@ -83,6 +85,7 @@ export default function ShareCard({
                 : "-"
             }`}
           </div>
+          <div>{`순위 기준: ${rankingBasisLabel ?? "-"}`}</div>
           <div>{`합격예측: ${predictionGrade ?? "-"}`}</div>
         </div>
       </div>

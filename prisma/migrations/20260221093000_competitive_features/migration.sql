@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE `RescoreEvent` (
   `id` INTEGER NOT NULL AUTO_INCREMENT,
   `examId` INTEGER NOT NULL,

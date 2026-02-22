@@ -215,7 +215,86 @@ function isHeroBonusType(bonusType: BonusType): boolean {
   return bonusType === BonusType.HERO_3 || bonusType === BonusType.HERO_5;
 }
 
-async function validateHeroBonusPassCap(params: {
+function isVeteranBonusType(bonusType: BonusType): boolean {
+  return bonusType === BonusType.VETERAN_5 || bonusType === BonusType.VETERAN_10;
+}
+
+type BonusPassCapRule = {
+  minRecruitCount: number;
+  capRatio: number;
+  capPercentLabel: string;
+  bonusLabel: string;
+  matches: (bonusType: BonusType) => boolean;
+};
+
+function getBonusPassCapRule(bonusType: BonusType): BonusPassCapRule | null {
+  if (isVeteranBonusType(bonusType)) {
+    return {
+      minRecruitCount: 4,
+      capRatio: 0.3,
+      capPercentLabel: "30%",
+      bonusLabel: "취업지원대상자",
+      matches: isVeteranBonusType,
+    };
+  }
+
+  if (isHeroBonusType(bonusType)) {
+    return {
+      minRecruitCount: 10,
+      capRatio: 0.1,
+      capPercentLabel: "10%",
+      bonusLabel: "의사상자",
+      matches: isHeroBonusType,
+    };
+  }
+
+  return null;
+}
+
+function getBonusMinRecruitError(bonusType: BonusType, recruitCount: number): string | null {
+  const rule = getBonusPassCapRule(bonusType);
+  if (!rule) return null;
+  if (recruitCount >= rule.minRecruitCount) return null;
+  return `${rule.bonusLabel} 가산점은 모집인원 ${rule.minRecruitCount}명 이상 지역에서만 선택 가능합니다.`;
+}
+
+function isSameScore(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.000001;
+}
+
+function includeTieAtCutoff<T>(
+  sortedRows: T[],
+  baseCount: number,
+  scoreSelector: (row: T) => number
+): T[] {
+  if (!Number.isInteger(baseCount) || baseCount < 1) {
+    return [];
+  }
+
+  if (sortedRows.length <= baseCount) {
+    return sortedRows;
+  }
+
+  const boundary = sortedRows[baseCount - 1];
+  if (!boundary) {
+    return sortedRows;
+  }
+
+  const boundaryScore = scoreSelector(boundary);
+  let endIndex = baseCount;
+
+  while (endIndex < sortedRows.length) {
+    const row = sortedRows[endIndex];
+    if (!row || !isSameScore(scoreSelector(row), boundaryScore)) {
+      break;
+    }
+    endIndex += 1;
+  }
+
+  return sortedRows.slice(0, endIndex);
+}
+
+async function validateBonusPassCap(params: {
   examId: number;
   regionId: number;
   examType: ExamType;
@@ -226,13 +305,20 @@ async function validateHeroBonusPassCap(params: {
   finalScore: number;
   hasCutoff: boolean;
 }): Promise<void> {
-  if (!isHeroBonusType(params.bonusType) || params.hasCutoff) {
+  const rule = getBonusPassCapRule(params.bonusType);
+  if (!rule || params.hasCutoff) {
     return;
   }
 
-  const capCount = Math.floor(params.recruitCount * 0.1);
+  if (params.recruitCount < rule.minRecruitCount) {
+    throw new Error(`${rule.bonusLabel} 가산점은 모집인원 ${rule.minRecruitCount}명 이상 지역에서만 선택 가능합니다.`);
+  }
+
+  const capCount = Math.floor(params.recruitCount * rule.capRatio);
   if (capCount < 1) {
-    throw new Error("의사상자 가산점 합격 상한(선발예정인원 10%)을 적용할 수 없는 모집단입니다.");
+    throw new Error(
+      `${rule.bonusLabel} 가산점 합격 상한(선발예정인원 ${rule.capPercentLabel})을 적용할 수 없는 모집단입니다.`
+    );
   }
 
   const passMultiple = getPassMultiple(params.recruitCount);
@@ -281,20 +367,29 @@ async function validateHeroBonusPassCap(params: {
     bonusType: params.bonusType,
   });
 
-  const passByFinal = [...rows]
-    .sort((left, right) => right.finalScore - left.finalScore || left.id - right.id)
-    .slice(0, passCount);
-  const passByRaw = [...rows]
-    .sort((left, right) => right.totalScore - left.totalScore || left.id - right.id)
-    .slice(0, passCount);
+  // 공문 단서: 응시인원이 선발예정인원 이하인 경우 가점 합격 상한을 적용하지 않음.
+  if (rows.length <= params.recruitCount) {
+    return;
+  }
+
+  const sortedByFinal = [...rows].sort(
+    (left, right) => right.finalScore - left.finalScore || left.id - right.id
+  );
+  const passByFinal = includeTieAtCutoff(sortedByFinal, passCount, (row) => row.finalScore);
+
+  const sortedByRaw = [...rows].sort(
+    (left, right) => right.totalScore - left.totalScore || left.id - right.id
+  );
+  const passByRaw = includeTieAtCutoff(sortedByRaw, passCount, (row) => row.totalScore);
+
   const rawPasserIds = new Set(passByRaw.map((row) => row.id));
-  const heroBeneficiaries = passByFinal.filter(
-    (row) => isHeroBonusType(row.bonusType) && !rawPasserIds.has(row.id)
+  const bonusBeneficiaries = passByFinal.filter(
+    (row) => rule.matches(row.bonusType) && !rawPasserIds.has(row.id)
   );
 
-  if (heroBeneficiaries.length > capCount) {
+  if (bonusBeneficiaries.length > capCount) {
     throw new Error(
-      `의사상자 가산점으로 합격 가능한 인원 상한(${capCount}명, 선발예정인원의 10%)을 초과합니다.`
+      `${rule.bonusLabel} 가산점으로 합격 가능한 인원 상한(${capCount}명, 선발예정인원의 ${rule.capPercentLabel})을 초과합니다.`
     );
   }
 }
@@ -421,11 +516,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    if ((bonusType === BonusType.HERO_3 || bonusType === BonusType.HERO_5) && recruitCount < 10) {
-      return NextResponse.json(
-        { error: "의사상자 가산점은 모집인원 10명 이상 지역에서만 선택 가능합니다." },
-        { status: 400 }
-      );
+    const bonusMinRecruitError = getBonusMinRecruitError(bonusType, recruitCount);
+    if (bonusMinRecruitError) {
+      return NextResponse.json({ error: bonusMinRecruitError }, { status: 400 });
     }
 
     const scoreResult = await calculateScore({
@@ -436,18 +529,16 @@ export async function POST(request: Request) {
       bonusRate,
     });
 
-    if (isHeroBonusType(bonusType)) {
-      await validateHeroBonusPassCap({
-        examId: exam.id,
-        regionId: region.id,
-        examType,
-        recruitCount,
-        bonusType,
-        totalScore: scoreResult.totalScore,
-        finalScore: scoreResult.finalScore,
-        hasCutoff: scoreResult.hasCutoff,
-      });
-    }
+    await validateBonusPassCap({
+      examId: exam.id,
+      regionId: region.id,
+      examType,
+      recruitCount,
+      bonusType,
+      totalScore: scoreResult.totalScore,
+      finalScore: scoreResult.finalScore,
+      hasCutoff: scoreResult.hasCutoff,
+    });
 
     const submission = await prisma.$transaction(async (tx) => {
       const savedSubmission = await tx.submission.create({
@@ -687,11 +778,9 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: message }, { status: 400 });
     }
 
-    if ((bonusType === BonusType.HERO_3 || bonusType === BonusType.HERO_5) && recruitCount < 10) {
-      return NextResponse.json(
-        { error: "의사상자 가산점은 모집인원 10명 이상 지역에서만 선택 가능합니다." },
-        { status: 400 }
-      );
+    const bonusMinRecruitError = getBonusMinRecruitError(bonusType, recruitCount);
+    if (bonusMinRecruitError) {
+      return NextResponse.json({ error: bonusMinRecruitError }, { status: 400 });
     }
 
     const scoreResult = await calculateScore({
@@ -702,19 +791,17 @@ export async function PUT(request: Request) {
       bonusRate,
     });
 
-    if (isHeroBonusType(bonusType)) {
-      await validateHeroBonusPassCap({
-        examId: exam.id,
-        regionId: region.id,
-        examType,
-        recruitCount,
-        submissionId,
-        bonusType,
-        totalScore: scoreResult.totalScore,
-        finalScore: scoreResult.finalScore,
-        hasCutoff: scoreResult.hasCutoff,
-      });
-    }
+    await validateBonusPassCap({
+      examId: exam.id,
+      regionId: region.id,
+      examType,
+      recruitCount,
+      submissionId,
+      bonusType,
+      totalScore: scoreResult.totalScore,
+      finalScore: scoreResult.finalScore,
+      hasCutoff: scoreResult.hasCutoff,
+    });
 
     const updated = await prisma.$transaction(async (tx) => {
       await tx.userAnswer.deleteMany({ where: { submissionId } });

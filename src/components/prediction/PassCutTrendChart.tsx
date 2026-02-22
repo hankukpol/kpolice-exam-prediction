@@ -59,9 +59,10 @@ export default function PassCutTrendChart({ releases, current }: PassCutTrendCha
   const allScores = chartData
     .flatMap((row) => [row.sure, row.likely, row.possible])
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const hasScoreData = allScores.length > 0;
 
-  const minScore = allScores.length > 0 ? Math.floor(Math.min(...allScores) / 5) * 5 - 5 : 0;
-  const maxScore = allScores.length > 0 ? Math.ceil(Math.max(...allScores) / 5) * 5 + 5 : 100;
+  const minScore = hasScoreData ? Math.floor(Math.min(...allScores) / 5) * 5 - 5 : 0;
+  const maxScore = hasScoreData ? Math.ceil(Math.max(...allScores) / 5) * 5 + 5 : 100;
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
@@ -71,13 +72,15 @@ export default function PassCutTrendChart({ releases, current }: PassCutTrendCha
           <ComposedChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
-            <YAxis
-              yAxisId="score"
-              domain={[minScore, maxScore]}
-              tick={{ fontSize: 12, fill: "#64748b" }}
-              axisLine={false}
-              tickLine={false}
-            />
+            {hasScoreData ? (
+              <YAxis
+                yAxisId="score"
+                domain={[minScore, maxScore]}
+                tick={{ fontSize: 12, fill: "#64748b" }}
+                axisLine={false}
+                tickLine={false}
+              />
+            ) : null}
             <YAxis
               yAxisId="count"
               orientation="right"
@@ -97,20 +100,38 @@ export default function PassCutTrendChart({ releases, current }: PassCutTrendCha
               }}
             />
             <Legend />
-            <Bar yAxisId="count" dataKey="participants" name="참여자 수" fill="#94a3b8" fillOpacity={0.35} />
-            <Line yAxisId="score" type="monotone" dataKey="sure" name="확실권" stroke="#16a34a" strokeWidth={2.5} />
-            <Line yAxisId="score" type="monotone" dataKey="likely" name="유력권" stroke="#2563eb" strokeWidth={2.5} />
-            <Line
-              yAxisId="score"
-              type="monotone"
-              dataKey="possible"
-              name="가능권"
-              stroke="#f97316"
-              strokeWidth={2.5}
+            <Bar
+              yAxisId="count"
+              dataKey="participants"
+              name="참여자 수"
+              fill="#94a3b8"
+              fillOpacity={0.35}
+              maxBarSize={56}
             />
+            {hasScoreData ? (
+              <Line yAxisId="score" type="monotone" dataKey="sure" name="확실권" stroke="#16a34a" strokeWidth={2.5} />
+            ) : null}
+            {hasScoreData ? (
+              <Line yAxisId="score" type="monotone" dataKey="likely" name="유력권" stroke="#2563eb" strokeWidth={2.5} />
+            ) : null}
+            {hasScoreData ? (
+              <Line
+                yAxisId="score"
+                type="monotone"
+                dataKey="possible"
+                name="가능권"
+                stroke="#f97316"
+                strokeWidth={2.5}
+              />
+            ) : null}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      {!hasScoreData ? (
+        <p className="mt-3 text-xs text-slate-500">
+          아직 합격권 컷 점수 데이터가 부족해 참여자 수만 표시됩니다.
+        </p>
+      ) : null}
     </section>
   );
 }

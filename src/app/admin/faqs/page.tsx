@@ -93,6 +93,9 @@ export default function AdminFaqsPage() {
       return;
     }
 
+    const confirmed = window.confirm(editingId ? "FAQ를 수정하시겠습니까?" : "FAQ를 등록하시겠습니까?");
+    if (!confirmed) return;
+
     try {
       setIsSaving(true);
       const endpoint = editingId ? `/api/admin/faqs?id=${editingId}` : "/api/admin/faqs";

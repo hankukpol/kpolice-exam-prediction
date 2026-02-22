@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { isBannerZone, revalidateBannerCache } from "@/lib/banners";
 import { prisma } from "@/lib/prisma";
@@ -39,13 +40,35 @@ function normalizeOptionalText(value: FormDataEntryValue | null): string | null 
 
 function isValidLinkUrl(value: string | null): boolean {
   if (!value) return true;
-  if (value.startsWith("/")) return true;
+  if (value.startsWith("/")) return !value.startsWith("//");
 
   try {
     const parsed = new URL(value);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
+  }
+}
+
+function isRecordNotFoundError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
+}
+
+async function safeDeleteUploadedFile(publicUrl: string | null | undefined, context: string): Promise<void> {
+  if (!publicUrl) return;
+
+  try {
+    await deleteUploadedFileByPublicUrl(publicUrl);
+  } catch (cleanupError) {
+    console.error(`${context} 중 오류가 발생했습니다.`, cleanupError);
+  }
+}
+
+function safeRevalidateBannerCache(): void {
+  try {
+    revalidateBannerCache();
+  } catch (error) {
+    console.error("배너 캐시 무효화 중 오류가 발생했습니다.", error);
   }
 }
 
@@ -67,6 +90,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
+
+  let uploadedImageUrl: string | null = null;
+  let isCreated = false;
 
   try {
     const formData = await request.formData();
@@ -108,6 +134,7 @@ export async function POST(request: NextRequest) {
       prefix: zoneRaw,
       uploadSubdir: "banners",
     });
+    uploadedImageUrl = savedImage.publicUrl;
 
     const created = await prisma.banner.create({
       data: {
@@ -119,8 +146,9 @@ export async function POST(request: NextRequest) {
         sortOrder: sortOrder ?? 0,
       },
     });
+    isCreated = true;
 
-    revalidateBannerCache();
+    safeRevalidateBannerCache();
 
     return NextResponse.json(
       {
@@ -130,6 +158,9 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
+    if (uploadedImageUrl && !isCreated) {
+      await safeDeleteUploadedFile(uploadedImageUrl, "배너 생성 실패 후 업로드 파일 정리");
+    }
     console.error("배너 생성 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "배너 생성에 실패했습니다." }, { status: 500 });
   }
@@ -144,6 +175,9 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "수정할 배너 ID가 필요합니다." }, { status: 400 });
   }
 
+  let uploadedImageUrl: string | null = null;
+  let isUpdated = false;
+
   try {
     const existing = await prisma.banner.findUnique({
       where: { id: bannerId },
@@ -154,6 +188,7 @@ export async function PUT(request: NextRequest) {
 
     const formData = await request.formData();
 
+    const hasLinkUrl = formData.has("linkUrl");
     const zoneRaw = normalizeOptionalText(formData.get("zone"));
     if (zoneRaw !== null && !isBannerZone(zoneRaw)) {
       return NextResponse.json({ error: "배너 존(zone) 값이 올바르지 않습니다." }, { status: 400 });
@@ -164,7 +199,7 @@ export async function PUT(request: NextRequest) {
     const sortOrder = parseSortOrder(formData.get("sortOrder"));
     const isActive = parseBooleanOrNull(formData.get("isActive"));
 
-    if (!isValidLinkUrl(linkUrl)) {
+    if (hasLinkUrl && !isValidLinkUrl(linkUrl)) {
       return NextResponse.json({ error: "배너 링크 URL 형식이 올바르지 않습니다." }, { status: 400 });
     }
     if (sortOrder === null && formData.get("sortOrder") !== null) {
@@ -191,6 +226,7 @@ export async function PUT(request: NextRequest) {
       });
 
       nextImageUrl = savedImage.publicUrl;
+      uploadedImageUrl = savedImage.publicUrl;
       shouldDeletePreviousImage = true;
     }
 
@@ -199,24 +235,32 @@ export async function PUT(request: NextRequest) {
       data: {
         zone: zoneRaw ?? existing.zone,
         imageUrl: nextImageUrl,
-        linkUrl,
+        linkUrl: hasLinkUrl ? linkUrl : existing.linkUrl,
         altText: altText ?? existing.altText,
         isActive: isActive ?? existing.isActive,
         sortOrder: sortOrder ?? existing.sortOrder,
       },
     });
+    isUpdated = true;
 
     if (shouldDeletePreviousImage && existing.imageUrl !== nextImageUrl) {
-      await deleteUploadedFileByPublicUrl(existing.imageUrl);
+      await safeDeleteUploadedFile(existing.imageUrl, "배너 수정 후 이전 이미지 정리");
     }
 
-    revalidateBannerCache();
+    safeRevalidateBannerCache();
 
     return NextResponse.json({
       success: true,
       banner: updated,
     });
   } catch (error) {
+    if (uploadedImageUrl && !isUpdated) {
+      await safeDeleteUploadedFile(uploadedImageUrl, "배너 수정 실패 후 신규 업로드 파일 정리");
+    }
+
+    if (isRecordNotFoundError(error)) {
+      return NextResponse.json({ error: "수정할 배너를 찾을 수 없습니다." }, { status: 404 });
+    }
     console.error("배너 수정 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "배너 수정에 실패했습니다." }, { status: 500 });
   }
@@ -236,14 +280,17 @@ export async function DELETE(request: NextRequest) {
       where: { id: bannerId },
     });
 
-    await deleteUploadedFileByPublicUrl(deleted.imageUrl);
-    revalidateBannerCache();
+    await safeDeleteUploadedFile(deleted.imageUrl, "배너 삭제 후 이미지 정리");
+    safeRevalidateBannerCache();
 
     return NextResponse.json({
       success: true,
       deletedId: bannerId,
     });
   } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return NextResponse.json({ error: "삭제할 배너를 찾을 수 없습니다." }, { status: 404 });
+    }
     console.error("배너 삭제 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "배너 삭제에 실패했습니다." }, { status: 500 });
   }

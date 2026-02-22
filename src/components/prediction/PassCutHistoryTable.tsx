@@ -27,6 +27,11 @@ function formatScore(value: number | null): string {
   return value.toFixed(2);
 }
 
+function formatThreshold(value: number | null): string {
+  if (value === null) return "데이터 수집 중";
+  return `${value.toFixed(2)}↑`;
+}
+
 function formatDate(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -84,7 +89,7 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">확실권</td>
               {columns.map((column) => (
                 <td key={`${column.key}-sure`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? `${formatScore(column.snapshot.sureMinScore)}↑` : "-"}
+                  {column.snapshot ? formatThreshold(column.snapshot.sureMinScore) : "-"}
                 </td>
               ))}
             </tr>
@@ -92,7 +97,7 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">유력권</td>
               {columns.map((column) => (
                 <td key={`${column.key}-likely`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? `${formatScore(column.snapshot.likelyMinScore)}↑` : "-"}
+                  {column.snapshot ? formatThreshold(column.snapshot.likelyMinScore) : "-"}
                 </td>
               ))}
             </tr>
@@ -100,7 +105,7 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">가능권</td>
               {columns.map((column) => (
                 <td key={`${column.key}-possible`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? `${formatScore(column.snapshot.possibleMinScore)}↑` : "-"}
+                  {column.snapshot ? formatThreshold(column.snapshot.possibleMinScore) : "-"}
                 </td>
               ))}
             </tr>
@@ -108,7 +113,11 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">1배수컷</td>
               {columns.map((column) => (
                 <td key={`${column.key}-one`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? formatScore(column.snapshot.oneMultipleCutScore) : "-"}
+                  {column.snapshot
+                    ? column.snapshot.oneMultipleCutScore === null
+                      ? "데이터 수집 중"
+                      : formatScore(column.snapshot.oneMultipleCutScore)
+                    : "-"}
                 </td>
               ))}
             </tr>

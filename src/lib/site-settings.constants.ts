@@ -11,6 +11,10 @@ export type SiteSettingKey =
   | "site.maintenanceMessage"
   | "site.mainPageAutoRefresh"
   | "site.mainPageRefreshInterval"
+  | "site.mainCardOverviewEnabled"
+  | "site.mainCardDifficultyEnabled"
+  | "site.mainCardCompetitiveEnabled"
+  | "site.mainCardScoreDistributionEnabled"
   | "site.submissionEditLimit"
   | "site.finalPredictionEnabled";
 
@@ -31,6 +35,10 @@ export const SITE_SETTING_TYPES: Record<SiteSettingKey, SiteSettingValueType> = 
   "site.maintenanceMessage": "string",
   "site.mainPageAutoRefresh": "boolean",
   "site.mainPageRefreshInterval": "string",
+  "site.mainCardOverviewEnabled": "boolean",
+  "site.mainCardDifficultyEnabled": "boolean",
+  "site.mainCardCompetitiveEnabled": "boolean",
+  "site.mainCardScoreDistributionEnabled": "boolean",
   "site.submissionEditLimit": "number",
   "site.finalPredictionEnabled": "boolean",
 };
@@ -50,6 +58,10 @@ export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
   "site.maintenanceMessage": "시스템 점검 중입니다.",
   "site.mainPageAutoRefresh": true,
   "site.mainPageRefreshInterval": "60",
+  "site.mainCardOverviewEnabled": true,
+  "site.mainCardDifficultyEnabled": true,
+  "site.mainCardCompetitiveEnabled": true,
+  "site.mainCardScoreDistributionEnabled": true,
   "site.submissionEditLimit": 3,
   "site.finalPredictionEnabled": false,
 };
