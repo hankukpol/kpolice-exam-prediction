@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
       ? await prisma.$queryRaw<SubjectAverageRow[]>(Prisma.sql`
           SELECT
             ss."subjectId" AS "subjectId",
-            ROUND(AVG(ss."rawScore"), 2) AS "averageScore"
+            ROUND(AVG(ss."rawScore")::numeric, 2) AS "averageScore"
           FROM "Submission" s
           INNER JOIN "SubjectScore" ss
             ON ss."submissionId" = s.id

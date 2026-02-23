@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
       sub."name" AS "subjectName",
       ua."questionNumber" AS "questionNumber",
       ROUND(
-        SUM(CASE WHEN ua."isCorrect" = false THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+        (SUM(CASE WHEN ua."isCorrect" = false THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0))::numeric,
         2
       ) AS "wrongRate",
       MAX(ak."correctAnswer") AS "correctAnswer"

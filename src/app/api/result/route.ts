@@ -335,11 +335,11 @@ export async function GET(request: NextRequest) {
           )
           SELECT
             "subjectId",
-            ROUND(AVG("rawScore"), 2) AS "averageScore",
+            ROUND(AVG("rawScore")::numeric, 2) AS "averageScore",
             MAX("rawScore") AS "highestScore",
             MIN("rawScore") AS "lowestScore",
-            ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.1)) THEN "rawScore" END), 2) AS "top10Average",
-            ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.3)) THEN "rawScore" END), 2) AS "top30Average"
+            ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.1)) THEN "rawScore" END)::numeric, 2) AS "top10Average",
+            ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.3)) THEN "rawScore" END)::numeric, 2) AS "top30Average"
           FROM ranked_subject
           GROUP BY "subjectId"
         `)
@@ -371,11 +371,11 @@ export async function GET(request: NextRequest) {
         ${populationConditionSql}
     )
     SELECT
-      ROUND(AVG("totalScore"), 2) AS "averageScore",
+      ROUND(AVG("totalScore")::numeric, 2) AS "averageScore",
       MAX("totalScore") AS "highestScore",
       MIN("totalScore") AS "lowestScore",
-      ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.1)) THEN "totalScore" END), 2) AS "top10Average",
-      ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.3)) THEN "totalScore" END), 2) AS "top30Average"
+      ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.1)) THEN "totalScore" END)::numeric, 2) AS "top10Average",
+      ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.3)) THEN "totalScore" END)::numeric, 2) AS "top30Average"
     FROM ranked_total
   `);
 

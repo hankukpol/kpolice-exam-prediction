@@ -76,7 +76,7 @@ export async function getCorrectRateRows(examId: number, examType: ExamType): Pr
       COUNT(*) AS "totalAnswered",
       SUM(CASE WHEN ua."isCorrect" = true THEN 1 ELSE 0 END) AS "correctCount",
       ROUND(
-        SUM(CASE WHEN ua."isCorrect" = true THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+        (SUM(CASE WHEN ua."isCorrect" = true THEN 1 ELSE 0 END) * 100.0 / COUNT(*))::numeric,
         1
       ) AS "correctRate"
     FROM "UserAnswer" ua
