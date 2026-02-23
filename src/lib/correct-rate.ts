@@ -82,7 +82,7 @@ export async function getCorrectRateRows(examId: number, examType: ExamType): Pr
     FROM "UserAnswer" ua
     INNER JOIN "Submission" s ON ua."submissionId" = s.id
     WHERE s."examId" = ${examId}
-      AND s."examType" = ${examType}
+      AND s."examType"::text = ${examType}
       AND s."isSuspicious" = false
     GROUP BY ua."subjectId", ua."questionNumber"
     ORDER BY ua."subjectId" ASC, ua."questionNumber" ASC

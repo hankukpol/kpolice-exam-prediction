@@ -116,7 +116,7 @@ export async function GET(request: NextRequest) {
     FROM "Submission" s
     WHERE s."examId" = ${submission.exam.id}
       AND s."regionId" = ${submission.region.id}
-      AND s."examType" = ${submission.examType}
+      AND s."examType"::text = ${submission.examType}
       ${populationConditionSql}
   `);
 

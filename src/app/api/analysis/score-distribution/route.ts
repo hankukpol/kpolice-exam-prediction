@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       SELECT COUNT(*) AS "totalCount"
       FROM "Submission" s
       WHERE s."examId" = ${submission.examId}
-        AND s."examType" = ${submission.examType}
+        AND s."examType"::text = ${submission.examType}
         AND s."isSuspicious" = false
     `),
     prisma.$queryRaw<DistributionRow[]>(Prisma.sql`
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
         COUNT(*)::bigint AS count
       FROM "Submission" s
       WHERE s."examId" = ${submission.examId}
-        AND s."examType" = ${submission.examType}
+        AND s."examType"::text = ${submission.examType}
         AND s."isSuspicious" = false
       GROUP BY bucket
       ORDER BY bucket ASC

@@ -244,7 +244,7 @@ export async function GET(request: NextRequest) {
     FROM "Submission" s
     WHERE s."examId" = ${submission.examId}
       AND s."regionId" = ${submission.regionId}
-      AND s."examType" = ${submission.examType}
+      AND s."examType"::text = ${submission.examType}
       ${populationConditionSql}
   `);
 
@@ -298,7 +298,7 @@ export async function GET(request: NextRequest) {
            AND ss."subjectId" IN (${Prisma.join(subjectIds)})
           WHERE s."examId" = ${submission.examId}
             AND s."regionId" = ${submission.regionId}
-            AND s."examType" = ${submission.examType}
+            AND s."examType"::text = ${submission.examType}
             ${populationConditionSql}
           GROUP BY ss."subjectId"
         `)
@@ -330,7 +330,7 @@ export async function GET(request: NextRequest) {
              AND ss."subjectId" IN (${Prisma.join(subjectIds)})
             WHERE s."examId" = ${submission.examId}
               AND s."regionId" = ${submission.regionId}
-              AND s."examType" = ${submission.examType}
+              AND s."examType"::text = ${submission.examType}
               ${populationConditionSql}
           )
           SELECT
@@ -367,7 +367,7 @@ export async function GET(request: NextRequest) {
       FROM "Submission" s
       WHERE s."examId" = ${submission.examId}
         AND s."regionId" = ${submission.regionId}
-        AND s."examType" = ${submission.examType}
+        AND s."examType"::text = ${submission.examType}
         ${populationConditionSql}
     )
     SELECT
@@ -384,7 +384,7 @@ export async function GET(request: NextRequest) {
     FROM "Submission" s
     WHERE s."examId" = ${submission.examId}
       AND s."regionId" = ${submission.regionId}
-      AND s."examType" = ${submission.examType}
+      AND s."examType"::text = ${submission.examType}
       ${populationConditionSql}
   `);
 

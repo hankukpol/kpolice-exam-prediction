@@ -49,7 +49,7 @@ function toDateTimeLocalInput(isoText: string | null): string {
 
 function toDateRangeText(startAt: string | null, endAt: string | null): string {
   const format = (value: string | null) => {
-    if (!value) return "Always";
+    if (!value) return "상시";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Always";
     return new Intl.DateTimeFormat("ko-KR", {
@@ -122,7 +122,7 @@ export default function AdminSitePage() {
     const response = await fetch("/api/admin/site", { method: "GET", cache: "no-store" });
     const data = (await response.json()) as SiteSettingsResponse & { error?: string };
     if (!response.ok) {
-      throw new Error(data.error ?? "Failed to load site settings.");
+      throw new Error(data.error ?? "사이트 설정을 불러오지 못했습니다.");
     }
     setSettings((prev) => ({ ...prev, ...data.settings }));
   }
@@ -131,7 +131,7 @@ export default function AdminSitePage() {
     const response = await fetch("/api/admin/notices", { method: "GET", cache: "no-store" });
     const data = (await response.json()) as NoticesResponse & { error?: string };
     if (!response.ok) {
-      throw new Error(data.error ?? "Failed to load notices.");
+      throw new Error(data.error ?? "공지사항을 불러오지 못했습니다.");
     }
     setNotices(data.notices ?? []);
   }
@@ -145,7 +145,7 @@ export default function AdminSitePage() {
       } catch (error) {
         setNotice({
           type: "error",
-          message: error instanceof Error ? error.message : "Failed to initialize admin site page.",
+          message: error instanceof Error ? error.message : "관리자 페이지 초기화에 실패했습니다.",
         });
       } finally {
         setIsLoading(false);
@@ -169,13 +169,13 @@ export default function AdminSitePage() {
     });
     const data = (await response.json()) as { success?: boolean; error?: string };
     if (!response.ok || !data.success) {
-      throw new Error(data.error ?? "Failed to save settings.");
+      throw new Error(data.error ?? "설정 저장에 실패했습니다.");
     }
     setNotice({ type: "success", message: successMessage });
   }
 
   async function handleSaveBasicSettings() {
-    const confirmed = window.confirm("Save basic settings?");
+    const confirmed = window.confirm("기본 설정을 저장하시겠습니까?");
     if (!confirmed) return;
 
     setIsSavingBasic(true);
@@ -189,13 +189,13 @@ export default function AdminSitePage() {
           "site.heroSubtitle": asString(settings["site.heroSubtitle"]),
           "site.footerDisclaimer": asString(settings["site.footerDisclaimer"]),
         },
-        "Basic settings saved."
+        "기본 설정이 저장되었습니다."
       );
       await loadSettings();
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "Failed to save basic settings.",
+        message: error instanceof Error ? error.message : "기본 설정 저장에 실패했습니다.",
       });
     } finally {
       setIsSavingBasic(false);
@@ -203,7 +203,7 @@ export default function AdminSitePage() {
   }
 
   async function handleSaveSystemSettings() {
-    const confirmed = window.confirm("Save system settings?");
+    const confirmed = window.confirm("시스템 설정을 저장하시겠습니까?");
     if (!confirmed) return;
 
     setIsSavingSystem(true);
@@ -211,19 +211,19 @@ export default function AdminSitePage() {
     try {
       const refreshInterval = Math.floor(asNumber(settings["site.mainPageRefreshInterval"], 60));
       if (!Number.isFinite(refreshInterval) || refreshInterval < 10) {
-        throw new Error("Main refresh interval must be 10 seconds or more.");
+        throw new Error("새로고침 주기는 10초 이상이어야 합니다.");
       }
 
       const submissionEditLimit = Math.floor(asNumber(settings["site.submissionEditLimit"], 3));
       if (!Number.isFinite(submissionEditLimit) || submissionEditLimit < 0) {
-        throw new Error("Submission edit limit must be 0 or more.");
+        throw new Error("수정 횟수 제한은 0 이상이어야 합니다.");
       }
 
       const autoPassCutCheckIntervalSec = Math.floor(
         asNumber(settings["site.autoPassCutCheckIntervalSec"], 300)
       );
       if (!Number.isFinite(autoPassCutCheckIntervalSec) || autoPassCutCheckIntervalSec < 30) {
-        throw new Error("Auto pass-cut check interval must be 30 seconds or more.");
+        throw new Error("합격컷 체크 주기는 30초 이상이어야 합니다.");
       }
 
       const autoPassCutMode = normalizeMode(asString(settings["site.autoPassCutMode"], "HYBRID"));
@@ -262,13 +262,13 @@ export default function AdminSitePage() {
           "site.autoPassCutThresholdProfile": autoPassCutThresholdProfile,
           "site.autoPassCutReadyRatioProfile": autoPassCutReadyRatioProfile,
         },
-        "System settings saved."
+        "시스템 설정이 저장되었습니다."
       );
       await loadSettings();
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "Failed to save system settings.",
+        message: error instanceof Error ? error.message : "시스템 설정 저장에 실패했습니다.",
       });
     } finally {
       setIsSavingSystem(false);
@@ -301,14 +301,14 @@ export default function AdminSitePage() {
 
     try {
       if (!noticeTitle.trim()) {
-        throw new Error("Notice title is required.");
+        throw new Error("공지 제목을 입력해 주세요.");
       }
       if (!noticeContent.trim()) {
-        throw new Error("Notice content is required.");
+        throw new Error("공지 내용을 입력해 주세요.");
       }
 
       const confirmed = window.confirm(
-        editingNoticeId ? "Update this notice?" : "Create this notice?"
+        editingNoticeId ? "이 공지를 수정하시겠습니까?" : "새 공지를 등록하시겠습니까?"
       );
       if (!confirmed) return;
 
@@ -334,19 +334,19 @@ export default function AdminSitePage() {
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "Failed to save notice.");
+        throw new Error(data.error ?? "공지 저장에 실패했습니다.");
       }
 
       setNotice({
         type: "success",
-        message: editingNoticeId ? "Notice updated." : "Notice created.",
+        message: editingNoticeId ? "공지가 수정되었습니다." : "공지가 등록되었습니다.",
       });
       resetNoticeForm();
       await loadNotices();
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "Failed to save notice.",
+        message: error instanceof Error ? error.message : "공지 저장에 실패했습니다.",
       });
     } finally {
       setIsSavingNotice(false);
@@ -354,7 +354,7 @@ export default function AdminSitePage() {
   }
 
   async function handleDeleteNotice(id: number) {
-    const confirmed = window.confirm("Delete this notice?");
+    const confirmed = window.confirm("이 공지를 삭제하시겠습니까?");
     if (!confirmed) return;
 
     setNotice(null);
@@ -364,12 +364,12 @@ export default function AdminSitePage() {
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "Failed to delete notice.");
+        throw new Error(data.error ?? "공지 삭제에 실패했습니다.");
       }
 
       setNotice({
         type: "success",
-        message: "Notice deleted.",
+        message: "공지가 삭제되었습니다.",
       });
       if (editingNoticeId === id) {
         resetNoticeForm();
@@ -378,28 +378,28 @@ export default function AdminSitePage() {
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "Failed to delete notice.",
+        message: error instanceof Error ? error.message : "공지 삭제에 실패했습니다.",
       });
     }
   }
 
   if (isLoading) {
-    return <p className="text-sm text-slate-600">Loading admin site settings...</p>;
+    return <p className="text-sm text-slate-600">사이트 설정을 불러오는 중...</p>;
   }
 
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-xl font-semibold text-slate-900">Site Admin</h1>
+        <h1 className="text-xl font-semibold text-slate-900">사이트 설정</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Manage copy, notices, system flags, and auto pass-cut behavior.
+          사이트 문구, 공지사항, 시스템 설정, 자동 합격컷 발표를 관리합니다.
         </p>
         <p className="mt-1 text-sm text-slate-600">
-          Banner assets are managed in{" "}
+          배너 이미지는{" "}
           <Link href="/admin/banners" className="font-semibold text-slate-800 underline">
-            Banner Admin
+            배너 관리
           </Link>
-          .
+          에서 관리합니다.
         </p>
       </header>
 
@@ -416,10 +416,10 @@ export default function AdminSitePage() {
       ) : null}
 
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
-        <h2 className="text-base font-semibold text-slate-900">Basic Settings</h2>
+        <h2 className="text-base font-semibold text-slate-900">기본 설정</h2>
 
         <div className="space-y-2">
-          <Label htmlFor="site-title">Site Title</Label>
+          <Label htmlFor="site-title">사이트 제목</Label>
           <Input
             id="site-title"
             value={asString(settings["site.title"])}
@@ -428,7 +428,7 @@ export default function AdminSitePage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="hero-badge">Hero Badge</Label>
+          <Label htmlFor="hero-badge">히어로 배지</Label>
           <Input
             id="hero-badge"
             value={asString(settings["site.heroBadge"])}
@@ -437,7 +437,7 @@ export default function AdminSitePage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="hero-title">Hero Title</Label>
+          <Label htmlFor="hero-title">히어로 제목</Label>
           <textarea
             id="hero-title"
             value={asString(settings["site.heroTitle"])}
@@ -447,7 +447,7 @@ export default function AdminSitePage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="hero-subtitle">Hero Subtitle</Label>
+          <Label htmlFor="hero-subtitle">히어로 부제목</Label>
           <textarea
             id="hero-subtitle"
             value={asString(settings["site.heroSubtitle"])}
@@ -457,7 +457,7 @@ export default function AdminSitePage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="footer-disclaimer">Footer Disclaimer</Label>
+          <Label htmlFor="footer-disclaimer">하단 면책조항</Label>
           <textarea
             id="footer-disclaimer"
             value={asString(settings["site.footerDisclaimer"])}
@@ -467,15 +467,15 @@ export default function AdminSitePage() {
         </div>
 
         <Button type="button" onClick={handleSaveBasicSettings} disabled={isSavingBasic}>
-          {isSavingBasic ? "Saving..." : "Save Basic Settings"}
+          {isSavingBasic ? "저장 중..." : "기본 설정 저장"}
         </Button>
       </section>
 
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">Notice Management</h2>
+          <h2 className="text-base font-semibold text-slate-900">공지사항 관리</h2>
           <Button type="button" variant="outline" onClick={resetNoticeForm}>
-            + New Notice
+            + 새 공지
           </Button>
         </div>
 
@@ -484,7 +484,7 @@ export default function AdminSitePage() {
           onSubmit={handleSubmitNotice}
         >
           <div className="space-y-2">
-            <Label htmlFor="notice-title">Title</Label>
+            <Label htmlFor="notice-title">제목</Label>
             <Input
               id="notice-title"
               value={noticeTitle}
@@ -494,7 +494,7 @@ export default function AdminSitePage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="notice-content">Content</Label>
+            <Label htmlFor="notice-content">내용</Label>
             <textarea
               id="notice-content"
               value={noticeContent}
@@ -506,7 +506,7 @@ export default function AdminSitePage() {
 
           <div className="grid gap-3 md:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="notice-priority">Priority</Label>
+              <Label htmlFor="notice-priority">우선순위</Label>
               <Input
                 id="notice-priority"
                 type="number"
@@ -516,7 +516,7 @@ export default function AdminSitePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="notice-start">Start</Label>
+              <Label htmlFor="notice-start">시작일</Label>
               <Input
                 id="notice-start"
                 type="datetime-local"
@@ -526,7 +526,7 @@ export default function AdminSitePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="notice-end">End</Label>
+              <Label htmlFor="notice-end">종료일</Label>
               <Input
                 id="notice-end"
                 type="datetime-local"
@@ -542,16 +542,16 @@ export default function AdminSitePage() {
               checked={noticeIsActive}
               onChange={(event) => setNoticeIsActive(event.target.checked)}
             />
-            Active
+            활성화
           </label>
 
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={isSavingNotice}>
-              {isSavingNotice ? "Saving..." : editingNoticeId ? "Update Notice" : "Create Notice"}
+              {isSavingNotice ? "저장 중..." : editingNoticeId ? "공지 수정" : "공지 등록"}
             </Button>
             {editingNoticeId ? (
               <Button type="button" variant="outline" onClick={resetNoticeForm} disabled={isSavingNotice}>
-                Reset Form
+                입력 초기화
               </Button>
             ) : null}
           </div>
@@ -559,20 +559,20 @@ export default function AdminSitePage() {
 
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <thead className="bg-slate-50 text-left text-xs font-semibold tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">#</th>
-                <th className="px-4 py-3">Title</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Schedule</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="px-4 py-3">제목</th>
+                <th className="px-4 py-3">상태</th>
+                <th className="px-4 py-3">노출 기간</th>
+                <th className="px-4 py-3 text-right">관리</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sortedNotices.length === 0 ? (
                 <tr>
                   <td className="px-4 py-4 text-slate-600" colSpan={5}>
-                    No notices.
+                    등록된 공지사항이 없습니다.
                   </td>
                 </tr>
               ) : (
@@ -586,11 +586,11 @@ export default function AdminSitePage() {
                     <td className="px-4 py-3">
                       {item.isActive ? (
                         <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
-                          Active
+                          활성
                         </span>
                       ) : (
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-                          Inactive
+                          비활성
                         </span>
                       )}
                     </td>
@@ -600,7 +600,7 @@ export default function AdminSitePage() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
                         <Button type="button" size="sm" variant="outline" onClick={() => startEditNotice(item)}>
-                          Edit
+                          수정
                         </Button>
                         <Button
                           type="button"
@@ -609,7 +609,7 @@ export default function AdminSitePage() {
                           className="text-rose-600 hover:text-rose-700"
                           onClick={() => void handleDeleteNotice(item.id)}
                         >
-                          Delete
+                          삭제
                         </Button>
                       </div>
                     </td>
@@ -622,7 +622,7 @@ export default function AdminSitePage() {
       </section>
 
       <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
-        <h2 className="text-base font-semibold text-slate-900">System Settings</h2>
+        <h2 className="text-base font-semibold text-slate-900">시스템 설정</h2>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
@@ -630,7 +630,7 @@ export default function AdminSitePage() {
             checked={asBoolean(settings["site.careerExamEnabled"], true)}
             onChange={(event) => updateSettingBoolean("site.careerExamEnabled", event.target.checked)}
           />
-          Enable career exam flow
+          경행경채 시험 활성화
         </label>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -639,7 +639,7 @@ export default function AdminSitePage() {
             checked={asBoolean(settings["site.maintenanceMode"], false)}
             onChange={(event) => updateSettingBoolean("site.maintenanceMode", event.target.checked)}
           />
-          Maintenance mode
+          점검 모드 (사이트 접근 차단)
         </label>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -648,7 +648,7 @@ export default function AdminSitePage() {
             checked={asBoolean(settings["site.mainPageAutoRefresh"], true)}
             onChange={(event) => updateSettingBoolean("site.mainPageAutoRefresh", event.target.checked)}
           />
-          Main page auto refresh
+          메인 페이지 자동 새로고침
         </label>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -657,13 +657,13 @@ export default function AdminSitePage() {
             checked={asBoolean(settings["site.finalPredictionEnabled"], false)}
             onChange={(event) => updateSettingBoolean("site.finalPredictionEnabled", event.target.checked)}
           />
-          Enable final prediction publish
+          최종 환산 예측 공개
         </label>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-semibold text-slate-900">Auto Pass-Cut Release</p>
+          <p className="text-sm font-semibold text-slate-900">자동 합격컷 발표</p>
           <p className="mt-1 text-xs text-slate-500">
-            HYBRID mode runs both cron checks and traffic-entry fallback checks.
+            HYBRID: 크론 + 트래픽 진입 시 자동 체크 / TRAFFIC_ONLY: 트래픽 진입 시만 / CRON_ONLY: 크론만
           </p>
           <div className="mt-3 space-y-3">
             <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -672,12 +672,12 @@ export default function AdminSitePage() {
                 checked={asBoolean(settings["site.autoPassCutEnabled"], false)}
                 onChange={(event) => updateSettingBoolean("site.autoPassCutEnabled", event.target.checked)}
               />
-              Enable auto release
+              자동 발표 활성화
             </label>
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="auto-pass-cut-mode">Mode</Label>
+                <Label htmlFor="auto-pass-cut-mode">동작 모드</Label>
                 <select
                   id="auto-pass-cut-mode"
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
@@ -691,7 +691,7 @@ export default function AdminSitePage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="auto-pass-cut-interval">Check interval (sec)</Label>
+                <Label htmlFor="auto-pass-cut-interval">체크 주기 (초)</Label>
                 <Input
                   id="auto-pass-cut-interval"
                   type="number"
@@ -704,7 +704,7 @@ export default function AdminSitePage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="auto-pass-cut-threshold-profile">Row threshold profile</Label>
+                <Label htmlFor="auto-pass-cut-threshold-profile">참여자 수 기준</Label>
                 <select
                   id="auto-pass-cut-threshold-profile"
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
@@ -720,7 +720,7 @@ export default function AdminSitePage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="auto-pass-cut-ready-ratio-profile">Ready ratio profile</Label>
+                <Label htmlFor="auto-pass-cut-ready-ratio-profile">준비 비율 기준</Label>
                 <select
                   id="auto-pass-cut-ready-ratio-profile"
                   className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm"
@@ -739,7 +739,7 @@ export default function AdminSitePage() {
         </div>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-semibold text-slate-900">Main Cards Visibility</p>
+          <p className="text-sm font-semibold text-slate-900">메인 카드 표시 설정</p>
           <div className="mt-3 space-y-2">
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
@@ -747,7 +747,7 @@ export default function AdminSitePage() {
                 checked={asBoolean(settings["site.mainCardOverviewEnabled"], true)}
                 onChange={(event) => updateSettingBoolean("site.mainCardOverviewEnabled", event.target.checked)}
               />
-              Overview card
+              참여 현황 카드
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
@@ -757,7 +757,7 @@ export default function AdminSitePage() {
                   updateSettingBoolean("site.mainCardDifficultyEnabled", event.target.checked)
                 }
               />
-              Difficulty survey card
+              체감 난이도 카드
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
@@ -767,7 +767,7 @@ export default function AdminSitePage() {
                   updateSettingBoolean("site.mainCardCompetitiveEnabled", event.target.checked)
                 }
               />
-              Competitive top5 card
+              경쟁률 TOP5 카드
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700">
               <input
@@ -777,13 +777,13 @@ export default function AdminSitePage() {
                   updateSettingBoolean("site.mainCardScoreDistributionEnabled", event.target.checked)
                 }
               />
-              Score distribution card
+              점수 분포 카드
             </label>
           </div>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="main-refresh-interval">Main refresh interval (sec)</Label>
+          <Label htmlFor="main-refresh-interval">메인 페이지 새로고침 주기 (초)</Label>
           <Input
             id="main-refresh-interval"
             type="number"
@@ -794,7 +794,7 @@ export default function AdminSitePage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="submission-edit-limit">Submission edit limit (0 = locked)</Label>
+          <Label htmlFor="submission-edit-limit">답안 수정 횟수 제한 (0 = 수정 불가)</Label>
           <Input
             id="submission-edit-limit"
             type="number"
@@ -805,7 +805,7 @@ export default function AdminSitePage() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="maintenance-message">Maintenance message</Label>
+          <Label htmlFor="maintenance-message">점검 안내 메시지</Label>
           <Input
             id="maintenance-message"
             value={asString(settings["site.maintenanceMessage"])}
@@ -814,7 +814,7 @@ export default function AdminSitePage() {
         </div>
 
         <Button type="button" onClick={handleSaveSystemSettings} disabled={isSavingSystem}>
-          {isSavingSystem ? "Saving..." : "Save System Settings"}
+          {isSavingSystem ? "저장 중..." : "시스템 설정 저장"}
         </Button>
       </section>
     </div>

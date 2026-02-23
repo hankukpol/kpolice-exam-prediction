@@ -47,6 +47,17 @@ export default function Header() {
               <p>{session.user.phone}</p>
             </div>
             <NotificationBell />
+            {session.user.role === "ADMIN" ? (
+              <Link href="/admin">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-white/40 bg-white/10 text-white hover:bg-white/20"
+                >
+                  관리자
+                </Button>
+              </Link>
+            ) : null}
             <Button
               variant="outline"
               size="sm"
