@@ -23,9 +23,10 @@ interface MainStatsRow {
   examType: ExamType;
   examTypeLabel: string;
   recruitCount: number;
+  applicantCount: number | null;
   estimatedApplicants: number;
   isApplicantCountExact: boolean;
-  competitionRate: number;
+  competitionRate: number | null;
   participantCount: number;
   averageFinalScore: number | null;
   oneMultipleCutScore: number | null;
@@ -167,7 +168,8 @@ function formatRange(range: { min: number | null; max: number | null }): string 
   return `${range.min.toFixed(2)}점 이하 ~ ${range.max.toFixed(2)}점 이상`;
 }
 
-function formatCompetition(value: number): string {
+function formatCompetition(value: number | null): string {
+  if (value === null) return "미입력";
   return `${value.toFixed(2)} : 1`;
 }
 
@@ -361,9 +363,9 @@ export default function ExamMainOverviewPanel() {
     !isCollecting &&
     selectedRow.participantCount < selectedRow.recruitCount;
   const applicantCountLabel = selectedRow
-    ? selectedRow.isApplicantCountExact
-      ? "응시인원(실제)"
-      : "응시인원(추정)"
+    ? selectedRow.applicantCount === null
+      ? "응시인원(미입력)"
+      : "응시인원"
     : "응시인원";
 
   const difficultySubjects = useMemo(() => {
@@ -613,7 +615,11 @@ export default function ExamMainOverviewPanel() {
                     {applicantCountLabel}
                   </th>
                   <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow ? `${selectedRow.estimatedApplicants.toLocaleString("ko-KR")}명` : "-"}
+                    {selectedRow
+                      ? selectedRow.applicantCount === null
+                        ? "미입력"
+                        : `${selectedRow.applicantCount.toLocaleString("ko-KR")}명`
+                      : "-"}
                   </td>
                 </tr>
                 <tr className="divide-x divide-slate-200">

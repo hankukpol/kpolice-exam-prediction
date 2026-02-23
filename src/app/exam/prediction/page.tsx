@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PassCutHistoryTable from "@/components/prediction/PassCutHistoryTable";
 import PassCutTrendChart from "@/components/prediction/PassCutTrendChart";
+import PredictionLiveDashboard from "@/components/prediction/PredictionLiveDashboard";
 import { useToast } from "@/components/providers/ToastProvider";
-import ShareButton from "@/components/share/ShareButton";
 import { Button } from "@/components/ui/button";
 
 interface PredictionPageResponse {
@@ -21,6 +21,7 @@ interface PredictionPageResponse {
     regionId: number;
     regionName: string;
     recruitCount: number;
+    applicantCount: number | null;
     estimatedApplicants: number;
     isApplicantCountExact: boolean;
     totalParticipants: number;
@@ -99,6 +100,17 @@ interface CompetitorDetailResponse {
 interface PassCutSnapshot {
   participantCount: number;
   recruitCount: number;
+  applicantCount: number | null;
+  targetParticipantCount: number | null;
+  coverageRate: number | null;
+  stabilityScore: number | null;
+  status:
+    | "READY"
+    | "COLLECTING_LOW_PARTICIPATION"
+    | "COLLECTING_UNSTABLE"
+    | "COLLECTING_MISSING_APPLICANT_COUNT"
+    | "COLLECTING_INSUFFICIENT_SAMPLE";
+  statusReason: string | null;
   averageScore: number | null;
   oneMultipleCutScore: number | null;
   sureMinScore: number | null;
@@ -125,6 +137,60 @@ function formatScore(value: number | null): string {
   return value.toFixed(2);
 }
 
+/** 스마트 소수점 포맷: 정수면 소수점 제거, 아니면 1자리 유지 */
+function formatScoreSmart(value: number): string {
+  return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+}
+
+function getParticipationRate(participants: number, estimated: number): number {
+  if (estimated <= 0) return 0;
+  return (participants / estimated) * 100;
+}
+
+function getConfidenceLevel(rate: number): {
+  label: string;
+  message: string;
+  barColor: string;
+  badgeClass: string;
+} {
+  if (rate >= 30)
+    return {
+      label: "확정적",
+      message: "충분한 데이터가 모여 신뢰도가 높습니다.",
+      barColor: "bg-emerald-500",
+      badgeClass: "bg-emerald-200 text-emerald-800 font-bold",
+    };
+  if (rate >= 15)
+    return {
+      label: "신뢰도 높음",
+      message: "어느 정도 신뢰할 수 있는 데이터입니다.",
+      barColor: "bg-blue-500",
+      badgeClass: "bg-emerald-100 text-emerald-700",
+    };
+  if (rate >= 5)
+    return {
+      label: "집계 중",
+      message: "데이터 수집 중입니다. 순위 변동 가능성이 있습니다.",
+      barColor: "bg-blue-400",
+      badgeClass: "bg-blue-100 text-blue-700",
+    };
+  return {
+    label: "초기 집계",
+    message: "초기 데이터입니다. 순위가 크게 변동될 수 있습니다.",
+    barColor: "bg-amber-400",
+    badgeClass: "bg-amber-100 text-amber-700",
+  };
+}
+
+/** 등급별 비율 바 색상 */
+function levelBarColor(key: PredictionPageResponse["pyramid"]["levels"][number]["key"]): string {
+  if (key === "sure") return "bg-blue-600";
+  if (key === "likely") return "bg-blue-400";
+  if (key === "possible") return "bg-cyan-400";
+  if (key === "challenge") return "bg-slate-400";
+  return "bg-slate-300";
+}
+
 function levelColor(
   key: PredictionPageResponse["pyramid"]["levels"][number]["key"],
   current: boolean
@@ -145,19 +211,6 @@ function buildPageNumbers(page: number, totalPages: number): number[] {
   return Array.from(pages)
     .filter((p) => p >= 1 && p <= totalPages)
     .sort((a, b) => a - b);
-}
-
-function formatDateTime(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString("ko-KR", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
 }
 
 export default function ExamPredictionPage({ embedded = false }: ExamPredictionPageProps = {}) {
@@ -370,160 +423,24 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
   }
 
   const { summary, pyramid, competitors } = prediction;
-  const widths = [32, 44, 58, 74, 88];
-  const applicantCountLabel = summary.isApplicantCountExact ? "응시인원(실제)" : "응시인원(추정)";
+  const participationRate = getParticipationRate(
+    summary.totalParticipants,
+    summary.applicantCount ?? 0
+  );
+  const confidence = getConfidenceLevel(participationRate);
+
+  // 트랙용 역순 (좌→우: 도전이하 → 확실권)
+  const trackLevels = pyramid.levels.slice().reverse();
+  // 내 위치 마커 (rank 1 = 우측 100%, 최하위 = 좌측 0%)
+  const markerPercent = summary.totalParticipants <= 1
+    ? 50
+    : ((summary.totalParticipants - summary.myRank) / (summary.totalParticipants - 1)) * 100;
+  // 내 등급 라벨
+  const myLevelLabel = pyramid.levels.find((l) => l.isCurrent)?.label ?? "";
 
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border border-slate-200 bg-white p-6 text-center">
-        <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
-          {summary.userName}님은 {summary.examTypeLabel} 참여자{" "}
-          <span className="text-blue-600">{summary.totalParticipants.toLocaleString("ko-KR")}명</span> 중{" "}
-          <span className="text-blue-600">{summary.myRank.toLocaleString("ko-KR")}등</span>입니다.
-        </h1>
-        <p className="mt-2 text-sm text-slate-500">
-          {summary.examYear}년 {summary.examRound}차 | {summary.examName}
-          {isRefreshing ? " (업데이트 중)" : ""}
-        </p>
-        <p className="mt-1 text-xs text-slate-500">갱신시각: {formatDateTime(prediction.updatedAt)}</p>
-        <div className="mt-3 flex justify-center">
-          <ShareButton submissionId={summary.submissionId} sharePath="/exam/prediction" />
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_1fr]">
-        <article className="rounded-xl border border-slate-200 bg-white p-6">
-          <p className="text-sm font-semibold text-slate-600">
-            {summary.examTypeLabel} - {summary.regionName}
-          </p>
-          <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4">
-            <div>
-              <p className="text-xs text-slate-500">내 점수</p>
-              <p className="text-3xl font-bold text-blue-600">{summary.myScore.toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500">1배수 컷점수</p>
-              <p className="text-3xl font-bold text-blue-600">
-                {summary.isOneMultipleCutConfirmed ? formatScore(summary.oneMultipleCutScore) : "데이터 수집 중"}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 grid grid-cols-3 gap-3 text-center text-sm">
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs text-slate-500">모집인원</p>
-              <p className="mt-1 font-semibold text-slate-900">
-                {summary.recruitCount.toLocaleString("ko-KR")}
-              </p>
-            </div>
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs text-slate-500">{applicantCountLabel}</p>
-              <p className="mt-1 font-semibold text-slate-900">
-                {summary.estimatedApplicants.toLocaleString("ko-KR")}
-              </p>
-            </div>
-            <div className="rounded-lg border border-slate-200 p-3">
-              <p className="text-xs text-slate-500">참여인원</p>
-              <p className="mt-1 font-semibold text-slate-900">
-                {summary.totalParticipants.toLocaleString("ko-KR")}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-slate-700">
-            <p>
-              내 배수 <span className="font-semibold text-blue-700">{summary.myMultiple.toFixed(2)}배</span> / 합격배수{" "}
-              <span className="font-semibold text-blue-700">{summary.passMultiple.toFixed(2)}배</span>
-            </p>
-            <p className="mt-1">
-              1배수 기준{" "}
-              <span className="font-semibold text-blue-700">
-                {summary.oneMultipleBaseRank.toLocaleString("ko-KR")}등
-              </span>{" "}
-              / {summary.isOneMultipleCutConfirmed ? "실제 1배수 끝등수" : "현재 데이터 끝등수"}{" "}
-              <span className="font-semibold text-blue-700">
-                {summary.oneMultipleActualRank
-                  ? `${summary.oneMultipleActualRank.toLocaleString("ko-KR")}등`
-                  : "-"}
-              </span>
-            </p>
-            {summary.isOneMultipleCutConfirmed && summary.oneMultipleTieCount ? (
-              <p className="mt-1 text-xs text-slate-600">
-                동점 묶음 인원: {summary.oneMultipleTieCount.toLocaleString("ko-KR")}명
-              </p>
-            ) : null}
-            <p className="mt-1">
-              현재 예측 등급: <span className="font-bold text-blue-700">{summary.predictionGrade}</span>
-            </p>
-          </div>
-        </article>
-
-        <article className="rounded-xl border border-slate-200 bg-white p-6">
-          <h2 className="text-base font-semibold text-slate-900">합격예측 피라미드</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            확실권 / 유력권 / 가능권 / 도전권 / 도전권 이하 5단계
-          </p>
-
-          <div className="mt-5 space-y-3">
-            {pyramid.levels.map((level, index) => {
-              const isCollectingLevel = level.key !== "belowChallenge" && level.minScore === null;
-
-              return (
-                <div key={level.key} className="grid grid-cols-1 items-center gap-3 lg:grid-cols-[1fr_320px]">
-                  <div className="mx-auto w-full max-w-xl">
-                    <div
-                      className={`mx-auto flex h-12 items-center justify-center rounded-sm px-3 text-sm font-semibold transition ${
-                        levelColor(level.key, level.isCurrent)
-                      } ${levelTextColor(level.key)} ${level.isCurrent ? "ring-2 ring-offset-2 ring-blue-300" : ""}`}
-                      style={{
-                        width: `${widths[index]}%`,
-                        clipPath: "polygon(8% 0, 92% 0, 100% 100%, 0 100%)",
-                      }}
-                    >
-                      {level.label} {level.count.toLocaleString("ko-KR")}명
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                    <p className="font-semibold text-slate-800">
-                      {isCollectingLevel
-                        ? "데이터 수집 중"
-                        : level.minScore === null
-                          ? "기준점수 미만"
-                          : `${level.minScore.toFixed(2)}점 이상`}
-                    </p>
-                    <p className="mt-1">
-                      배수:{" "}
-                      {level.maxMultiple === null
-                        ? `${level.minMultiple?.toFixed(2) ?? "-"}배 초과`
-                        : `${level.minMultiple === null ? "0.00" : level.minMultiple.toFixed(2)} ~ ${level.maxMultiple.toFixed(2)}배`}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </article>
-      </section>
-
-      <section className="rounded-xl border border-slate-200 bg-white p-6">
-        <h2 className="text-base font-semibold text-slate-900">등급별 인원 분포</h2>
-        <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5">
-          {pyramid.levels.map((level) => (
-            <div
-              key={`dist-${level.key}`}
-              className={`rounded-lg border p-4 text-center ${
-                level.isCurrent ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-slate-50"
-              }`}
-            >
-              <p className="text-sm font-semibold text-slate-700">{level.label}</p>
-              <p className="mt-1 text-xl font-bold text-slate-900">
-                {level.count.toLocaleString("ko-KR")}명
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
+      <PredictionLiveDashboard prediction={prediction} />
 
       <section className="rounded-xl border border-slate-200 bg-white p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -612,8 +529,15 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
         </>
       ) : null}
 
-      <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-        안내 문구: {summary.disclaimer}
+      <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-1.5">
+        <p className="font-semibold">안내사항</p>
+        <p>{summary.disclaimer}</p>
+        <p>
+          본 서비스의 모든 분석은 <strong>서비스 참여자({summary.totalParticipants.toLocaleString()}명) 기준</strong>이며,
+          실제 시험 결과와 차이가 있을 수 있습니다.
+          참여율({participationRate.toFixed(1)}%)이 낮을수록 예측 정확도가 떨어지며,
+          참여자가 늘어남에 따라 순위 및 합격등급이 변동될 수 있습니다.
+        </p>
       </section>
 
       {isCompetitorModalOpen ? (
@@ -663,7 +587,7 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
                   <article className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs text-slate-500">점수</p>
                     <p className="mt-1 text-lg font-bold text-blue-700">
-                      {competitorDetail.competitor.score.toFixed(2)}
+                      {formatScoreSmart(competitorDetail.competitor.score)}
                     </p>
                   </article>
                 </section>
@@ -686,10 +610,10 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
                             {subject.subjectName}
                           </td>
                           <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">
-                            {subject.rawScore.toFixed(2)}
+                            {formatScoreSmart(subject.rawScore)}
                           </td>
                           <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">
-                            {subject.maxScore.toFixed(2)}
+                            {Math.round(subject.maxScore)}
                           </td>
                           <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">
                             {subject.percentage.toFixed(1)}%

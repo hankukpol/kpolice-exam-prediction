@@ -110,7 +110,6 @@ export default async function AdminDashboardPage() {
       dbTotalSubmissions,
       dbTotalAnswerKeys,
       dbTotalUsers,
-      dbRegionsWithoutCareerRecruitCount,
     ] =
       await prisma.$transaction([
         prisma.exam.findFirst({
@@ -127,13 +126,6 @@ export default async function AdminDashboardPage() {
         prisma.submission.count(),
         prisma.answerKey.count(),
         prisma.user.count(),
-        prisma.region.count({
-          where: {
-            recruitCountCareer: {
-              lte: 0,
-            },
-          },
-        }),
       ]);
 
     activeExam = dbActiveExam;
@@ -141,7 +133,17 @@ export default async function AdminDashboardPage() {
     totalSubmissions = dbTotalSubmissions;
     totalAnswerKeys = dbTotalAnswerKeys;
     totalUsers = dbTotalUsers;
-    regionsWithoutCareerRecruitCount = dbRegionsWithoutCareerRecruitCount;
+
+    if (dbActiveExam) {
+      regionsWithoutCareerRecruitCount = await prisma.examRegionQuota.count({
+        where: {
+          examId: dbActiveExam.id,
+          recruitCountCareer: {
+            lte: 0,
+          },
+        },
+      });
+    }
 
     if (dbActiveExam) {
       activeExamAnswerKeyCount = await prisma.answerKey.count({
@@ -151,11 +153,13 @@ export default async function AdminDashboardPage() {
       });
 
       const trendRaw = await prisma.$queryRaw<Array<{ date: string; count: bigint | number }>>`
-        SELECT DATE_FORMAT(createdAt, '%Y-%m-%d') AS date, COUNT(*) AS count
-        FROM Submission
-        WHERE examId = ${dbActiveExam.id}
-        GROUP BY DATE_FORMAT(createdAt, '%Y-%m-%d')
-        ORDER BY DATE_FORMAT(createdAt, '%Y-%m-%d')
+        SELECT
+          TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+          COUNT(*)::bigint AS count
+        FROM "Submission"
+        WHERE "examId" = ${dbActiveExam.id}
+        GROUP BY TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+        ORDER BY TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
       `;
 
       submissionTrend = trendRaw

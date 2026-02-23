@@ -1,8 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+
+interface ExamItem {
+  id: number;
+  name: string;
+  year: number;
+  round: number;
+  isActive: boolean;
+}
 
 interface RegionItem {
   id: number;
@@ -12,6 +20,8 @@ interface RegionItem {
   recruitCountCareer: number;
   applicantCount: number | null;
   applicantCountCareer: number | null;
+  examNumberStart: string | null;
+  examNumberEnd: string | null;
   passMultiplePublic: string;
   passMultipleCareer: string;
   submissionCount: number;
@@ -20,6 +30,8 @@ interface RegionItem {
 }
 
 interface RegionsResponse {
+  exams: ExamItem[];
+  selectedExamId: number | null;
   regions: RegionItem[];
 }
 
@@ -30,7 +42,15 @@ type NoticeState = {
 
 type EditableRegionItem = Pick<
   RegionItem,
-  "id" | "name" | "isActive" | "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
+  | "id"
+  | "name"
+  | "isActive"
+  | "recruitCount"
+  | "recruitCountCareer"
+  | "applicantCount"
+  | "applicantCountCareer"
+  | "examNumberStart"
+  | "examNumberEnd"
 > &
   Pick<RegionItem, "submissionCount" | "submissionCountPublic" | "submissionCountCareer">;
 
@@ -64,10 +84,13 @@ function toSafeNullableNonNegativeInt(value: string): number | null {
 }
 
 export default function AdminRegionsPage() {
+  const [exams, setExams] = useState<ExamItem[]>([]);
+  const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
   const [regions, setRegions] = useState<EditableRegionItem[]>([]);
   const [originalById, setOriginalById] = useState<Map<number, EditableRegionItem>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
 
   const changedCount = useMemo(() => {
@@ -81,7 +104,9 @@ export default function AdminRegionsPage() {
         original.recruitCount !== row.recruitCount ||
         original.recruitCountCareer !== row.recruitCountCareer ||
         original.applicantCount !== row.applicantCount ||
-        original.applicantCountCareer !== row.applicantCountCareer
+        original.applicantCountCareer !== row.applicantCountCareer ||
+        original.examNumberStart !== row.examNumberStart ||
+        original.examNumberEnd !== row.examNumberEnd
       ) {
         count += 1;
       }
@@ -89,12 +114,17 @@ export default function AdminRegionsPage() {
     return count;
   }, [regions, originalById]);
 
-  async function loadRegions() {
+  const loadRegions = useCallback(async (examId?: number | null) => {
     setIsLoading(true);
     setNotice(null);
 
     try {
-      const response = await fetch("/api/admin/regions", {
+      const params = new URLSearchParams();
+      if (examId) {
+        params.set("examId", String(examId));
+      }
+
+      const response = await fetch(`/api/admin/regions?${params.toString()}`, {
         method: "GET",
         cache: "no-store",
       });
@@ -102,6 +132,9 @@ export default function AdminRegionsPage() {
       if (!response.ok) {
         throw new Error(data.error ?? "모집인원 목록을 불러오지 못했습니다.");
       }
+
+      setExams(data.exams ?? []);
+      setSelectedExamId(data.selectedExamId);
 
       const nextRows = (data.regions ?? []).map((item) => ({
         id: item.id,
@@ -111,6 +144,8 @@ export default function AdminRegionsPage() {
         recruitCountCareer: item.recruitCountCareer,
         applicantCount: item.applicantCount ?? null,
         applicantCountCareer: item.applicantCountCareer ?? null,
+        examNumberStart: item.examNumberStart ?? null,
+        examNumberEnd: item.examNumberEnd ?? null,
         submissionCount: item.submissionCount,
         submissionCountPublic: item.submissionCountPublic,
         submissionCountCareer: item.submissionCountCareer,
@@ -126,11 +161,20 @@ export default function AdminRegionsPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void loadRegions();
-  }, []);
+  }, [loadRegions]);
+
+  function handleExamChange(newExamId: number) {
+    if (changedCount > 0) {
+      const confirmed = window.confirm("저장하지 않은 변경사항이 있습니다. 시험을 변경하시겠습니까?");
+      if (!confirmed) return;
+    }
+    setSelectedExamId(newExamId);
+    void loadRegions(newExamId);
+  }
 
   function updateRegionValue(
     id: number,
@@ -152,6 +196,18 @@ export default function AdminRegionsPage() {
     );
   }
 
+  function updateRegionStringValue(
+    id: number,
+    field: "examNumberStart" | "examNumberEnd",
+    value: string
+  ) {
+    setRegions((prev) =>
+      prev.map((row) =>
+        row.id === id ? { ...row, [field]: value.trim() || null } : row
+      )
+    );
+  }
+
   function updateRegionActive(id: number, nextActive: boolean) {
     setRegions((prev) =>
       prev.map((row) =>
@@ -167,7 +223,14 @@ export default function AdminRegionsPage() {
 
   function isFieldChanged(
     row: EditableRegionItem,
-    field: "isActive" | "recruitCount" | "recruitCountCareer" | "applicantCount" | "applicantCountCareer"
+    field:
+      | "isActive"
+      | "recruitCount"
+      | "recruitCountCareer"
+      | "applicantCount"
+      | "applicantCountCareer"
+      | "examNumberStart"
+      | "examNumberEnd"
   ): boolean {
     const original = originalById.get(row.id);
     if (!original) return false;
@@ -175,6 +238,11 @@ export default function AdminRegionsPage() {
   }
 
   async function handleSaveAll() {
+    if (!selectedExamId) {
+      setNotice({ type: "error", message: "시험이 선택되지 않았습니다." });
+      return;
+    }
+
     if (regions.length === 0) {
       setNotice({ type: "error", message: "저장할 지역 데이터가 없습니다." });
       return;
@@ -200,13 +268,16 @@ export default function AdminRegionsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          examId: selectedExamId,
           regions: regions.map((row) => ({
-            id: row.id,
+            regionId: row.id,
             isActive: row.isActive,
             recruitCount: row.recruitCount,
             recruitCountCareer: row.recruitCountCareer,
             applicantCount: row.applicantCount,
             applicantCountCareer: row.applicantCountCareer,
+            examNumberStart: row.examNumberStart,
+            examNumberEnd: row.examNumberEnd,
           })),
         }),
       });
@@ -230,14 +301,105 @@ export default function AdminRegionsPage() {
     }
   }
 
+  async function handleCopyFromExam(sourceExamId: number) {
+    if (!selectedExamId) return;
+
+    const sourceExam = exams.find((e) => e.id === sourceExamId);
+    const confirmed = window.confirm(
+      `"${sourceExam?.name ?? "선택된 시험"}"의 모집인원을 현재 시험으로 복사하시겠습니까?\n기존 데이터가 덮어씌워집니다.`
+    );
+    if (!confirmed) return;
+
+    setIsCopying(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/admin/regions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sourceExamId,
+          targetExamId: selectedExamId,
+        }),
+      });
+      const data = (await response.json()) as { success?: boolean; message?: string; error?: string };
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? "모집인원 복사에 실패했습니다.");
+      }
+
+      setNotice({
+        type: "success",
+        message: data.message ?? "모집인원이 복사되었습니다.",
+      });
+
+      // 복사 후 새로고침
+      void loadRegions(selectedExamId);
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "모집인원 복사에 실패했습니다.",
+      });
+    } finally {
+      setIsCopying(false);
+    }
+  }
+
+  const otherExams = exams.filter((e) => e.id !== selectedExamId);
+
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-xl font-semibold text-slate-900">지역/모집인원 관리</h1>
         <p className="mt-1 text-sm text-slate-600">
-          지역 활성/비활성 및 지역별 공채·경행경채 모집인원을 관리합니다.
+          시험별로 지역 활성/비활성 및 공채·경행경채 모집인원을 관리합니다.
         </p>
       </header>
+
+      {/* 시험 선택 */}
+      <section className="flex flex-wrap items-center gap-4 rounded-lg border border-slate-200 bg-white p-4">
+        <label className="text-sm font-medium text-slate-700">시험 선택</label>
+        <select
+          value={selectedExamId ?? ""}
+          onChange={(e) => handleExamChange(Number(e.target.value))}
+          className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+          disabled={isLoading}
+        >
+          {exams.map((exam) => (
+            <option key={exam.id} value={exam.id}>
+              {exam.name} {exam.isActive ? "(활성)" : ""}
+            </option>
+          ))}
+        </select>
+
+        {/* 이전 시험에서 복사 */}
+        {otherExams.length > 0 && selectedExamId && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-slate-500">다른 시험에서 복사:</span>
+            <select
+              id="copy-source"
+              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+              disabled={isCopying}
+              defaultValue=""
+              onChange={(e) => {
+                const sourceId = Number(e.target.value);
+                if (sourceId) {
+                  void handleCopyFromExam(sourceId);
+                  e.target.value = "";
+                }
+              }}
+            >
+              <option value="" disabled>
+                시험 선택...
+              </option>
+              {otherExams.map((exam) => (
+                <option key={exam.id} value={exam.id}>
+                  {exam.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </section>
 
       <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
         <p className="font-semibold">비활성 지역은 사용자 성적 입력 및 예측 대상에서 제외됩니다.</p>
@@ -274,7 +436,7 @@ export default function AdminRegionsPage() {
         </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="min-w-[1600px] w-full divide-y divide-slate-200 text-sm">
+          <table className="min-w-[1800px] w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">지역</th>
@@ -285,6 +447,7 @@ export default function AdminRegionsPage() {
                 <th className="px-4 py-3">경행경채 모집인원</th>
                 <th className="px-4 py-3">경행경채 합격배수</th>
                 <th className="px-4 py-3">경행경채 출원인원</th>
+                <th className="px-4 py-3">응시번호 범위</th>
                 <th className="px-4 py-3">참여 현황</th>
               </tr>
             </thead>
@@ -377,6 +540,38 @@ export default function AdminRegionsPage() {
                       }`}
                       placeholder="추정 사용"
                     />
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={row.examNumberStart ?? ""}
+                        onChange={(e) => updateRegionStringValue(row.id, "examNumberStart", e.target.value)}
+                        placeholder="시작"
+                        className={`h-9 w-24 rounded-md border px-2 text-center text-sm font-mono ${
+                          isFieldChanged(row, "examNumberStart")
+                            ? "border-amber-300 bg-amber-50"
+                            : "border-slate-300 bg-white"
+                        }`}
+                      />
+                      <span className="text-slate-400">~</span>
+                      <input
+                        type="text"
+                        value={row.examNumberEnd ?? ""}
+                        onChange={(e) => updateRegionStringValue(row.id, "examNumberEnd", e.target.value)}
+                        placeholder="끝"
+                        className={`h-9 w-24 rounded-md border px-2 text-center text-sm font-mono ${
+                          isFieldChanged(row, "examNumberEnd")
+                            ? "border-amber-300 bg-amber-50"
+                            : "border-slate-300 bg-white"
+                        }`}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {row.examNumberStart && row.examNumberEnd
+                        ? `${row.examNumberStart}~${row.examNumberEnd}`
+                        : "미설정"}
+                    </p>
                   </td>
                   <td className="px-4 py-3 text-slate-700">
                     공채 {row.submissionCountPublic}명 / 경행경채 {row.submissionCountCareer}명

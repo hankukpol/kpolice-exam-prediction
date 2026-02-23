@@ -54,6 +54,16 @@ function isRecordNotFoundError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
 }
 
+/** htmlContent 저장 전 <script> 태그만 제거하는 최소 sanitize */
+function stripScriptTags(html: string): string {
+  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+}
+
+function isJsonContentType(request: NextRequest): boolean {
+  const ct = request.headers.get("content-type") ?? "";
+  return ct.includes("application/json");
+}
+
 async function safeDeleteUploadedFile(publicUrl: string | null | undefined, context: string): Promise<void> {
   if (!publicUrl) return;
 
@@ -91,6 +101,56 @@ export async function POST(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
 
+  // HTML 에디터 모드 (JSON body)
+  if (isJsonContentType(request)) {
+    return handlePostJson(request);
+  }
+
+  // 레거시 이미지 모드 (FormData)
+  return handlePostFormData(request);
+}
+
+/** HTML 에디터 모드: JSON body로 htmlContent 저장 */
+async function handlePostJson(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const zoneRaw = String(body.zone ?? "").trim();
+    if (!isBannerZone(zoneRaw)) {
+      return NextResponse.json({ error: "배너 존(zone) 값이 올바르지 않습니다." }, { status: 400 });
+    }
+
+    const htmlContent = typeof body.htmlContent === "string" ? stripScriptTags(body.htmlContent) : "";
+    if (!htmlContent.trim()) {
+      return NextResponse.json({ error: "배너 HTML 콘텐츠가 비어있습니다." }, { status: 400 });
+    }
+
+    const altText = typeof body.altText === "string" ? body.altText.trim() : "";
+    const sortOrder = typeof body.sortOrder === "number" && Number.isInteger(body.sortOrder) && body.sortOrder >= 0
+      ? body.sortOrder : 0;
+    const isActive = typeof body.isActive === "boolean" ? body.isActive : true;
+
+    const created = await prisma.banner.create({
+      data: {
+        zone: zoneRaw,
+        imageUrl: null,
+        htmlContent,
+        altText,
+        isActive,
+        sortOrder,
+      },
+    });
+
+    safeRevalidateBannerCache();
+
+    return NextResponse.json({ success: true, banner: created }, { status: 201 });
+  } catch (error) {
+    console.error("배너 생성(HTML 모드) 중 오류가 발생했습니다.", error);
+    return NextResponse.json({ error: "배너 생성에 실패했습니다." }, { status: 500 });
+  }
+}
+
+/** 레거시 이미지 모드: FormData로 이미지 파일 업로드 */
+async function handlePostFormData(request: NextRequest) {
   let uploadedImageUrl: string | null = null;
   let isCreated = false;
 
@@ -175,6 +235,67 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "수정할 배너 ID가 필요합니다." }, { status: 400 });
   }
 
+  // HTML 에디터 모드 (JSON body)
+  if (isJsonContentType(request)) {
+    return handlePutJson(request, bannerId);
+  }
+
+  // 레거시 이미지 모드 (FormData)
+  return handlePutFormData(request, bannerId);
+}
+
+/** HTML 에디터 모드: JSON body로 htmlContent 수정 */
+async function handlePutJson(request: NextRequest, bannerId: number) {
+  try {
+    const existing = await prisma.banner.findUnique({ where: { id: bannerId } });
+    if (!existing) {
+      return NextResponse.json({ error: "수정할 배너를 찾을 수 없습니다." }, { status: 404 });
+    }
+
+    const body = await request.json();
+
+    const zoneRaw = typeof body.zone === "string" ? body.zone.trim() : null;
+    if (zoneRaw !== null && !isBannerZone(zoneRaw)) {
+      return NextResponse.json({ error: "배너 존(zone) 값이 올바르지 않습니다." }, { status: 400 });
+    }
+
+    const htmlContent = typeof body.htmlContent === "string" ? stripScriptTags(body.htmlContent) : null;
+    if (htmlContent !== null && !htmlContent.trim()) {
+      return NextResponse.json({ error: "배너 HTML 콘텐츠가 비어있습니다." }, { status: 400 });
+    }
+
+    const altText = typeof body.altText === "string" ? body.altText.trim() : undefined;
+    const sortOrder = typeof body.sortOrder === "number" && Number.isInteger(body.sortOrder) && body.sortOrder >= 0
+      ? body.sortOrder : undefined;
+    const isActive = typeof body.isActive === "boolean" ? body.isActive : undefined;
+
+    const updated = await prisma.banner.update({
+      where: { id: bannerId },
+      data: {
+        zone: zoneRaw ?? existing.zone,
+        htmlContent: htmlContent ?? existing.htmlContent,
+        imageUrl: null,
+        linkUrl: null,
+        ...(altText !== undefined && { altText }),
+        ...(sortOrder !== undefined && { sortOrder }),
+        ...(isActive !== undefined && { isActive }),
+      },
+    });
+
+    safeRevalidateBannerCache();
+
+    return NextResponse.json({ success: true, banner: updated });
+  } catch (error) {
+    if (isRecordNotFoundError(error)) {
+      return NextResponse.json({ error: "수정할 배너를 찾을 수 없습니다." }, { status: 404 });
+    }
+    console.error("배너 수정(HTML 모드) 중 오류가 발생했습니다.", error);
+    return NextResponse.json({ error: "배너 수정에 실패했습니다." }, { status: 500 });
+  }
+}
+
+/** 레거시 이미지 모드: FormData로 이미지 파일 수정 */
+async function handlePutFormData(request: NextRequest, bannerId: number) {
   let uploadedImageUrl: string | null = null;
   let isUpdated = false;
 

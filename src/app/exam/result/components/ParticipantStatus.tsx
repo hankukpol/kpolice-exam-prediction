@@ -26,7 +26,7 @@ export default function ParticipantStatus({ participantStatus }: ParticipantStat
       <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
         <p>현재 참여자: {participantStatus.totalParticipants.toLocaleString("ko-KR")}명</p>
         <p>
-          내 현재 석차: {participantStatus.currentRank.toLocaleString("ko-KR")}등 (상위 {participantStatus.percentile.toFixed(1)}%)
+          내 현재 석차: {participantStatus.currentRank.toLocaleString("ko-KR")}등 (상위 {participantStatus.topPercent.toFixed(1)}% / 백분위 {participantStatus.percentile.toFixed(1)}%)
         </p>
         <p>마지막 업데이트: {formatDateTime(participantStatus.lastUpdated)}</p>
       </div>

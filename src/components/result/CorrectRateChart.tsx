@@ -45,12 +45,35 @@ export default function CorrectRateChart({ subjects }: CorrectRateChartProps) {
       isCorrect: answer.isCorrect,
     }));
   }, [selectedSubject]);
+  const hasChartData = chartData.length > 0;
 
   if (!selectedSubject) {
     return (
       <section className="rounded-xl border border-slate-200 bg-white p-6">
         <h2 className="text-base font-semibold text-slate-900">문항별 정답률 분포</h2>
         <p className="mt-3 text-sm text-slate-500">표시할 데이터가 없습니다.</p>
+      </section>
+    );
+  }
+
+  if (!hasChartData) {
+    return (
+      <section className="rounded-xl border border-slate-200 bg-white p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-slate-900">문항별 정답률 분포</h2>
+          <select
+            className="h-9 rounded-md border border-slate-300 px-3 text-sm"
+            value={selectedSubject.subjectId}
+            onChange={(event) => setSelectedSubjectId(Number(event.target.value))}
+          >
+            {subjects.map((subject) => (
+              <option key={subject.subjectId} value={subject.subjectId}>
+                {subject.subjectName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="mt-3 text-sm text-slate-500">정답률 데이터가 없어 표시할 문항이 없습니다.</p>
       </section>
     );
   }

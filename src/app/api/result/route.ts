@@ -26,6 +26,7 @@ type SubjectAggregateRow = {
   subjectId: number;
   averageScore: unknown;
   highestScore: unknown;
+  lowestScore: unknown;
   top10Average: unknown;
   top30Average: unknown;
 };
@@ -33,6 +34,7 @@ type SubjectAggregateRow = {
 type TotalAggregateRow = {
   averageScore: unknown;
   highestScore: unknown;
+  lowestScore: unknown;
   top10Average: unknown;
   top30Average: unknown;
 };
@@ -77,6 +79,11 @@ function calculateRankByHigher(higherCount: number): number {
   return higherCount + 1;
 }
 
+function calculateTopPercentByHigher(higherCount: number, totalCount: number): number {
+  if (totalCount <= 0) return 0;
+  return roundNumber((higherCount / totalCount) * 100);
+}
+
 function calculatePercentileByLower(lowerCount: number, totalCount: number): number {
   if (totalCount <= 0) return 0;
   return roundNumber((lowerCount / totalCount) * 100);
@@ -84,15 +91,16 @@ function calculatePercentileByLower(lowerCount: number, totalCount: number): num
 
 function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
   if (submissionHasCutoff) {
-    return Prisma.empty;
+    return Prisma.sql`AND s."isSuspicious" = false`;
   }
 
   return Prisma.sql`
+    AND s."isSuspicious" = false
     AND NOT EXISTS (
       SELECT 1
-      FROM SubjectScore sf
-      WHERE sf.submissionId = s.id
-        AND sf.isFailed = true
+      FROM "SubjectScore" sf
+      WHERE sf."submissionId" = s.id
+        AND sf."isFailed" = true
     )
   `;
 }
@@ -166,8 +174,6 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           name: true,
-          recruitCount: true,
-          recruitCountCareer: true,
         },
       },
       subjectScores: {
@@ -232,13 +238,13 @@ export async function GET(request: NextRequest) {
 
   const [overallRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
     SELECT
-      COUNT(*) AS totalCount,
-      SUM(CASE WHEN s.finalScore > ${myFinalScore} THEN 1 ELSE 0 END) AS higherCount,
-      SUM(CASE WHEN s.finalScore < ${myFinalScore} THEN 1 ELSE 0 END) AS lowerCount
-    FROM Submission s
-    WHERE s.examId = ${submission.examId}
-      AND s.regionId = ${submission.regionId}
-      AND s.examType = ${submission.examType}
+      COUNT(*) AS "totalCount",
+      SUM(CASE WHEN s."finalScore" > ${myFinalScore} THEN 1 ELSE 0 END) AS "higherCount",
+      SUM(CASE WHEN s."finalScore" < ${myFinalScore} THEN 1 ELSE 0 END) AS "lowerCount"
+    FROM "Submission" s
+    WHERE s."examId" = ${submission.examId}
+      AND s."regionId" = ${submission.regionId}
+      AND s."examType" = ${submission.examType}
       ${populationConditionSql}
   `);
 
@@ -247,8 +253,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "성적 비교 대상이 없습니다." }, { status: 404 });
   }
 
-  const totalRank = calculateRankByHigher(toCount(overallRow?.higherCount));
-  const totalPercentile = calculatePercentileByLower(toCount(overallRow?.lowerCount), totalParticipants);
+  const totalHigherCount = toCount(overallRow?.higherCount);
+  const totalLowerCount = toCount(overallRow?.lowerCount);
+  const totalRank = calculateRankByHigher(totalHigherCount);
+  const totalTopPercent = calculateTopPercentByHigher(totalHigherCount, totalParticipants);
+  const totalPercentile = calculatePercentileByLower(totalLowerCount, totalParticipants);
 
   const subjectOrder = SUBJECT_ORDER[submission.examType];
   const orderedSubjectScores = [...submission.subjectScores].sort((a, b) => {
@@ -271,7 +280,7 @@ export async function GET(request: NextRequest) {
   const subjectIds = orderedSubjectScores.map((s) => s.subjectId);
 
   const scoreConditions = orderedSubjectScores.map(
-    (s) => Prisma.sql`WHEN ss.subjectId = ${s.subjectId} THEN ${Number(s.rawScore)}`
+    (s) => Prisma.sql`WHEN ss."subjectId" = ${s.subjectId} THEN ${Number(s.rawScore)}`
   );
   const myScoreSql = Prisma.sql`CASE ${Prisma.join(scoreConditions, " ")} ELSE 0 END`;
 
@@ -279,19 +288,19 @@ export async function GET(request: NextRequest) {
     subjectIds.length > 0
       ? await prisma.$queryRaw<SubjectCountRow[]>(Prisma.sql`
           SELECT
-            ss.subjectId,
-            COUNT(*) AS totalCount,
-            SUM(CASE WHEN ss.rawScore > (${myScoreSql}) THEN 1 ELSE 0 END) AS higherCount,
-            SUM(CASE WHEN ss.rawScore < (${myScoreSql}) THEN 1 ELSE 0 END) AS lowerCount
-          FROM Submission s
-          INNER JOIN SubjectScore ss
-            ON ss.submissionId = s.id
-           AND ss.subjectId IN (${Prisma.join(subjectIds)})
-          WHERE s.examId = ${submission.examId}
-            AND s.regionId = ${submission.regionId}
-            AND s.examType = ${submission.examType}
+            ss."subjectId",
+            COUNT(*) AS "totalCount",
+            SUM(CASE WHEN ss."rawScore" > (${myScoreSql}) THEN 1 ELSE 0 END) AS "higherCount",
+            SUM(CASE WHEN ss."rawScore" < (${myScoreSql}) THEN 1 ELSE 0 END) AS "lowerCount"
+          FROM "Submission" s
+          INNER JOIN "SubjectScore" ss
+            ON ss."submissionId" = s.id
+           AND ss."subjectId" IN (${Prisma.join(subjectIds)})
+          WHERE s."examId" = ${submission.examId}
+            AND s."regionId" = ${submission.regionId}
+            AND s."examType" = ${submission.examType}
             ${populationConditionSql}
-          GROUP BY ss.subjectId
+          GROUP BY ss."subjectId"
         `)
       : [];
 
@@ -311,27 +320,28 @@ export async function GET(request: NextRequest) {
       ? await prisma.$queryRaw<SubjectAggregateRow[]>(Prisma.sql`
           WITH ranked_subject AS (
             SELECT
-              ss.subjectId AS subjectId,
-              ss.rawScore AS rawScore,
-              ROW_NUMBER() OVER (PARTITION BY ss.subjectId ORDER BY ss.rawScore DESC, s.id ASC) AS rn,
-              COUNT(*) OVER (PARTITION BY ss.subjectId) AS cnt
-            FROM Submission s
-            INNER JOIN SubjectScore ss
-              ON ss.submissionId = s.id
-             AND ss.subjectId IN (${Prisma.join(subjectIds)})
-            WHERE s.examId = ${submission.examId}
-              AND s.regionId = ${submission.regionId}
-              AND s.examType = ${submission.examType}
+              ss."subjectId" AS "subjectId",
+              ss."rawScore" AS "rawScore",
+              ROW_NUMBER() OVER (PARTITION BY ss."subjectId" ORDER BY ss."rawScore" DESC, s.id ASC) AS "rn",
+              COUNT(*) OVER (PARTITION BY ss."subjectId") AS "cnt"
+            FROM "Submission" s
+            INNER JOIN "SubjectScore" ss
+              ON ss."submissionId" = s.id
+             AND ss."subjectId" IN (${Prisma.join(subjectIds)})
+            WHERE s."examId" = ${submission.examId}
+              AND s."regionId" = ${submission.regionId}
+              AND s."examType" = ${submission.examType}
               ${populationConditionSql}
           )
           SELECT
-            subjectId,
-            ROUND(AVG(rawScore), 2) AS averageScore,
-            MAX(rawScore) AS highestScore,
-            ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.1)) THEN rawScore END), 2) AS top10Average,
-            ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.3)) THEN rawScore END), 2) AS top30Average
+            "subjectId",
+            ROUND(AVG("rawScore"), 2) AS "averageScore",
+            MAX("rawScore") AS "highestScore",
+            MIN("rawScore") AS "lowestScore",
+            ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.1)) THEN "rawScore" END), 2) AS "top10Average",
+            ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.3)) THEN "rawScore" END), 2) AS "top30Average"
           FROM ranked_subject
-          GROUP BY subjectId
+          GROUP BY "subjectId"
         `)
       : [];
 
@@ -341,6 +351,7 @@ export async function GET(request: NextRequest) {
       {
         averageScore: roundNumber(toNumeric(row.averageScore)),
         highestScore: roundNumber(toNumeric(row.highestScore)),
+        lowestScore: roundNumber(toNumeric(row.lowestScore)),
         top10Average: roundNumber(toNumeric(row.top10Average)),
         top30Average: roundNumber(toNumeric(row.top30Average)),
       },
@@ -350,29 +361,30 @@ export async function GET(request: NextRequest) {
   const [totalAggregateRow] = await prisma.$queryRaw<TotalAggregateRow[]>(Prisma.sql`
     WITH ranked_total AS (
       SELECT
-        s.totalScore AS totalScore,
-        ROW_NUMBER() OVER (ORDER BY s.totalScore DESC, s.id ASC) AS rn,
-        COUNT(*) OVER () AS cnt
-      FROM Submission s
-      WHERE s.examId = ${submission.examId}
-        AND s.regionId = ${submission.regionId}
-        AND s.examType = ${submission.examType}
+        s."totalScore" AS "totalScore",
+        ROW_NUMBER() OVER (ORDER BY s."totalScore" DESC, s.id ASC) AS "rn",
+        COUNT(*) OVER () AS "cnt"
+      FROM "Submission" s
+      WHERE s."examId" = ${submission.examId}
+        AND s."regionId" = ${submission.regionId}
+        AND s."examType" = ${submission.examType}
         ${populationConditionSql}
     )
     SELECT
-      ROUND(AVG(totalScore), 2) AS averageScore,
-      MAX(totalScore) AS highestScore,
-      ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.1)) THEN totalScore END), 2) AS top10Average,
-      ROUND(AVG(CASE WHEN rn <= GREATEST(1, FLOOR(cnt * 0.3)) THEN totalScore END), 2) AS top30Average
+      ROUND(AVG("totalScore"), 2) AS "averageScore",
+      MAX("totalScore") AS "highestScore",
+      MIN("totalScore") AS "lowestScore",
+      ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.1)) THEN "totalScore" END), 2) AS "top10Average",
+      ROUND(AVG(CASE WHEN "rn" <= GREATEST(1, FLOOR("cnt" * 0.3)) THEN "totalScore" END), 2) AS "top30Average"
     FROM ranked_total
   `);
 
   const [latestUpdatedRow] = await prisma.$queryRaw<LatestUpdatedRow[]>(Prisma.sql`
-    SELECT MAX(s.updatedAt) AS latestAt
-    FROM Submission s
-    WHERE s.examId = ${submission.examId}
-      AND s.regionId = ${submission.regionId}
-      AND s.examType = ${submission.examType}
+    SELECT MAX(s."updatedAt") AS "latestAt"
+    FROM "Submission" s
+    WHERE s."examId" = ${submission.examId}
+      AND s."regionId" = ${submission.regionId}
+      AND s."examType" = ${submission.examType}
       ${populationConditionSql}
   `);
 
@@ -426,6 +438,7 @@ export async function GET(request: NextRequest) {
       isCutoff: mySubjectScore.isFailed,
       cutoffScore: roundNumber(maxScore * SUBJECT_CUTOFF_RATE),
       rank: calculateRankByHigher(subjectHigher),
+      topPercent: calculateTopPercentByHigher(subjectHigher, subjectParticipants),
       percentile: calculatePercentileByLower(subjectLower, subjectParticipants),
       totalParticipants: subjectParticipants,
       difficulty,
@@ -438,7 +451,7 @@ export async function GET(request: NextRequest) {
     const averageCorrectRate =
       rows.length > 0
         ? roundNumber(rows.reduce((sum, row) => sum + row.correctRate, 0) / rows.length)
-        : 0;
+        : null;
 
     const hardest = rows.reduce(
       (current, row) => {
@@ -490,6 +503,7 @@ export async function GET(request: NextRequest) {
   const totalAggregate = {
     averageScore: roundNumber(toNumeric(totalAggregateRow?.averageScore)),
     highestScore: roundNumber(toNumeric(totalAggregateRow?.highestScore)),
+    lowestScore: roundNumber(toNumeric(totalAggregateRow?.lowestScore)),
     top10Average: roundNumber(toNumeric(totalAggregateRow?.top10Average)),
     top30Average: roundNumber(toNumeric(totalAggregateRow?.top30Average)),
   };
@@ -514,8 +528,13 @@ export async function GET(request: NextRequest) {
         maxScore: score.maxScore,
         myRank: score.rank,
         totalParticipants: score.totalParticipants,
+        correctCount: score.correctCount,
+        questionCount: score.questionCount,
+        topPercent: score.topPercent,
+        percentile: score.percentile,
         averageScore: aggregate?.averageScore ?? 0,
         highestScore: aggregate?.highestScore ?? 0,
+        lowestScore: aggregate?.lowestScore ?? 0,
         top10Average: aggregate?.top10Average ?? 0,
         top30Average: aggregate?.top30Average ?? 0,
       };
@@ -525,8 +544,13 @@ export async function GET(request: NextRequest) {
       maxScore: totalMaxScore,
       myRank: totalRank,
       totalParticipants,
+      correctCount: scores.reduce((sum, s) => sum + s.correctCount, 0),
+      questionCount: scores.reduce((sum, s) => sum + s.questionCount, 0),
+      topPercent: totalTopPercent,
+      percentile: totalPercentile,
       averageScore: totalAggregate.averageScore,
       highestScore: totalAggregate.highestScore,
+      lowestScore: totalAggregate.lowestScore,
       top10Average: totalAggregate.top10Average,
       top30Average: totalAggregate.top30Average,
     },
@@ -535,6 +559,7 @@ export async function GET(request: NextRequest) {
   const participantStatus = {
     currentRank: totalRank,
     totalParticipants,
+    topPercent: totalTopPercent,
     percentile: totalPercentile,
     lastUpdated,
   };
@@ -570,6 +595,7 @@ export async function GET(request: NextRequest) {
     statistics: {
       totalParticipants,
       totalRank,
+      topPercent: totalTopPercent,
       totalPercentile,
       hasCutoff,
       rankingBasis,

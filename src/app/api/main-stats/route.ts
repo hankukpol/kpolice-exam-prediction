@@ -3,20 +3,15 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { getDifficultyStats } from "@/lib/difficulty";
-import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
 import { getLikelyMultiple, getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 import { getActiveNotices, getSiteSettings } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
 
-const ESTIMATED_APPLICANTS_MULTIPLIER = parseEstimatedApplicantsMultiplier(
-  process.env.ESTIMATED_APPLICANTS_MULTIPLIER
-);
-
-interface RegionRow {
-  id: number;
-  name: string;
+interface QuotaRow {
+  regionId: number;
+  regionName: string;
   recruitCount: number;
   recruitCountCareer: number;
   applicantCount: number | null;
@@ -38,9 +33,10 @@ interface MainStatsRow {
   examType: ExamType;
   examTypeLabel: string;
   recruitCount: number;
+  applicantCount: number | null;
   estimatedApplicants: number;
   isApplicantCountExact: boolean;
-  competitionRate: number;
+  competitionRate: number | null;
   participantCount: number;
   averageFinalScore: number | null;
   oneMultipleCutScore: number | null;
@@ -52,9 +48,9 @@ interface MainStatsRow {
   sureMinScore: number | null;
 }
 
-interface RegionRowLegacy {
-  id: number;
-  name: string;
+interface QuotaRowLegacy {
+  regionId: number;
+  regionName: string;
   recruitCount: number;
   recruitCountCareer: number;
 }
@@ -356,16 +352,15 @@ function getScoreRange(
   };
 }
 
-function getRegionRecruitCount(region: RegionRow, examType: ExamType): number {
-  return examType === ExamType.PUBLIC ? region.recruitCount : region.recruitCountCareer;
+function getQuotaRecruitCount(quota: QuotaRow, examType: ExamType): number {
+  return examType === ExamType.PUBLIC ? quota.recruitCount : quota.recruitCountCareer;
 }
 
-function getRegionApplicantCount(
-  region: RegionRow,
-  examType: ExamType,
-  recruitCount: number
-): { applicantCount: number; isExact: boolean } {
-  const actual = examType === ExamType.PUBLIC ? region.applicantCount : region.applicantCountCareer;
+function getQuotaApplicantCount(
+  quota: QuotaRow,
+  examType: ExamType
+): { applicantCount: number | null; isExact: boolean } {
+  const actual = examType === ExamType.PUBLIC ? quota.applicantCount : quota.applicantCountCareer;
   if (typeof actual === "number" && Number.isFinite(actual) && actual >= 0) {
     return {
       applicantCount: Math.floor(actual),
@@ -373,65 +368,47 @@ function getRegionApplicantCount(
     };
   }
   return {
-    applicantCount: Math.max(0, Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER)),
+    applicantCount: null,
     isExact: false,
   };
 }
 
-async function getRegionsWithApplicants(): Promise<RegionRow[]> {
+async function getQuotasForExam(examId: number): Promise<QuotaRow[]> {
   try {
-    return await prisma.$queryRaw<RegionRow[]>`
+    return await prisma.$queryRaw<QuotaRow[]>`
       SELECT
-        id,
-        name,
-        recruitCount,
-        recruitCountCareer,
-        applicantCount,
-        applicantCountCareer
-      FROM Region
-      WHERE isActive = true
-      ORDER BY name ASC
+        q."regionId",
+        r."name" AS "regionName",
+        q."recruitCount",
+        q."recruitCountCareer",
+        q."applicantCount",
+        q."applicantCountCareer"
+      FROM "exam_region_quotas" q
+      JOIN "Region" r ON r.id = q."regionId"
+      WHERE q."examId" = ${examId}
+        AND r."isActive" = true
+      ORDER BY r."name" ASC
     `;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (!message.includes("applicantCount") && !message.includes("isActive")) {
+    if (!message.includes("isActive")) {
       throw error;
     }
 
-    let legacyRows: RegionRowLegacy[] = [];
-    try {
-      legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
-        SELECT
-          id,
-          name,
-          recruitCount,
-          recruitCountCareer
-        FROM Region
-        WHERE isActive = true
-        ORDER BY name ASC
-      `;
-    } catch (legacyError) {
-      const legacyMessage = legacyError instanceof Error ? legacyError.message : "";
-      if (!legacyMessage.includes("isActive")) {
-        throw legacyError;
-      }
-
-      legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
-        SELECT
-          id,
-          name,
-          recruitCount,
-          recruitCountCareer
-        FROM Region
-        ORDER BY name ASC
-      `;
-    }
-
-    return legacyRows.map((row) => ({
-      ...row,
-      applicantCount: null,
-      applicantCountCareer: null,
-    }));
+    // isActive 컬럼이 없는 경우 폴백
+    return await prisma.$queryRaw<QuotaRow[]>`
+      SELECT
+        q."regionId",
+        r."name" AS "regionName",
+        q."recruitCount",
+        q."recruitCountCareer",
+        q."applicantCount",
+        q."applicantCountCareer"
+      FROM "exam_region_quotas" q
+      JOIN "Region" r ON r.id = q."regionId"
+      WHERE q."examId" = ${examId}
+      ORDER BY r."name" ASC
+    `;
   }
 }
 
@@ -492,7 +469,7 @@ export async function GET() {
 
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    const [totalParticipants, examTypeStats, recentParticipants, latestSubmission, difficulty, regions, mySubmissions] =
+    const [totalParticipants, examTypeStats, recentParticipants, latestSubmission, difficulty, quotas, mySubmissions] =
       await Promise.all([
         prisma.submission.count({
           where: { examId: activeExam.id },
@@ -516,7 +493,7 @@ export async function GET() {
           select: { createdAt: true },
         }),
         getDifficultyStats(activeExam.id),
-        getRegionsWithApplicants(),
+        getQuotasForExam(activeExam.id),
         Number.isInteger(userId) && userId > 0
           ? prisma.submission.findMany({
               where: {
@@ -562,6 +539,7 @@ export async function GET() {
 
     const populationWhere: Prisma.SubmissionWhereInput = {
       examId: activeExam.id,
+      isSuspicious: false,
       subjectScores: {
         some: {},
         none: {
@@ -594,6 +572,7 @@ export async function GET() {
         by: ["examType", "totalScore"],
         where: {
           examId: activeExam.id,
+          isSuspicious: false,
         },
         _count: {
           _all: true,
@@ -604,6 +583,7 @@ export async function GET() {
         where: {
           submission: {
             examId: activeExam.id,
+            isSuspicious: false,
           },
         },
         _count: {
@@ -647,20 +627,23 @@ export async function GET() {
 
     const rows: MainStatsRow[] = [];
 
-    for (const region of regions) {
+    for (const quota of quotas) {
       for (const examType of enabledExamTypes) {
-        const recruitCount = getRegionRecruitCount(region, examType);
+        const recruitCount = getQuotaRecruitCount(quota, examType);
         if (recruitCount < 1) {
           continue;
         }
 
-        const key = `${region.id}-${examType}`;
+        const key = `${quota.regionId}-${examType}`;
         const participant = participantMap.get(key);
         const participantCount = participant?.participantCount ?? 0;
         const averageFinalScore = participant?.averageFinalScore ?? null;
-        const applicantCountInfo = getRegionApplicantCount(region, examType, recruitCount);
-        const estimatedApplicants = applicantCountInfo.applicantCount;
-        const competitionRate = recruitCount > 0 ? roundNumber(estimatedApplicants / recruitCount) : 0;
+        const applicantCountInfo = getQuotaApplicantCount(quota, examType);
+        const estimatedApplicants = applicantCountInfo.applicantCount ?? 0;
+        const competitionRate =
+          recruitCount > 0 && applicantCountInfo.applicantCount !== null
+            ? roundNumber(applicantCountInfo.applicantCount / recruitCount)
+            : null;
 
         const scoreBands = buildScoreBands(scoreBandMap.get(key) ?? []);
         const oneMultipleBand = getScoreBandInfoAtRank(scoreBands, recruitCount);
@@ -678,11 +661,12 @@ export async function GET() {
         const sureMinScore = getScoreAtRank(scoreBands, recruitCount);
 
         rows.push({
-          regionId: region.id,
-          regionName: region.name,
+          regionId: quota.regionId,
+          regionName: quota.regionName,
           examType,
           examTypeLabel: examTypeLabel(examType),
           recruitCount,
+          applicantCount: applicantCountInfo.applicantCount,
           estimatedApplicants,
           isApplicantCountExact: applicantCountInfo.isExact,
           competitionRate,

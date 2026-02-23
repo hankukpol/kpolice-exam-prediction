@@ -3,28 +3,33 @@ import { ExamType, PrismaClient, Role } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// recruitCountCareer is seeded with the same values as recruitCount by default.
-// Update these values to official CAREER quotas for each region before production use.
 const regions = [
-  { name: "서울", recruitCount: 715, recruitCountCareer: 715 },
-  { name: "101경비단", recruitCount: 40, recruitCountCareer: 0 },
-  { name: "부산", recruitCount: 213, recruitCountCareer: 213 },
-  { name: "대구", recruitCount: 92, recruitCountCareer: 92 },
-  { name: "인천", recruitCount: 175, recruitCountCareer: 175 },
-  { name: "광주", recruitCount: 37, recruitCountCareer: 37 },
-  { name: "대전", recruitCount: 51, recruitCountCareer: 51 },
-  { name: "울산", recruitCount: 22, recruitCountCareer: 22 },
-  { name: "세종", recruitCount: 10, recruitCountCareer: 10 },
-  { name: "경기남부", recruitCount: 609, recruitCountCareer: 609 },
-  { name: "경기북부", recruitCount: 128, recruitCountCareer: 128 },
-  { name: "강원", recruitCount: 140, recruitCountCareer: 140 },
-  { name: "충북", recruitCount: 121, recruitCountCareer: 121 },
-  { name: "충남", recruitCount: 152, recruitCountCareer: 152 },
-  { name: "전북", recruitCount: 137, recruitCountCareer: 137 },
-  { name: "전남", recruitCount: 176, recruitCountCareer: 176 },
-  { name: "경북", recruitCount: 181, recruitCountCareer: 181 },
-  { name: "경남", recruitCount: 196, recruitCountCareer: 196 },
-  { name: "제주", recruitCount: 47, recruitCountCareer: 47 },
+  "서울", "101경비단", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+  "경기남부", "경기북부", "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+];
+
+// 2026년 1차 시험 기준 지역별 모집인원 (ExamRegionQuota 시딩용)
+// recruitCountCareer 값은 공식 경행경채 인원 확정 전까지 공채와 동일 값 사용
+const regionQuotas = [
+  { regionName: "서울", recruitCount: 715, recruitCountCareer: 715 },
+  { regionName: "101경비단", recruitCount: 40, recruitCountCareer: 0 },
+  { regionName: "부산", recruitCount: 213, recruitCountCareer: 213 },
+  { regionName: "대구", recruitCount: 92, recruitCountCareer: 92 },
+  { regionName: "인천", recruitCount: 175, recruitCountCareer: 175 },
+  { regionName: "광주", recruitCount: 37, recruitCountCareer: 37 },
+  { regionName: "대전", recruitCount: 51, recruitCountCareer: 51 },
+  { regionName: "울산", recruitCount: 22, recruitCountCareer: 22 },
+  { regionName: "세종", recruitCount: 10, recruitCountCareer: 10 },
+  { regionName: "경기남부", recruitCount: 609, recruitCountCareer: 609 },
+  { regionName: "경기북부", recruitCount: 128, recruitCountCareer: 128 },
+  { regionName: "강원", recruitCount: 140, recruitCountCareer: 140 },
+  { regionName: "충북", recruitCount: 121, recruitCountCareer: 121 },
+  { regionName: "충남", recruitCount: 152, recruitCountCareer: 152 },
+  { regionName: "전북", recruitCount: 137, recruitCountCareer: 137 },
+  { regionName: "전남", recruitCount: 176, recruitCountCareer: 176 },
+  { regionName: "경북", recruitCount: 181, recruitCountCareer: 181 },
+  { regionName: "경남", recruitCount: 196, recruitCountCareer: 196 },
+  { regionName: "제주", recruitCount: 47, recruitCountCareer: 47 },
 ];
 
 const subjects = [
@@ -170,12 +175,47 @@ async function main() {
     },
   });
 
-  for (const region of regions) {
+  for (const regionName of regions) {
     await prisma.region.upsert({
-      where: { name: region.name },
-      update: region,
-      create: region,
+      where: { name: regionName },
+      update: {},
+      create: { name: regionName },
     });
+  }
+
+  // ExamRegionQuota 시딩: 활성 시험 × 지역별 모집인원
+  const activeExam = await prisma.exam.findFirst({
+    where: { isActive: true },
+    select: { id: true },
+  });
+
+  if (activeExam) {
+    for (const quota of regionQuotas) {
+      const region = await prisma.region.findUnique({
+        where: { name: quota.regionName },
+        select: { id: true },
+      });
+      if (!region) continue;
+
+      await prisma.examRegionQuota.upsert({
+        where: {
+          examId_regionId: {
+            examId: activeExam.id,
+            regionId: region.id,
+          },
+        },
+        update: {
+          recruitCount: quota.recruitCount,
+          recruitCountCareer: quota.recruitCountCareer,
+        },
+        create: {
+          examId: activeExam.id,
+          regionId: region.id,
+          recruitCount: quota.recruitCount,
+          recruitCountCareer: quota.recruitCountCareer,
+        },
+      });
+    }
   }
 
   for (const subject of subjects) {

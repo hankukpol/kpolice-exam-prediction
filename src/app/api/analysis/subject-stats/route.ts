@@ -46,21 +46,6 @@ function roundNumber(value: number): number {
   return Number(value.toFixed(2));
 }
 
-function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
-  if (submissionHasCutoff) {
-    return Prisma.empty;
-  }
-
-  return Prisma.sql`
-    AND NOT EXISTS (
-      SELECT 1
-      FROM SubjectScore sf
-      WHERE sf.submissionId = s.id
-        AND sf.isFailed = true
-    )
-  `;
-}
-
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
@@ -86,12 +71,10 @@ export async function GET(request: NextRequest) {
       id: true,
       examId: true,
       examType: true,
-      regionId: true,
       subjectScores: {
         select: {
           subjectId: true,
           rawScore: true,
-          isFailed: true,
           subject: {
             select: {
               name: true,
@@ -107,16 +90,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "조회할 성적 데이터가 없습니다." }, { status: 404 });
   }
 
-  const submissionHasCutoff = submission.subjectScores.some((score) => score.isFailed);
-  const populationConditionSql = getPopulationConditionSql(submissionHasCutoff);
-
   const [participantRow] = await prisma.$queryRaw<ParticipantRow[]>(Prisma.sql`
-    SELECT COUNT(*) AS totalCount
-    FROM Submission s
-    WHERE s.examId = ${submission.examId}
-      AND s.regionId = ${submission.regionId}
-      AND s.examType = ${submission.examType}
-      ${populationConditionSql}
+    SELECT COUNT(*) AS "totalCount"
+    FROM "Submission" s
+    WHERE s."examId" = ${submission.examId}
+      AND s."examType" = ${submission.examType}
+      AND s."isSuspicious" = false
   `);
 
   const totalParticipants = toCount(participantRow?.totalCount);
@@ -126,17 +105,16 @@ export async function GET(request: NextRequest) {
     subjectIds.length > 0
       ? await prisma.$queryRaw<SubjectAverageRow[]>(Prisma.sql`
           SELECT
-            ss.subjectId AS subjectId,
-            ROUND(AVG(ss.rawScore), 2) AS averageScore
-          FROM Submission s
-          INNER JOIN SubjectScore ss
-            ON ss.submissionId = s.id
-           AND ss.subjectId IN (${Prisma.join(subjectIds)})
-          WHERE s.examId = ${submission.examId}
-            AND s.regionId = ${submission.regionId}
-            AND s.examType = ${submission.examType}
-            ${populationConditionSql}
-          GROUP BY ss.subjectId
+            ss."subjectId" AS "subjectId",
+            ROUND(AVG(ss."rawScore"), 2) AS "averageScore"
+          FROM "Submission" s
+          INNER JOIN "SubjectScore" ss
+            ON ss."submissionId" = s.id
+           AND ss."subjectId" IN (${Prisma.join(subjectIds)})
+          WHERE s."examId" = ${submission.examId}
+            AND s."examType" = ${submission.examType}
+            AND s."isSuspicious" = false
+          GROUP BY ss."subjectId"
         `)
       : [];
 
@@ -168,10 +146,10 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
+      scope: "EXAM_TYPE_ALL",
       totalParticipants,
       subjects,
     },
   });
 }
-
 

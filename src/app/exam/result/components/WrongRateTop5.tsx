@@ -101,6 +101,7 @@ export default function WrongRateTop5({ submissionId, subjectOptions }: WrongRat
           ))}
         </select>
       </div>
+      <p className="mt-1 text-xs text-slate-500">기준: 동일 시험·직렬 전체 입력자</p>
 
       {isLoading ? <p className="mt-4 text-sm text-slate-600">오답률 데이터를 불러오는 중입니다...</p> : null}
       {errorMessage ? <p className="mt-4 text-sm text-rose-700">{errorMessage}</p> : null}

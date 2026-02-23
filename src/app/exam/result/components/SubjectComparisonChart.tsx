@@ -105,7 +105,10 @@ export default function SubjectComparisonChart({ submissionId }: SubjectComparis
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-6">
-      <h2 className="text-base font-semibold text-slate-900">과목별 비교 차트</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-base font-semibold text-slate-900">과목별 비교 차트</h2>
+        <p className="text-xs text-slate-500">기준: 동일 시험·직렬 전체 입력자</p>
+      </div>
       <div className="mt-4 h-[320px]">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={subjects} margin={{ top: 16, right: 12, left: -12, bottom: 4 }}>

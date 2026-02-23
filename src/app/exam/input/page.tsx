@@ -3,7 +3,7 @@
 import { ExamType, Gender } from "@prisma/client";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DifficultySelector, { type DifficultyRating } from "@/components/exam/DifficultySelector";
 import OmrInputModeToggle, { type OmrInputMode } from "@/components/exam/OmrInputModeToggle";
 import QuickOmrInput from "@/components/exam/QuickOmrInput";
@@ -152,6 +152,12 @@ export default function ExamInputPage({
   const [examType, setExamType] = useState<ExamType>(ExamType.PUBLIC);
   const [regionId, setRegionId] = useState<number | "">("");
   const [examNumber, setExamNumber] = useState("");
+  const [examNumberStatus, setExamNumberStatus] = useState<
+    "idle" | "checking" | "available" | "unavailable"
+  >("idle");
+  const [examNumberMessage, setExamNumberMessage] = useState("");
+  const examNumberTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pageLoadedAtRef = useRef(Date.now());
   const [veteranPercent, setVeteranPercent] = useState<BonusVeteran>(0);
   const [heroPercent, setHeroPercent] = useState<BonusHero>(0);
   const [activeSubjectIndex, setActiveSubjectIndex] = useState(0);
@@ -281,6 +287,61 @@ export default function ExamInputPage({
       setExamType(ExamType.PUBLIC);
     }
   }, [careerExamEnabled, examType]);
+
+  // 응시번호 실시간 검증 (디바운스 500ms)
+  const checkExamNumber = useCallback(
+    async (num: string, regId: number, exId: number) => {
+      setExamNumberStatus("checking");
+      setExamNumberMessage("");
+      try {
+        const params = new URLSearchParams({
+          examId: String(exId),
+          regionId: String(regId),
+          examNumber: num,
+        });
+        const res = await fetch(`/api/exam-number/check?${params.toString()}`);
+        const data = (await res.json()) as { available?: boolean; reason?: string; error?: string };
+        if (!res.ok) {
+          setExamNumberStatus("idle");
+          return;
+        }
+        if (data.available) {
+          setExamNumberStatus("available");
+          setExamNumberMessage("사용 가능한 응시번호입니다.");
+        } else {
+          setExamNumberStatus("unavailable");
+          setExamNumberMessage(data.reason ?? "사용할 수 없는 응시번호입니다.");
+        }
+      } catch {
+        setExamNumberStatus("idle");
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (examNumberTimerRef.current) {
+      clearTimeout(examNumberTimerRef.current);
+      examNumberTimerRef.current = null;
+    }
+
+    const trimmed = examNumber.trim();
+    if (!trimmed || !regionId || !meta?.activeExam) {
+      setExamNumberStatus("idle");
+      setExamNumberMessage("");
+      return;
+    }
+
+    examNumberTimerRef.current = setTimeout(() => {
+      void checkExamNumber(trimmed, regionId as number, meta.activeExam!.id);
+    }, 500);
+
+    return () => {
+      if (examNumberTimerRef.current) {
+        clearTimeout(examNumberTimerRef.current);
+      }
+    };
+  }, [examNumber, regionId, meta?.activeExam, checkExamNumber]);
 
   useEffect(() => {
     setActiveSubjectIndex(0);
@@ -418,6 +479,11 @@ export default function ExamInputPage({
       return;
     }
 
+    if (examNumberStatus === "unavailable") {
+      setErrorMessage(examNumberMessage || "응시번호를 확인해 주세요.");
+      return;
+    }
+
     if (isCareerRecruitCountMissing) {
       setErrorMessage("선택한 지역의 경행경채 모집인원이 설정되지 않았습니다. 관리자에게 문의해 주세요.");
       return;
@@ -470,6 +536,7 @@ export default function ExamInputPage({
         examNumber: normalizedExamNumber,
         veteranPercent,
         heroPercent,
+        submitDurationMs: Date.now() - pageLoadedAtRef.current,
         answers,
         difficulty: difficulty as Array<{ subjectName: string; rating: DifficultyRating }>,
         ...(editId ? { submissionId: Number(editId) } : {}),
@@ -606,7 +673,18 @@ export default function ExamInputPage({
               placeholder="응시번호 입력"
               required
             />
-            <p className="text-xs text-slate-500">수험표에 기재된 응시번호를 정확히 입력해 주세요.</p>
+            {examNumberStatus === "checking" && (
+              <p className="text-xs text-slate-500">응시번호 확인 중...</p>
+            )}
+            {examNumberStatus === "available" && (
+              <p className="text-xs text-emerald-600">{examNumberMessage}</p>
+            )}
+            {examNumberStatus === "unavailable" && (
+              <p className="text-xs text-rose-600">{examNumberMessage}</p>
+            )}
+            {examNumberStatus === "idle" && (
+              <p className="text-xs text-slate-500">수험표에 기재된 응시번호를 정확히 입력해 주세요.</p>
+            )}
           </div>
         </div>
 

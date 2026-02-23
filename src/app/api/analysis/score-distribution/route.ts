@@ -72,18 +72,20 @@ export async function GET(request: NextRequest) {
 
   const [participantRow, distributionRows] = await Promise.all([
     prisma.$queryRaw<ParticipantRow[]>(Prisma.sql`
-      SELECT COUNT(*) AS totalCount
-      FROM Submission s
-      WHERE s.examId = ${submission.examId}
-        AND s.examType = ${submission.examType}
+      SELECT COUNT(*) AS "totalCount"
+      FROM "Submission" s
+      WHERE s."examId" = ${submission.examId}
+        AND s."examType" = ${submission.examType}
+        AND s."isSuspicious" = false
     `),
     prisma.$queryRaw<DistributionRow[]>(Prisma.sql`
       SELECT
-        LEAST(FLOOR(GREATEST(s.totalScore, 0) / ${SCORE_BUCKET_SIZE}), ${BUCKET_COUNT - 1}) AS bucket,
-        COUNT(*) AS count
-      FROM Submission s
-      WHERE s.examId = ${submission.examId}
-        AND s.examType = ${submission.examType}
+        LEAST(FLOOR(GREATEST(s."totalScore", 0) / ${SCORE_BUCKET_SIZE}), ${BUCKET_COUNT - 1})::int AS bucket,
+        COUNT(*)::bigint AS count
+      FROM "Submission" s
+      WHERE s."examId" = ${submission.examId}
+        AND s."examType" = ${submission.examType}
+        AND s."isSuspicious" = false
       GROUP BY bucket
       ORDER BY bucket ASC
     `),
@@ -122,4 +124,3 @@ export async function GET(request: NextRequest) {
     },
   });
 }
-

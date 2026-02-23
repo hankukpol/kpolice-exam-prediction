@@ -8,9 +8,10 @@ export type BannerZone = (typeof BANNER_ZONES)[number];
 export interface PublicBannerItem {
   id: number;
   zone: BannerZone;
-  imageUrl: string;
+  imageUrl: string | null;
   linkUrl: string | null;
   altText: string;
+  htmlContent: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;
@@ -37,6 +38,7 @@ async function fetchActiveBannersFromDb(): Promise<PublicBannerItem[]> {
       imageUrl: banner.imageUrl,
       linkUrl: banner.linkUrl,
       altText: banner.altText,
+      htmlContent: banner.htmlContent,
       isActive: banner.isActive,
       sortOrder: banner.sortOrder,
       createdAt: banner.createdAt.toISOString(),

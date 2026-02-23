@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
     const userId = parsePositiveInt(searchParams.get("userId"));
     const examType = parseExamType(searchParams.get("examType"));
     const search = searchParams.get("search")?.trim() ?? "";
+    const suspicious = searchParams.get("suspicious");
 
     if (searchParams.get("examType") && !examType) {
       return NextResponse.json({ error: "examType은 PUBLIC 또는 CAREER여야 합니다." }, { status: 400 });
@@ -49,11 +50,17 @@ export async function GET(request: NextRequest) {
       ...(regionId ? { regionId } : {}),
       ...(userId ? { userId } : {}),
       ...(examType ? { examType } : {}),
+      ...(suspicious === "true"
+        ? { isSuspicious: true }
+        : suspicious === "false"
+          ? { isSuspicious: false }
+          : {}),
       ...(search
         ? {
             OR: [
               { user: { name: { contains: search } } },
               { user: { phone: { contains: search } } },
+              { examNumber: { contains: search } },
             ],
           }
         : {}),
@@ -74,10 +81,13 @@ export async function GET(request: NextRequest) {
           regionId: true,
           examType: true,
           gender: true,
+          examNumber: true,
           totalScore: true,
           finalScore: true,
           bonusType: true,
           bonusRate: true,
+          isSuspicious: true,
+          suspiciousReason: true,
           createdAt: true,
           user: {
             select: {
@@ -129,10 +139,13 @@ export async function GET(request: NextRequest) {
         regionId: submission.regionId,
         regionName: submission.region.name,
         gender: submission.gender,
+        examNumber: submission.examNumber,
         totalScore: Number(submission.totalScore),
         finalScore: Number(submission.finalScore),
         bonusType: submission.bonusType,
         bonusRate: Number(submission.bonusRate),
+        isSuspicious: submission.isSuspicious,
+        suspiciousReason: submission.suspiciousReason,
         hasCutoff: submission.subjectScores.length > 0,
         createdAt: submission.createdAt,
       })),

@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/pass-cut-auto-release",
+      "schedule": "0 0 * * *"
+    }
+  ]
+}

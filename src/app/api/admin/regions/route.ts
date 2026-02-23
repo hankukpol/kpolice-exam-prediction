@@ -1,40 +1,24 @@
-import { ExamType, Prisma } from "@prisma/client";
+import { ExamType } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-interface RegionRow {
-  id: number;
-  name: string;
-  isActive: boolean;
-  recruitCount: number;
-  recruitCountCareer: number;
-  applicantCount: number | null;
-  applicantCountCareer: number | null;
-}
-
-interface RegionRowLegacy {
-  id: number;
-  name: string;
-  recruitCount: number;
-  recruitCountCareer: number;
-  applicantCount: number | null;
-  applicantCountCareer: number | null;
-}
-
-interface RegionUpdateItem {
-  id?: unknown;
+interface QuotaUpdateItem {
+  regionId?: unknown;
   isActive?: unknown;
   recruitCount?: unknown;
   recruitCountCareer?: unknown;
   applicantCount?: unknown;
   applicantCountCareer?: unknown;
+  examNumberStart?: unknown;
+  examNumberEnd?: unknown;
 }
 
-interface RegionUpdatePayload {
-  regions?: RegionUpdateItem[];
+interface QuotaUpdatePayload {
+  examId?: unknown;
+  regions?: QuotaUpdateItem[];
 }
 
 function parseNonNegativeInt(value: unknown): number | null {
@@ -108,141 +92,68 @@ function formatPassMultiple(recruitCount: number): string {
   return `${(passCount / recruitCount).toFixed(1)}배`;
 }
 
-function isMissingColumnError(error: unknown, columnName: string): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "object" && error && "message" in error
-        ? String((error as { message?: unknown }).message ?? "")
-        : "";
-
-  return message.includes("Unknown column") && message.includes(columnName);
-}
-
-async function ensureRegionIsActiveColumnBestEffort(): Promise<void> {
-  try {
-    await prisma.$executeRawUnsafe(
-      "ALTER TABLE `Region` ADD COLUMN IF NOT EXISTS `isActive` BOOLEAN NOT NULL DEFAULT true"
-    );
-  } catch {
-    // Ignore and fall back to compatibility queries below.
-  }
-}
-
-async function fetchRegionsCompat(): Promise<{ rows: RegionRow[]; supportsIsActive: boolean }> {
-  try {
-    const rows = await prisma.$queryRaw<RegionRow[]>`
-      SELECT
-        id,
-        name,
-        isActive,
-        recruitCount,
-        recruitCountCareer,
-        applicantCount,
-        applicantCountCareer
-      FROM Region
-      ORDER BY isActive DESC, name ASC
-    `;
-    return { rows, supportsIsActive: true };
-  } catch (error) {
-    if (!isMissingColumnError(error, "isActive")) {
-      throw error;
-    }
-
-    const legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
-      SELECT
-        id,
-        name,
-        recruitCount,
-        recruitCountCareer,
-        applicantCount,
-        applicantCountCareer
-      FROM Region
-      ORDER BY name ASC
-    `;
-
-    return {
-      rows: legacyRows.map((row) => ({
-        ...row,
-        isActive: true,
-      })),
-      supportsIsActive: false,
-    };
-  }
-}
-
-async function fetchExistingRegionsCompat(ids: number[]): Promise<{ rows: RegionRow[]; supportsIsActive: boolean }> {
-  if (ids.length < 1) {
-    return { rows: [], supportsIsActive: true };
-  }
-
-  const idSql = Prisma.join(ids);
-
-  try {
-    const rows = await prisma.$queryRaw<RegionRow[]>`
-      SELECT
-        id,
-        name,
-        isActive,
-        recruitCount,
-        recruitCountCareer,
-        applicantCount,
-        applicantCountCareer
-      FROM Region
-      WHERE id IN (${idSql})
-    `;
-    return { rows, supportsIsActive: true };
-  } catch (error) {
-    if (!isMissingColumnError(error, "isActive")) {
-      throw error;
-    }
-
-    const legacyRows = await prisma.$queryRaw<RegionRowLegacy[]>`
-      SELECT
-        id,
-        name,
-        recruitCount,
-        recruitCountCareer,
-        applicantCount,
-        applicantCountCareer
-      FROM Region
-      WHERE id IN (${idSql})
-    `;
-
-    return {
-      rows: legacyRows.map((row) => ({
-        ...row,
-        isActive: true,
-      })),
-      supportsIsActive: false,
-    };
-  }
-}
-
-export async function GET() {
+// GET: 시험 목록 + 선택된 시험의 지역별 모집인원 조회
+// ?examId=N (없으면 활성 시험 자동 선택)
+export async function GET(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
 
   try {
-    await ensureRegionIsActiveColumnBestEffort();
+    // 시험 목록 조회
+    const exams = await prisma.exam.findMany({
+      orderBy: [{ isActive: "desc" }, { examDate: "desc" }],
+      select: { id: true, name: true, year: true, round: true, isActive: true },
+    });
 
-    const [regionFetch, groupedCounts] = await Promise.all([
-      fetchRegionsCompat(),
-      prisma.submission.groupBy({
-        by: ["regionId", "examType"],
-        _count: {
-          _all: true,
-        },
-      }),
-    ]);
+    // examId 결정
+    const examIdParam = request.nextUrl.searchParams.get("examId");
+    let examId: number | null = null;
+
+    if (examIdParam) {
+      examId = parsePositiveInt(examIdParam);
+    }
+
+    if (!examId) {
+      const activeExam = exams.find((e) => e.isActive);
+      examId = activeExam?.id ?? exams[0]?.id ?? null;
+    }
+
+    // 지역 목록 조회
+    const regions = await prisma.region.findMany({
+      orderBy: [{ isActive: "desc" }, { name: "asc" }],
+      select: { id: true, name: true, isActive: true },
+    });
+
+    // 선택된 시험의 ExamRegionQuota 조회
+    const quotas = examId
+      ? await prisma.examRegionQuota.findMany({
+          where: { examId },
+          select: {
+            regionId: true,
+            recruitCount: true,
+            recruitCountCareer: true,
+            applicantCount: true,
+            applicantCountCareer: true,
+            examNumberStart: true,
+            examNumberEnd: true,
+          },
+        })
+      : [];
+
+    const quotaByRegionId = new Map(quotas.map((q) => [q.regionId, q]));
+
+    // 제출 통계 조회
+    const groupedCounts = examId
+      ? await prisma.submission.groupBy({
+          by: ["regionId", "examType"],
+          where: { examId },
+          _count: { _all: true },
+        })
+      : [];
 
     const countByRegion = new Map<
       number,
-      {
-        total: number;
-        publicCount: number;
-        careerCount: number;
-      }
+      { total: number; publicCount: number; careerCount: number }
     >();
 
     for (const row of groupedCounts) {
@@ -264,7 +175,10 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      regions: regionFetch.rows.map((region) => {
+      exams,
+      selectedExamId: examId,
+      regions: regions.map((region) => {
+        const quota = quotaByRegionId.get(region.id);
         const counts = countByRegion.get(region.id) ?? {
           total: 0,
           publicCount: 0,
@@ -275,12 +189,14 @@ export async function GET() {
           id: region.id,
           name: region.name,
           isActive: region.isActive,
-          recruitCount: region.recruitCount,
-          recruitCountCareer: region.recruitCountCareer,
-          applicantCount: region.applicantCount,
-          applicantCountCareer: region.applicantCountCareer,
-          passMultiplePublic: formatPassMultiple(region.recruitCount),
-          passMultipleCareer: formatPassMultiple(region.recruitCountCareer),
+          recruitCount: quota?.recruitCount ?? 0,
+          recruitCountCareer: quota?.recruitCountCareer ?? 0,
+          applicantCount: quota?.applicantCount ?? null,
+          applicantCountCareer: quota?.applicantCountCareer ?? null,
+          passMultiplePublic: formatPassMultiple(quota?.recruitCount ?? 0),
+          passMultipleCareer: formatPassMultiple(quota?.recruitCountCareer ?? 0),
+          examNumberStart: quota?.examNumberStart ?? null,
+          examNumberEnd: quota?.examNumberEnd ?? null,
           submissionCount: counts.total,
           submissionCountPublic: counts.publicCount,
           submissionCountCareer: counts.careerCount,
@@ -293,27 +209,44 @@ export async function GET() {
   }
 }
 
+// PUT: 시험별 지역 모집인원 저장 (ExamRegionQuota upsert) + Region isActive 업데이트
 export async function PUT(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
 
   try {
-    const body = (await request.json()) as RegionUpdatePayload;
+    const body = (await request.json()) as QuotaUpdatePayload;
+
+    const examId = parsePositiveInt(body.examId);
+    if (!examId) {
+      return NextResponse.json({ error: "유효한 시험 ID가 필요합니다." }, { status: 400 });
+    }
 
     if (!Array.isArray(body.regions) || body.regions.length === 0) {
       return NextResponse.json({ error: "수정할 지역 데이터가 없습니다." }, { status: 400 });
     }
 
+    // 시험 존재 확인
+    const exam = await prisma.exam.findUnique({ where: { id: examId }, select: { id: true } });
+    if (!exam) {
+      return NextResponse.json({ error: "존재하지 않는 시험입니다." }, { status: 404 });
+    }
+
     const normalized = body.regions.map((item) => {
-      const id = parsePositiveInt(item.id);
+      const regionId = parsePositiveInt(item.regionId);
       const isActive = parseBoolean(item.isActive);
       const recruitCount = parseNonNegativeInt(item.recruitCount);
       const recruitCountCareer = parseNonNegativeInt(item.recruitCountCareer);
       const applicantCountParsed = parseNullableNonNegativeInt(item.applicantCount);
       const applicantCountCareerParsed = parseNullableNonNegativeInt(item.applicantCountCareer);
 
+      const examNumberStart =
+        typeof item.examNumberStart === "string" ? item.examNumberStart.trim() || null : null;
+      const examNumberEnd =
+        typeof item.examNumberEnd === "string" ? item.examNumberEnd.trim() || null : null;
+
       return {
-        id,
+        regionId,
         isActive,
         recruitCount,
         recruitCountCareer,
@@ -321,11 +254,13 @@ export async function PUT(request: NextRequest) {
         applicantCountCareer: applicantCountCareerParsed.value,
         applicantCountValid: applicantCountParsed.ok,
         applicantCountCareerValid: applicantCountCareerParsed.ok,
+        examNumberStart,
+        examNumberEnd,
       };
     });
 
     for (const row of normalized) {
-      if (!row.id) {
+      if (!row.regionId) {
         return NextResponse.json({ error: "유효한 지역 ID가 필요합니다." }, { status: 400 });
       }
       if (row.isActive === null) {
@@ -341,51 +276,69 @@ export async function PUT(request: NextRequest) {
 
     const uniqueIds = new Set<number>();
     for (const row of normalized) {
-      const rowId = row.id as number;
+      const rowId = row.regionId as number;
       if (uniqueIds.has(rowId)) {
         return NextResponse.json({ error: "중복된 지역 ID가 포함되어 있습니다." }, { status: 400 });
       }
       uniqueIds.add(rowId);
     }
 
-    await ensureRegionIsActiveColumnBestEffort();
+    // 지역 존재 확인
+    const existingRegions = await prisma.region.findMany({
+      where: { id: { in: Array.from(uniqueIds) } },
+      select: { id: true },
+    });
 
-    const existingFetch = await fetchExistingRegionsCompat(Array.from(uniqueIds));
-    if (existingFetch.rows.length !== uniqueIds.size) {
+    if (existingRegions.length !== uniqueIds.size) {
       return NextResponse.json({ error: "존재하지 않는 지역 ID가 포함되어 있습니다." }, { status: 404 });
     }
 
-    const existingRegionById = new Map(existingFetch.rows.map((region) => [region.id, region] as const));
+    // 트랜잭션: Region isActive 업데이트 + ExamRegionQuota upsert
+    const operations = normalized.flatMap((row) => {
+      const regionId = row.regionId as number;
+      const ops = [];
 
-    await prisma.$transaction(
-      normalized.map((row) => {
-        const regionId = row.id as number;
-        const nextIsActive = row.isActive ?? existingRegionById.get(regionId)?.isActive ?? true;
+      // Region isActive 업데이트 (값이 있는 경우만)
+      if (row.isActive !== undefined) {
+        ops.push(
+          prisma.region.update({
+            where: { id: regionId },
+            data: { isActive: row.isActive as boolean },
+          })
+        );
+      }
 
-        if (existingFetch.supportsIsActive) {
-          return prisma.$executeRaw`
-            UPDATE Region
-            SET
-              isActive = ${nextIsActive},
-              recruitCount = ${row.recruitCount as number},
-              recruitCountCareer = ${row.recruitCountCareer as number},
-              applicantCount = ${row.applicantCount},
-              applicantCountCareer = ${row.applicantCountCareer}
-            WHERE id = ${regionId}
-          `;
-        }
+      // ExamRegionQuota upsert
+      ops.push(
+        prisma.examRegionQuota.upsert({
+          where: {
+            examId_regionId: { examId, regionId },
+          },
+          update: {
+            recruitCount: row.recruitCount as number,
+            recruitCountCareer: row.recruitCountCareer as number,
+            applicantCount: row.applicantCount,
+            applicantCountCareer: row.applicantCountCareer,
+            examNumberStart: row.examNumberStart,
+            examNumberEnd: row.examNumberEnd,
+          },
+          create: {
+            examId,
+            regionId,
+            recruitCount: row.recruitCount as number,
+            recruitCountCareer: row.recruitCountCareer as number,
+            applicantCount: row.applicantCount,
+            applicantCountCareer: row.applicantCountCareer,
+            examNumberStart: row.examNumberStart,
+            examNumberEnd: row.examNumberEnd,
+          },
+        })
+      );
 
-        return prisma.$executeRaw`
-          UPDATE Region
-          SET
-            recruitCount = ${row.recruitCount as number},
-            recruitCountCareer = ${row.recruitCountCareer as number},
-            applicantCount = ${row.applicantCount},
-            applicantCountCareer = ${row.applicantCountCareer}
-          WHERE id = ${regionId}
-        `;
-      })
-    );
+      return ops;
+    });
+
+    await prisma.$transaction(operations);
 
     return NextResponse.json({
       success: true,
@@ -398,3 +351,67 @@ export async function PUT(request: NextRequest) {
   }
 }
 
+// POST: 다른 시험의 모집인원을 현재 시험으로 복사
+export async function POST(request: NextRequest) {
+  const guard = await requireAdminRoute();
+  if ("error" in guard) return guard.error;
+
+  try {
+    const body = (await request.json()) as { sourceExamId?: unknown; targetExamId?: unknown };
+    const sourceExamId = parsePositiveInt(body.sourceExamId);
+    const targetExamId = parsePositiveInt(body.targetExamId);
+
+    if (!sourceExamId || !targetExamId) {
+      return NextResponse.json({ error: "원본 시험 ID와 대상 시험 ID가 필요합니다." }, { status: 400 });
+    }
+
+    if (sourceExamId === targetExamId) {
+      return NextResponse.json({ error: "같은 시험으로 복사할 수 없습니다." }, { status: 400 });
+    }
+
+    const sourceQuotas = await prisma.examRegionQuota.findMany({
+      where: { examId: sourceExamId },
+    });
+
+    if (sourceQuotas.length === 0) {
+      return NextResponse.json({ error: "원본 시험에 모집인원 데이터가 없습니다." }, { status: 404 });
+    }
+
+    const operations = sourceQuotas.map((sq) =>
+      prisma.examRegionQuota.upsert({
+        where: {
+          examId_regionId: { examId: targetExamId, regionId: sq.regionId },
+        },
+        update: {
+          recruitCount: sq.recruitCount,
+          recruitCountCareer: sq.recruitCountCareer,
+          applicantCount: sq.applicantCount,
+          applicantCountCareer: sq.applicantCountCareer,
+          examNumberStart: sq.examNumberStart,
+          examNumberEnd: sq.examNumberEnd,
+        },
+        create: {
+          examId: targetExamId,
+          regionId: sq.regionId,
+          recruitCount: sq.recruitCount,
+          recruitCountCareer: sq.recruitCountCareer,
+          applicantCount: sq.applicantCount,
+          applicantCountCareer: sq.applicantCountCareer,
+          examNumberStart: sq.examNumberStart,
+          examNumberEnd: sq.examNumberEnd,
+        },
+      })
+    );
+
+    await prisma.$transaction(operations);
+
+    return NextResponse.json({
+      success: true,
+      copiedCount: sourceQuotas.length,
+      message: `${sourceQuotas.length}개 지역 모집인원이 복사되었습니다.`,
+    });
+  } catch (error) {
+    console.error("모집인원 복사 중 오류가 발생했습니다.", error);
+    return NextResponse.json({ error: "모집인원 복사에 실패했습니다." }, { status: 500 });
+  }
+}

@@ -86,8 +86,6 @@ export async function GET(request: NextRequest) {
         id: true,
         name: true,
         isActive: true,
-        recruitCount: true,
-        recruitCountCareer: true,
       },
     }),
     prisma.subject.findMany({
@@ -113,13 +111,31 @@ export async function GET(request: NextRequest) {
     getSiteSettingsUncached(),
   ]);
 
+  // 활성 시험의 모집인원 조회
+  const quotas = activeExam
+    ? await prisma.examRegionQuota.findMany({
+        where: { examId: activeExam.id },
+        select: { regionId: true, recruitCount: true, recruitCountCareer: true },
+      })
+    : [];
+  const quotaByRegionId = new Map(quotas.map((q) => [q.regionId, q]));
+
   const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
-  const regions = [...regionsRaw].sort((a, b) => {
-    const orderA = regionOrderOf(a.name);
-    const orderB = regionOrderOf(b.name);
-    if (orderA !== orderB) return orderA - orderB;
-    return a.name.localeCompare(b.name, "ko-KR");
-  });
+  const regions = [...regionsRaw]
+    .sort((a, b) => {
+      const orderA = regionOrderOf(a.name);
+      const orderB = regionOrderOf(b.name);
+      if (orderA !== orderB) return orderA - orderB;
+      return a.name.localeCompare(b.name, "ko-KR");
+    })
+    .map((r) => {
+      const quota = quotaByRegionId.get(r.id);
+      return {
+        ...r,
+        recruitCount: quota?.recruitCount ?? 0,
+        recruitCountCareer: quota?.recruitCountCareer ?? 0,
+      };
+    });
   const publicSubjects = sortSubjectsByRule(ExamType.PUBLIC, publicSubjectsRaw);
   const careerSubjects = careerExamEnabled
     ? sortSubjectsByRule(ExamType.CAREER, careerSubjectsRaw)

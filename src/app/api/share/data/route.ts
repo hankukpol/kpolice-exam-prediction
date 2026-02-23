@@ -28,15 +28,16 @@ function toCount(value: bigint | number | null | undefined): number {
 
 function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
   if (submissionHasCutoff) {
-    return Prisma.empty;
+    return Prisma.sql`AND s."isSuspicious" = false`;
   }
 
   return Prisma.sql`
+    AND s."isSuspicious" = false
     AND NOT EXISTS (
       SELECT 1
-      FROM SubjectScore sf
-      WHERE sf.submissionId = s.id
-        AND sf.isFailed = true
+      FROM "SubjectScore" sf
+      WHERE sf."submissionId" = s.id
+        AND sf."isFailed" = true
     )
   `;
 }
@@ -110,12 +111,12 @@ export async function GET(request: NextRequest) {
 
   const [rankRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
     SELECT
-      COUNT(*) AS totalCount,
-      SUM(CASE WHEN s.finalScore > ${Number(submission.finalScore)} THEN 1 ELSE 0 END) AS higherCount
-    FROM Submission s
-    WHERE s.examId = ${submission.exam.id}
-      AND s.regionId = ${submission.region.id}
-      AND s.examType = ${submission.examType}
+      COUNT(*) AS "totalCount",
+      SUM(CASE WHEN s."finalScore" > ${Number(submission.finalScore)} THEN 1 ELSE 0 END) AS "higherCount"
+    FROM "Submission" s
+    WHERE s."examId" = ${submission.exam.id}
+      AND s."regionId" = ${submission.region.id}
+      AND s."examType" = ${submission.examType}
       ${populationConditionSql}
   `);
 

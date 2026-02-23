@@ -32,6 +32,11 @@ interface RegionInfo {
   recruitCountCareer: number;
 }
 
+interface RegionRaw {
+  id: number;
+  name: string;
+}
+
 interface SubmissionDraft {
   phone: string;
   examType: ExamType;
@@ -431,16 +436,18 @@ export async function generateMockData(
   const resetBeforeGenerate = options.resetBeforeGenerate !== false;
   const includeFinalPredictionMock = options.includeFinalPredictionMock !== false;
 
-  const [regions, subjects] = await Promise.all([
+  const [regionsRaw, quotas, subjects] = await Promise.all([
     prisma.region.findMany({
       where: { isActive: true },
       orderBy: { name: "asc" },
       select: {
         id: true,
         name: true,
-        recruitCount: true,
-        recruitCountCareer: true,
       },
+    }),
+    prisma.examRegionQuota.findMany({
+      where: { examId: targetExam.id },
+      select: { regionId: true, recruitCount: true, recruitCountCareer: true },
     }),
     prisma.subject.findMany({
       orderBy: [{ examType: "asc" }, { id: "asc" }],
@@ -452,6 +459,14 @@ export async function generateMockData(
       },
     }),
   ]);
+
+  const quotaByRegionId = new Map(quotas.map((q) => [q.regionId, q]));
+  const regions: RegionInfo[] = regionsRaw.map((r: RegionRaw) => ({
+    id: r.id,
+    name: r.name,
+    recruitCount: quotaByRegionId.get(r.id)?.recruitCount ?? 0,
+    recruitCountCareer: quotaByRegionId.get(r.id)?.recruitCountCareer ?? 0,
+  }));
 
   const subjectsByType: Record<ExamType, SubjectInfo[]> = {
     [ExamType.PUBLIC]: subjects

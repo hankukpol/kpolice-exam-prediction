@@ -1,7 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
+import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
-import { buildPassCutPredictionRows } from "@/lib/pass-cut";
+import { evaluateAutoPassCutRows } from "@/lib/pass-cut-auto-release";
+import {
+  createPassCutRelease,
+  PassCutReleaseServiceError,
+} from "@/lib/pass-cut-release.service";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 
@@ -20,13 +24,16 @@ function parsePositiveInt(value: unknown): number | null {
 
 function toUserErrorMessage(error: unknown, fallbackMessage: string): string {
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2022") {
-    return (
-      "데이터베이스 스키마가 최신 코드와 일치하지 않습니다. " +
-      "관리자에서 `npx prisma db push` 또는 마이그레이션 적용 후 다시 시도해 주세요."
-    );
+    return "DB schema mismatch detected. Run `npx prisma db push` and try again.";
   }
-
   return fallbackMessage;
+}
+
+interface CreateReleaseBody {
+  examId?: number;
+  releaseNumber?: number;
+  memo?: string;
+  autoNotice?: boolean;
 }
 
 export async function GET(request: NextRequest) {
@@ -37,7 +44,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const examId = parsePositiveInt(searchParams.get("examId"));
     if (!examId) {
-      return NextResponse.json({ error: "examId가 필요합니다." }, { status: 400 });
+      return NextResponse.json({ error: "examId is required." }, { status: 400 });
     }
 
     const releases = await prisma.passCutRelease.findMany({
@@ -81,8 +88,10 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("GET /api/admin/pass-cut-release error", error);
-    const message = toUserErrorMessage(error, "합격컷 발표 이력 조회에 실패했습니다.");
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: toUserErrorMessage(error, "Failed to fetch pass-cut releases.") },
+      { status: 500 }
+    );
   }
 }
 
@@ -93,24 +102,14 @@ export async function POST(request: NextRequest) {
   try {
     const adminUserId = Number(guard.session.user.id);
     if (!Number.isInteger(adminUserId) || adminUserId <= 0) {
-      return NextResponse.json({ error: "관리자 정보를 확인할 수 없습니다." }, { status: 401 });
+      return NextResponse.json({ error: "Invalid admin user." }, { status: 401 });
     }
 
-    let body: {
-      examId?: number;
-      releaseNumber?: number;
-      memo?: string;
-      autoNotice?: boolean;
-    };
+    let body: CreateReleaseBody;
     try {
-      body = (await request.json()) as {
-        examId?: number;
-        releaseNumber?: number;
-        memo?: string;
-        autoNotice?: boolean;
-      };
+      body = (await request.json()) as CreateReleaseBody;
     } catch {
-      return NextResponse.json({ error: "요청 본문(JSON)을 확인해 주세요." }, { status: 400 });
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
 
     const examId = parsePositiveInt(body.examId);
@@ -119,113 +118,63 @@ export async function POST(request: NextRequest) {
     const autoNotice = body.autoNotice !== false;
 
     if (!examId) {
-      return NextResponse.json({ error: "examId가 필요합니다." }, { status: 400 });
+      return NextResponse.json({ error: "examId is required." }, { status: 400 });
     }
     if (!releaseNumber || releaseNumber < 1 || releaseNumber > 4) {
-      return NextResponse.json({ error: "releaseNumber는 1~4 범위여야 합니다." }, { status: 400 });
-    }
-
-    const exam = await prisma.exam.findUnique({
-      where: { id: examId },
-      select: {
-        id: true,
-        name: true,
-        year: true,
-        round: true,
-      },
-    });
-    if (!exam) {
-      return NextResponse.json({ error: "대상 시험을 찾을 수 없습니다." }, { status: 404 });
-    }
-
-    const duplicated = await prisma.passCutRelease.findUnique({
-      where: {
-        examId_releaseNumber: {
-          examId,
-          releaseNumber,
-        },
-      },
-      select: { id: true },
-    });
-    if (duplicated) {
-      return NextResponse.json(
-        { error: `이미 ${releaseNumber}차 합격컷 발표가 등록되어 있습니다.` },
-        { status: 409 }
-      );
+      return NextResponse.json({ error: "releaseNumber must be in 1..4." }, { status: 400 });
     }
 
     const settings = await getSiteSettingsUncached();
-    const rows = await buildPassCutPredictionRows({
+    const includeCareerExamType = Boolean(settings["site.careerExamEnabled"] ?? true);
+    const evaluatedRows = await evaluateAutoPassCutRows({
       examId,
-      includeCareerExamType: Boolean(settings["site.careerExamEnabled"] ?? true),
+      releaseNumberForThreshold: releaseNumber,
+      includeCareerExamType,
     });
 
-    const participantCount = rows.reduce((sum, row) => sum + row.participantCount, 0);
-    const release = await prisma.$transaction(async (tx) => {
-      const created = await tx.passCutRelease.create({
-        data: {
-          examId,
-          releaseNumber,
-          participantCount,
-          createdBy: adminUserId,
-          memo,
-        },
-        select: {
-          id: true,
-          releaseNumber: true,
-          releasedAt: true,
-          participantCount: true,
-        },
-      });
-
-      if (rows.length > 0) {
-        await tx.passCutSnapshot.createMany({
-          data: rows.map((row) => ({
-            passCutReleaseId: created.id,
-            regionId: row.regionId,
-            examType: row.examType,
-            participantCount: row.participantCount,
-            recruitCount: row.recruitCount,
-            averageScore: row.averageScore,
-            oneMultipleCutScore: row.oneMultipleCutScore,
-            sureMinScore: row.sureMinScore,
-            likelyMinScore: row.likelyMinScore,
-            possibleMinScore: row.possibleMinScore,
-          })),
-        });
-      }
-
-      if (autoNotice) {
-        await tx.notice.create({
-          data: {
-            title: `${releaseNumber}차 합격컷 발표 안내`,
-            content: `${exam.year}년 ${exam.round}차 ${exam.name} ${releaseNumber}차 합격컷이 발표되었습니다.`,
-            isActive: true,
-            priority: 100,
-          },
-        });
-      }
-
-      return created;
+    const created = await createPassCutRelease({
+      examId,
+      releaseNumber,
+      createdBy: adminUserId,
+      source: "ADMIN",
+      memo,
+      autoNotice,
+      snapshots: evaluatedRows.map((row) => ({
+        regionId: row.regionId,
+        examType: row.examType,
+        participantCount: row.participantCount,
+        recruitCount: row.recruitCount,
+        averageScore: row.averageScore,
+        oneMultipleCutScore: row.oneMultipleCutScore,
+        sureMinScore: row.sureMinScore,
+        likelyMinScore: row.likelyMinScore,
+        possibleMinScore: row.possibleMinScore,
+        statusPayload: row.statusPayload,
+      })),
     });
 
     return NextResponse.json({
       success: true,
-      releaseId: release.id,
-      releaseNumber: release.releaseNumber,
-      releasedAt: release.releasedAt.toISOString(),
-      participantCount: release.participantCount,
-      snapshotCount: rows.length,
+      releaseId: created.id,
+      releaseNumber: created.releaseNumber,
+      releasedAt: created.releasedAt,
+      participantCount: created.participantCount,
+      snapshotCount: created.snapshotCount,
     });
   } catch (error) {
+    if (error instanceof PassCutReleaseServiceError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json(
-        { error: "이미 같은 차수의 합격컷 발표가 등록되어 있습니다." },
+        { error: "A release for this exam/releaseNumber already exists." },
         { status: 409 }
       );
     }
     console.error("POST /api/admin/pass-cut-release error", error);
-    const message = toUserErrorMessage(error, "합격컷 발표 처리에 실패했습니다.");
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: toUserErrorMessage(error, "Failed to create pass-cut release.") },
+      { status: 500 }
+    );
   }
 }

@@ -7,6 +7,8 @@ import { getRegionRecruitCount, normalizeSubjectName, parsePositiveInt } from "@
 import { getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
+import { validateAnswerPattern } from "@/lib/answer-validation";
+import { getClientIp } from "@/lib/request-ip";
 import {
   calculateScore,
   getBonusPercent,
@@ -47,6 +49,7 @@ interface SubmissionRequestBody {
   bonusType?: unknown;
   veteranPercent?: unknown;
   heroPercent?: unknown;
+  submitDurationMs?: unknown;
   answers?: unknown;
 }
 
@@ -89,6 +92,17 @@ function parseExamNumber(value: unknown): string | null {
   const normalized = value.trim();
   if (!normalized) return null;
   return normalized.slice(0, 50);
+}
+
+function parseNonNegativeInt(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+  }
+  return null;
 }
 
 function parseDifficulty(
@@ -443,6 +457,7 @@ export async function POST(request: Request) {
     }
 
     const difficulty = parseDifficulty(body.difficulty);
+    const submitDurationMs = parseNonNegativeInt(body.submitDurationMs);
 
     const requestedExamId = parsePositiveInt(body.examId);
     const exam = requestedExamId
@@ -485,8 +500,6 @@ export async function POST(request: Request) {
         id: true,
         name: true,
         isActive: true,
-        recruitCount: true,
-        recruitCountCareer: true,
       },
     });
 
@@ -505,9 +518,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "응시번호는 필수 입력 항목입니다." }, { status: 400 });
     }
 
+    const quota = await prisma.examRegionQuota.findUnique({
+      where: { examId_regionId: { examId: exam.id, regionId } },
+    });
+
+    // 응시번호 범위 검증
+    if (quota?.examNumberStart && quota?.examNumberEnd) {
+      const inputNum = Number(examNumber);
+      const startNum = Number(quota.examNumberStart);
+      const endNum = Number(quota.examNumberEnd);
+
+      const outOfRange =
+        Number.isInteger(inputNum) && Number.isInteger(startNum) && Number.isInteger(endNum)
+          ? inputNum < startNum || inputNum > endNum
+          : examNumber < quota.examNumberStart || examNumber > quota.examNumberEnd;
+
+      if (outOfRange) {
+        return NextResponse.json(
+          { error: `응시번호가 유효 범위(${quota.examNumberStart}~${quota.examNumberEnd}) 밖입니다.` },
+          { status: 400 }
+        );
+      }
+    }
+
     const bonusType = resolveBonusType(body);
     const bonusRate = getBonusPercent(bonusType);
-    const recruitCount = getRegionRecruitCount(region, examType);
+    const recruitCount = quota ? getRegionRecruitCount(quota, examType) : 0;
     if (!Number.isInteger(recruitCount) || recruitCount < 1) {
       const message =
         examType === ExamType.CAREER
@@ -540,6 +576,13 @@ export async function POST(request: Request) {
       hasCutoff: scoreResult.hasCutoff,
     });
 
+    const answerPatternResult = validateAnswerPattern({
+      answers: answers.map((a) => a.answer),
+      totalScore: scoreResult.totalScore,
+      maxScore: 250,
+      submitDurationMs,
+    });
+
     const submission = await prisma.$transaction(async (tx) => {
       const savedSubmission = await tx.submission.create({
         data: {
@@ -553,6 +596,11 @@ export async function POST(request: Request) {
           bonusType,
           bonusRate,
           finalScore: scoreResult.finalScore,
+          submitDurationMs,
+          isSuspicious: answerPatternResult.isSuspicious,
+          suspiciousReason: answerPatternResult.isSuspicious
+            ? answerPatternResult.reasons.join("; ")
+            : null,
         },
       });
 
@@ -609,6 +657,16 @@ export async function POST(request: Request) {
           });
         }
       }
+
+      await tx.submissionLog.create({
+        data: {
+          submissionId: savedSubmission.id,
+          userId,
+          action: "CREATE",
+          ipAddress: getClientIp(request),
+          submitDurationMs,
+        },
+      });
 
       return savedSubmission;
     });
@@ -678,7 +736,10 @@ export async function PUT(request: Request) {
 
     const existingSubmission = await prisma.submission.findUnique({
       where: { id: submissionId },
-      select: { id: true, userId: true, examId: true, editCount: true },
+      select: {
+        id: true, userId: true, examId: true, editCount: true,
+        examType: true, regionId: true, examNumber: true, gender: true, bonusType: true,
+      },
     });
 
     if (!existingSubmission || existingSubmission.userId !== userId) {
@@ -720,6 +781,7 @@ export async function PUT(request: Request) {
     }
 
     const difficulty = parseDifficulty(body.difficulty);
+    const submitDurationMsEdit = parseNonNegativeInt(body.submitDurationMs);
 
     const requestedExamId = parsePositiveInt(body.examId);
     if (requestedExamId && requestedExamId !== existingSubmission.examId) {
@@ -747,8 +809,6 @@ export async function PUT(request: Request) {
         id: true,
         name: true,
         isActive: true,
-        recruitCount: true,
-        recruitCountCareer: true,
       },
     });
 
@@ -767,9 +827,32 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "응시번호는 필수 입력 항목입니다." }, { status: 400 });
     }
 
+    const quotaForEdit = await prisma.examRegionQuota.findUnique({
+      where: { examId_regionId: { examId: exam.id, regionId } },
+    });
+
+    // 응시번호 범위 검증
+    if (quotaForEdit?.examNumberStart && quotaForEdit?.examNumberEnd) {
+      const inputNum = Number(examNumber);
+      const startNum = Number(quotaForEdit.examNumberStart);
+      const endNum = Number(quotaForEdit.examNumberEnd);
+
+      const outOfRange =
+        Number.isInteger(inputNum) && Number.isInteger(startNum) && Number.isInteger(endNum)
+          ? inputNum < startNum || inputNum > endNum
+          : examNumber < quotaForEdit.examNumberStart || examNumber > quotaForEdit.examNumberEnd;
+
+      if (outOfRange) {
+        return NextResponse.json(
+          { error: `응시번호가 유효 범위(${quotaForEdit.examNumberStart}~${quotaForEdit.examNumberEnd}) 밖입니다.` },
+          { status: 400 }
+        );
+      }
+    }
+
     const bonusType = resolveBonusType(body);
     const bonusRate = getBonusPercent(bonusType);
-    const recruitCount = getRegionRecruitCount(region, examType);
+    const recruitCount = quotaForEdit ? getRegionRecruitCount(quotaForEdit, examType) : 0;
     if (!Number.isInteger(recruitCount) || recruitCount < 1) {
       const message =
         examType === ExamType.CAREER
@@ -803,6 +886,22 @@ export async function PUT(request: Request) {
       hasCutoff: scoreResult.hasCutoff,
     });
 
+    const answerPatternResult = validateAnswerPattern({
+      answers: answers.map((a) => a.answer),
+      totalScore: scoreResult.totalScore,
+      maxScore: 250,
+      submitDurationMs: submitDurationMsEdit,
+    });
+
+    // 변경된 필드 감지 (감사 로그용)
+    const changedFields: string[] = [];
+    if (existingSubmission.examType !== examType) changedFields.push("examType");
+    if (existingSubmission.regionId !== regionId) changedFields.push("regionId");
+    if (existingSubmission.examNumber !== examNumber) changedFields.push("examNumber");
+    if (existingSubmission.gender !== gender) changedFields.push("gender");
+    if (existingSubmission.bonusType !== bonusType) changedFields.push("bonusType");
+    changedFields.push("answers");
+
     const updated = await prisma.$transaction(async (tx) => {
       await tx.userAnswer.deleteMany({ where: { submissionId } });
       await tx.subjectScore.deleteMany({ where: { submissionId } });
@@ -820,7 +919,12 @@ export async function PUT(request: Request) {
           bonusType,
           bonusRate,
           finalScore: scoreResult.finalScore,
+          submitDurationMs: submitDurationMsEdit,
           editCount: { increment: 1 },
+          isSuspicious: answerPatternResult.isSuspicious,
+          suspiciousReason: answerPatternResult.isSuspicious
+            ? answerPatternResult.reasons.join("; ")
+            : null,
         },
       });
 
@@ -871,6 +975,17 @@ export async function PUT(request: Request) {
           });
         }
       }
+
+      await tx.submissionLog.create({
+        data: {
+          submissionId,
+          userId,
+          action: "UPDATE",
+          ipAddress: getClientIp(request),
+          submitDurationMs: submitDurationMsEdit,
+          changedFields: changedFields.length > 0 ? JSON.stringify(changedFields) : null,
+        },
+      });
 
       return savedSubmission;
     });

@@ -71,20 +71,21 @@ export async function getCorrectRateRows(examId: number, examType: ExamType): Pr
 
   const rawRows = await prisma.$queryRaw<RawCorrectRateRow[]>(Prisma.sql`
     SELECT
-      ua.subjectId AS subjectId,
-      ua.questionNumber AS questionNumber,
-      COUNT(*) AS totalAnswered,
-      SUM(CASE WHEN ua.isCorrect = 1 THEN 1 ELSE 0 END) AS correctCount,
+      ua."subjectId" AS "subjectId",
+      ua."questionNumber" AS "questionNumber",
+      COUNT(*) AS "totalAnswered",
+      SUM(CASE WHEN ua."isCorrect" = true THEN 1 ELSE 0 END) AS "correctCount",
       ROUND(
-        SUM(CASE WHEN ua.isCorrect = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+        SUM(CASE WHEN ua."isCorrect" = true THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
         1
-      ) AS correctRate
-    FROM UserAnswer ua
-    INNER JOIN Submission s ON ua.submissionId = s.id
-    WHERE s.examId = ${examId}
-      AND s.examType = ${examType}
-    GROUP BY ua.subjectId, ua.questionNumber
-    ORDER BY ua.subjectId ASC, ua.questionNumber ASC
+      ) AS "correctRate"
+    FROM "UserAnswer" ua
+    INNER JOIN "Submission" s ON ua."submissionId" = s.id
+    WHERE s."examId" = ${examId}
+      AND s."examType" = ${examType}
+      AND s."isSuspicious" = false
+    GROUP BY ua."subjectId", ua."questionNumber"
+    ORDER BY ua."subjectId" ASC, ua."questionNumber" ASC
   `);
 
   const rows: CorrectRateRow[] = rawRows.map((row) => {

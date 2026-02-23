@@ -1,19 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import BannerHtmlEditor from "@/components/admin/BannerHtmlEditor";
 
 type BannerZone = "hero" | "middle" | "bottom";
 
 interface BannerItem {
   id: number;
   zone: BannerZone;
-  imageUrl: string;
+  imageUrl: string | null;
   linkUrl: string | null;
   altText: string;
+  htmlContent: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt: string;
@@ -26,12 +28,10 @@ interface BannersResponse {
 
 interface ZoneFormState {
   id: number | null;
-  imageUrl: string | null;
-  linkUrl: string;
+  htmlContent: string;
   altText: string;
   isActive: boolean;
   sortOrder: number;
-  file: File | null;
 }
 
 type NoticeState =
@@ -58,25 +58,33 @@ const ZONE_HINTS: Record<BannerZone, string> = {
 function createEmptyZoneState(sortOrder = 0): ZoneFormState {
   return {
     id: null,
-    imageUrl: null,
-    linkUrl: "",
+    htmlContent: "",
     altText: "",
     isActive: true,
     sortOrder,
-    file: null,
   };
 }
 
+/** 기존 이미지 기반 배너를 에디터용 HTML로 자동 변환 */
 function toZoneState(banner: BannerItem | undefined): ZoneFormState {
   if (!banner) return createEmptyZoneState();
+
+  let htmlContent = banner.htmlContent ?? "";
+
+  // 레거시 배너(htmlContent 없음): imageUrl+linkUrl → <img>+<a> 태그로 자동 변환
+  if (!htmlContent && banner.imageUrl) {
+    const imgTag = `<img src="${banner.imageUrl}" alt="${banner.altText || "배너 이미지"}" style="width:100%;height:auto;" />`;
+    htmlContent = banner.linkUrl
+      ? `<a href="${banner.linkUrl}">${imgTag}</a>`
+      : imgTag;
+  }
+
   return {
     id: banner.id,
-    imageUrl: banner.imageUrl,
-    linkUrl: banner.linkUrl ?? "",
+    htmlContent,
     altText: banner.altText,
     isActive: banner.isActive,
     sortOrder: banner.sortOrder,
-    file: null,
   };
 }
 
@@ -103,6 +111,11 @@ export default function AdminBannersPage() {
   const [savingZone, setSavingZone] = useState<BannerZone | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const [showPreview, setShowPreview] = useState<Record<BannerZone, boolean>>({
+    hero: false,
+    middle: false,
+    bottom: false,
+  });
 
   const hasAnyBanner = useMemo(() => allBanners.length > 0, [allBanners.length]);
 
@@ -177,17 +190,12 @@ export default function AdminBannersPage() {
     }));
   }
 
-  function handleFileChange(zone: BannerZone, event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    updateZoneState(zone, { file });
-  }
-
   async function handleSaveZone(zone: BannerZone) {
     const current = zoneStates[zone];
-    if (!current.id && !current.file) {
+    if (!current.id && !current.htmlContent.trim()) {
       setNotice({
         type: "error",
-        message: `${ZONE_LABELS[zone]}은 새 등록 시 이미지 파일이 필요합니다.`,
+        message: `${ZONE_LABELS[zone]}은 배너 콘텐츠가 필요합니다.`,
       });
       return;
     }
@@ -203,22 +211,21 @@ export default function AdminBannersPage() {
     setNotice(null);
 
     try {
-      const formData = new FormData();
-      formData.append("zone", zone);
-      formData.append("linkUrl", current.linkUrl.trim());
-      formData.append("altText", current.altText.trim());
-      formData.append("isActive", String(current.isActive));
-      formData.append("sortOrder", String(current.sortOrder));
-      if (current.file) {
-        formData.append("image", current.file);
-      }
+      const body = {
+        zone,
+        htmlContent: current.htmlContent,
+        altText: current.altText.trim(),
+        isActive: current.isActive,
+        sortOrder: current.sortOrder,
+      };
 
       const endpoint = current.id ? `/api/admin/banners?id=${current.id}` : "/api/admin/banners";
       const method = current.id ? "PUT" : "POST";
 
       const response = await fetch(endpoint, {
         method,
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!response.ok || !data.success) {
@@ -281,6 +288,7 @@ export default function AdminBannersPage() {
         <h1 className="text-xl font-semibold text-slate-900">배너 관리</h1>
         <p className="mt-1 text-sm text-slate-600">
           존별로 배너를 다중 등록하고 정렬 순서/활성 상태를 운영할 수 있습니다.
+          에디터에서 이미지를 삽입하고, 소스 보기(&lt;/&gt;)로 HTML을 직접 편집할 수 있습니다.
         </p>
         <p className="mt-1 text-sm text-slate-600">
           이벤트/공지는 <Link className="font-semibold underline" href="/admin/events">이벤트 관리</Link>,{" "}
@@ -323,35 +331,49 @@ export default function AdminBannersPage() {
               </Button>
             </div>
 
+            {/* 에디터 영역 */}
             <div className="space-y-2">
-              <p className="text-sm text-slate-700">편집 대상 이미지 {current.id ? `(ID ${current.id})` : "(신규)"}</p>
-              {current.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={current.imageUrl}
-                  alt={current.altText || `${ZONE_LABELS[zone]} 배너`}
-                  className="max-h-56 w-full rounded-lg border border-slate-200 object-contain"
-                />
-              ) : (
-                <p className="rounded-md border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
-                  등록된 배너가 없습니다.
-                </p>
-              )}
+              <p className="text-sm text-slate-700">
+                편집 대상 {current.id ? `(ID ${current.id})` : "(신규)"}
+                {" · "}
+                <span className="text-xs text-slate-500">
+                  툴바의 &lt;/&gt; 버튼으로 HTML 소스 편집 모드 전환
+                </span>
+              </p>
+              <BannerHtmlEditor
+                value={current.htmlContent}
+                onChange={(content) => updateZoneState(zone, { htmlContent: content })}
+                height="350"
+              />
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor={`${zone}-link-url`}>링크 URL (선택)</Label>
-                <Input
-                  id={`${zone}-link-url`}
-                  value={current.linkUrl}
-                  onChange={(event) => updateZoneState(zone, { linkUrl: event.target.value })}
-                  placeholder="https://example.com 또는 /path"
-                />
-              </div>
+            {/* 프리뷰 토글 */}
+            <div className="space-y-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setShowPreview((prev) => ({ ...prev, [zone]: !prev[zone] }))
+                }
+              >
+                {showPreview[zone] ? "프리뷰 숨기기" : "프리뷰 보기"}
+              </Button>
+              {showPreview[zone] && current.htmlContent.trim() ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <p className="mb-2 text-xs font-semibold text-slate-500">미리보기</p>
+                  <div
+                    className="overflow-hidden"
+                    dangerouslySetInnerHTML={{ __html: current.htmlContent }}
+                  />
+                </div>
+              ) : null}
+            </div>
 
+            {/* 추가 설정 */}
+            <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
-                <Label htmlFor={`${zone}-alt-text`}>대체 텍스트</Label>
+                <Label htmlFor={`${zone}-alt-text`}>대체 텍스트 (SEO)</Label>
                 <Input
                   id={`${zone}-alt-text`}
                   value={current.altText}
@@ -374,25 +396,17 @@ export default function AdminBannersPage() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor={`${zone}-file`}>이미지 업로드 (jpg/png/webp, 5MB 이하)</Label>
-                <Input
-                  id={`${zone}-file`}
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.webp"
-                  onChange={(event) => handleFileChange(zone, event)}
-                />
+              <div className="flex items-end pb-2">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={current.isActive}
+                    onChange={(event) => updateZoneState(zone, { isActive: event.target.checked })}
+                  />
+                  활성화
+                </label>
               </div>
             </div>
-
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={current.isActive}
-                onChange={(event) => updateZoneState(zone, { isActive: event.target.checked })}
-              />
-              활성화
-            </label>
 
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={() => void handleSaveZone(zone)} disabled={isSaving}>
@@ -410,6 +424,7 @@ export default function AdminBannersPage() {
               ) : null}
             </div>
 
+            {/* 등록된 배너 목록 */}
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-semibold text-slate-900">
                 등록된 배너 목록 ({zoneBannerList.length})
@@ -424,12 +439,18 @@ export default function AdminBannersPage() {
                       className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="flex items-center gap-3">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={banner.imageUrl}
-                          alt={banner.altText || "배너"}
-                          className="h-14 w-24 rounded-md border border-slate-200 object-cover"
-                        />
+                        {banner.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={banner.imageUrl}
+                            alt={banner.altText || "배너"}
+                            className="h-14 w-24 rounded-md border border-slate-200 object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-14 w-24 items-center justify-center rounded-md border border-slate-200 bg-slate-100 text-xs text-slate-500">
+                            HTML 배너
+                          </span>
+                        )}
                         <div className="text-xs text-slate-600">
                           <p>ID #{banner.id}</p>
                           <p>정렬 {banner.sortOrder}</p>

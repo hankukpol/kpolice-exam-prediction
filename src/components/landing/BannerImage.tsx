@@ -15,6 +15,19 @@ function joinClassNames(...parts: Array<string | undefined>): string {
 }
 
 export default function BannerImage({ banner, className, fullWidth = false }: BannerImageProps) {
+  // HTML 에디터 모드 배너: htmlContent를 직접 렌더링
+  if (banner.htmlContent) {
+    return (
+      <div
+        className={fullWidth ? "flex w-full justify-center overflow-hidden" : "block"}
+        dangerouslySetInnerHTML={{ __html: banner.htmlContent }}
+      />
+    );
+  }
+
+  // 레거시 이미지 모드 배너: 기존 로직 유지
+  if (!banner.imageUrl) return null;
+
   const safeLinkUrl = banner.linkUrl && !banner.linkUrl.startsWith("//") ? banner.linkUrl : null;
 
   const image = (

@@ -18,8 +18,8 @@ export function normalizeSubjectName(name: string): string {
 }
 
 export function getRegionRecruitCount(
-  region: { recruitCount: number; recruitCountCareer: number },
+  quota: { recruitCount: number; recruitCountCareer: number },
   examType: ExamType
 ): number {
-  return examType === ExamType.CAREER ? region.recruitCountCareer : region.recruitCount;
+  return examType === ExamType.CAREER ? quota.recruitCountCareer : quota.recruitCount;
 }

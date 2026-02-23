@@ -1,5 +1,4 @@
 import { ExamType, Prisma, Role } from "@prisma/client";
-import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
 
 const SMALL_RECRUIT_PASS_COUNTS: Record<number, number> = {
@@ -12,9 +11,6 @@ const SMALL_RECRUIT_PASS_COUNTS: Record<number, number> = {
 
 const SCORE_KEY_SCALE = 1000000;
 const LIKELY_MULTIPLE_STANDARD = 1.2;
-const ESTIMATED_APPLICANTS_MULTIPLIER = parseEstimatedApplicantsMultiplier(
-  process.env.ESTIMATED_APPLICANTS_MULTIPLIER
-);
 
 export const PREDICTION_DISCLAIMER =
   "본 서비스는 참여자 데이터 기반 예측이며, 실제 합격 결과와 다를 수 있습니다.";
@@ -55,6 +51,7 @@ export interface PredictionSummary {
   regionId: number;
   regionName: string;
   recruitCount: number;
+  applicantCount: number | null;
   estimatedApplicants: number;
   isApplicantCountExact: boolean;
   totalParticipants: number;
@@ -152,21 +149,20 @@ export function getLikelyMultiple(passMultiple: number): number {
 }
 
 function getRecruitCount(
-  region: { recruitCount: number; recruitCountCareer: number },
+  quota: { recruitCount: number; recruitCountCareer: number },
   examType: ExamType
 ): number {
   if (examType === ExamType.CAREER) {
-    return region.recruitCountCareer;
+    return quota.recruitCountCareer;
   }
-  return region.recruitCount;
+  return quota.recruitCount;
 }
 
 function getRegionApplicantCount(
-  region: { applicantCount: number | null; applicantCountCareer: number | null },
-  examType: ExamType,
-  recruitCount: number
-): { applicantCount: number; isExact: boolean } {
-  const raw = examType === ExamType.PUBLIC ? region.applicantCount : region.applicantCountCareer;
+  quota: { applicantCount: number | null; applicantCountCareer: number | null },
+  examType: ExamType
+): { applicantCount: number | null; isExact: boolean } {
+  const raw = examType === ExamType.PUBLIC ? quota.applicantCount : quota.applicantCountCareer;
   if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
     return {
       applicantCount: Math.floor(raw),
@@ -175,7 +171,7 @@ function getRegionApplicantCount(
   }
 
   return {
-    applicantCount: Math.max(0, Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER)),
+    applicantCount: null,
     isExact: false,
   };
 }
@@ -303,6 +299,7 @@ function buildPopulationWhere(submission: {
     examId: submission.examId,
     regionId: submission.regionId,
     examType: submission.examType,
+    isSuspicious: false,
     subjectScores: {
       some: {},
       none: {
@@ -339,10 +336,6 @@ export async function calculatePrediction(
       select: {
         id: true,
         name: true,
-        recruitCount: true,
-        recruitCountCareer: true,
-        applicantCount: true,
-        applicantCountCareer: true,
       },
     },
     user: {
@@ -395,7 +388,23 @@ export async function calculatePrediction(
     throw new PredictionError("과락으로 인해 합격예측을 제공할 수 없습니다.", 400);
   }
 
-  const recruitCount = getRecruitCount(submission.region, submission.examType);
+  const quota = await prisma.examRegionQuota.findUnique({
+    where: {
+      examId_regionId: {
+        examId: submission.examId,
+        regionId: submission.regionId,
+      },
+    },
+  });
+
+  if (!quota) {
+    throw new PredictionError(
+      "해당 시험의 모집인원 정보가 설정되지 않았습니다. 관리자에게 문의해주세요.",
+      500
+    );
+  }
+
+  const recruitCount = getRecruitCount(quota, submission.examType);
   if (submission.examType === ExamType.CAREER && recruitCount < 1) {
     throw new PredictionError(
       "경행경채 모집인원이 설정되지 않았습니다. 관리자에게 문의해주세요.",
@@ -412,7 +421,7 @@ export async function calculatePrediction(
   const passCount = Math.ceil(recruitCount * passMultiple);
   const likelyMaxRank = getMaxRankByMultiple(recruitCount, likelyMultiple);
   const challengeMaxRank = getMaxRankByMultiple(recruitCount, challengeMultiple);
-  const applicantCountInfo = getRegionApplicantCount(submission.region, submission.examType, recruitCount);
+  const applicantCountInfo = getRegionApplicantCount(quota, submission.examType);
 
   const populationWhere = buildPopulationWhere(submission);
 
@@ -586,7 +595,8 @@ export async function calculatePrediction(
       regionId: submission.region.id,
       regionName: submission.region.name,
       recruitCount,
-      estimatedApplicants: applicantCountInfo.applicantCount,
+      applicantCount: applicantCountInfo.applicantCount,
+      estimatedApplicants: applicantCountInfo.applicantCount ?? 0,
       isApplicantCountExact: applicantCountInfo.isExact,
       totalParticipants,
       myScore,

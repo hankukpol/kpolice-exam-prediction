@@ -14,7 +14,7 @@ interface SubjectAnswerRow {
 interface SubjectSummary {
   subjectId: number;
   subjectName: string;
-  averageCorrectRate: number;
+  averageCorrectRate: number | null;
   hardestQuestion: number | null;
   hardestRate: number | null;
   easiestQuestion: number | null;
@@ -150,7 +150,10 @@ export default function AnswerSheet({ subjects, summaries }: AnswerSheetProps) {
 
       {summary ? (
         <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 sm:text-sm">
-          <p>과목 평균 정답률: {summary.averageCorrectRate.toFixed(1)}%</p>
+          <p>
+            과목 평균 정답률:{" "}
+            {summary.averageCorrectRate === null ? "데이터 없음" : `${summary.averageCorrectRate.toFixed(1)}%`}
+          </p>
           <p>
             가장 어려운 문항: {summary.hardestQuestion ?? "-"}번 ({summary.hardestRate?.toFixed(1) ?? "-"}%)
           </p>

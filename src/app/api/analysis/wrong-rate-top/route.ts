@@ -83,10 +83,11 @@ export async function GET(request: NextRequest) {
   }
 
   const [participantRow] = await prisma.$queryRaw<ParticipantRow[]>(Prisma.sql`
-    SELECT COUNT(*) AS totalCount
-    FROM Submission s
-    WHERE s.examId = ${submission.examId}
-      AND s.examType = ${submission.examType}
+    SELECT COUNT(*) AS "totalCount"
+    FROM "Submission" s
+    WHERE s."examId" = ${submission.examId}
+      AND s."examType" = ${submission.examType}
+      AND s."isSuspicious" = false
   `);
 
   const totalParticipants = toCount(participantRow?.totalCount);
@@ -102,28 +103,32 @@ export async function GET(request: NextRequest) {
   }
 
   const subjectFilterSql = subjectId
-    ? Prisma.sql`AND ua.subjectId = ${subjectId}`
+    ? Prisma.sql`AND ua."subjectId" = ${subjectId}`
     : Prisma.empty;
 
   const rows = await prisma.$queryRaw<WrongRateRow[]>(Prisma.sql`
     SELECT
-      ua.subjectId AS subjectId,
-      sub.name AS subjectName,
-      ua.questionNumber AS questionNumber,
-      ROUND(SUM(CASE WHEN ua.isCorrect = 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS wrongRate,
-      MAX(ak.correctAnswer) AS correctAnswer
-    FROM UserAnswer ua
-    INNER JOIN Submission s ON ua.submissionId = s.id
-    INNER JOIN Subject sub ON sub.id = ua.subjectId
-    INNER JOIN AnswerKey ak
-      ON ak.examId = s.examId
-     AND ak.subjectId = ua.subjectId
-     AND ak.questionNumber = ua.questionNumber
-    WHERE s.examId = ${submission.examId}
-      AND s.examType = ${submission.examType}
+      ua."subjectId" AS "subjectId",
+      sub."name" AS "subjectName",
+      ua."questionNumber" AS "questionNumber",
+      ROUND(
+        SUM(CASE WHEN ua."isCorrect" = false THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0),
+        2
+      ) AS "wrongRate",
+      MAX(ak."correctAnswer") AS "correctAnswer"
+    FROM "UserAnswer" ua
+    INNER JOIN "Submission" s ON ua."submissionId" = s.id
+    INNER JOIN "Subject" sub ON sub.id = ua."subjectId"
+    INNER JOIN "AnswerKey" ak
+      ON ak."examId" = s."examId"
+     AND ak."subjectId" = ua."subjectId"
+     AND ak."questionNumber" = ua."questionNumber"
+    WHERE s."examId" = ${submission.examId}
+      AND s."examType" = ${submission.examType}
+      AND s."isSuspicious" = false
       ${subjectFilterSql}
-    GROUP BY ua.subjectId, sub.name, ua.questionNumber
-    ORDER BY wrongRate DESC, ua.subjectId ASC, ua.questionNumber ASC
+    GROUP BY ua."subjectId", sub."name", ua."questionNumber"
+    ORDER BY "wrongRate" DESC, ua."subjectId" ASC, ua."questionNumber" ASC
     LIMIT 5
   `);
 
@@ -143,4 +148,3 @@ export async function GET(request: NextRequest) {
     },
   });
 }
-

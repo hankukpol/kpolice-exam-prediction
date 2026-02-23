@@ -102,7 +102,10 @@ export default function ScoreDistributionChart({ submissionId }: ScoreDistributi
 
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-6">
-      <h2 className="text-base font-semibold text-slate-900">점수대별 인원 분포</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-base font-semibold text-slate-900">점수대별 인원 분포</h2>
+        <p className="text-xs text-slate-500">기준: 동일 시험·직렬 전체 입력자 · 원점수 기준</p>
+      </div>
       {isCollecting ? <p className="mt-3 text-sm text-slate-600">참여 인원이 10명 미만이라 데이터 수집 중입니다.</p> : null}
 
       {!isCollecting ? (

@@ -1,16 +1,11 @@
 import { ExamType } from "@prisma/client";
 import { getRegionRecruitCount } from "@/lib/exam-utils";
-import { parseEstimatedApplicantsMultiplier } from "@/lib/policy";
 import { getLikelyMultiple, getPassMultiple } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 
-const ESTIMATED_APPLICANTS_MULTIPLIER = parseEstimatedApplicantsMultiplier(
-  process.env.ESTIMATED_APPLICANTS_MULTIPLIER
-);
-
-interface RegionRow {
-  id: number;
-  name: string;
+interface QuotaRow {
+  regionId: number;
+  regionName: string;
   recruitCount: number;
   recruitCountCareer: number;
   applicantCount: number | null;
@@ -31,8 +26,10 @@ export interface PassCutPredictionRow {
   regionName: string;
   examType: ExamType;
   recruitCount: number;
+  applicantCount: number | null;
   estimatedApplicants: number;
-  competitionRate: number;
+  isApplicantCountExact: boolean;
+  competitionRate: number | null;
   participantCount: number;
   averageScore: number | null;
   oneMultipleCutScore: number | null;
@@ -86,12 +83,22 @@ function getScoreRange(
   };
 }
 
-function getRegionApplicantCount(region: RegionRow, examType: ExamType, recruitCount: number): number {
-  const raw = examType === ExamType.PUBLIC ? region.applicantCount : region.applicantCountCareer;
+function getRegionApplicantCount(
+  quota: QuotaRow,
+  examType: ExamType
+): { applicantCount: number | null; isExact: boolean } {
+  const raw = examType === ExamType.PUBLIC ? quota.applicantCount : quota.applicantCountCareer;
   if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
-    return Math.floor(raw);
+    return {
+      applicantCount: Math.floor(raw),
+      isExact: true,
+    };
   }
-  return Math.max(0, Math.round(recruitCount * ESTIMATED_APPLICANTS_MULTIPLIER));
+
+  return {
+    applicantCount: null,
+    isExact: false,
+  };
 }
 
 export async function buildPassCutPredictionRows(params: {
@@ -102,22 +109,25 @@ export async function buildPassCutPredictionRows(params: {
     ? [ExamType.PUBLIC, ExamType.CAREER]
     : [ExamType.PUBLIC];
 
-  const [regions, participantStats, scoreBandStats] = await Promise.all([
-    prisma.$queryRaw<RegionRow[]>`
+  const [quotaRows, participantStats, scoreBandStats] = await Promise.all([
+    prisma.$queryRaw<QuotaRow[]>`
       SELECT
-        id,
-        name,
-        recruitCount,
-        recruitCountCareer,
-        applicantCount,
-        applicantCountCareer
-      FROM Region
-      ORDER BY name ASC
+        q."regionId",
+        r."name" AS "regionName",
+        q."recruitCount",
+        q."recruitCountCareer",
+        q."applicantCount",
+        q."applicantCountCareer"
+      FROM "exam_region_quotas" q
+      JOIN "Region" r ON r.id = q."regionId"
+      WHERE q."examId" = ${params.examId}
+      ORDER BY r."name" ASC
     `,
     prisma.submission.groupBy({
       by: ["regionId", "examType"],
       where: {
         examId: params.examId,
+        isSuspicious: false,
         subjectScores: {
           some: {},
           none: {
@@ -136,6 +146,7 @@ export async function buildPassCutPredictionRows(params: {
       by: ["regionId", "examType", "finalScore"],
       where: {
         examId: params.examId,
+        isSuspicious: false,
         subjectScores: {
           some: {},
           none: {
@@ -177,20 +188,23 @@ export async function buildPassCutPredictionRows(params: {
 
   const rows: PassCutPredictionRow[] = [];
 
-  for (const region of regions) {
+  for (const quota of quotaRows) {
     for (const examType of examTypes) {
-      const recruitCount = getRegionRecruitCount(region, examType);
+      const recruitCount = getRegionRecruitCount(quota, examType);
       if (!Number.isInteger(recruitCount) || recruitCount < 1) {
         continue;
       }
 
-      const participant = participantMap.get(`${region.id}-${examType}`);
+      const participant = participantMap.get(`${quota.regionId}-${examType}`);
       const participantCount = participant?.participantCount ?? 0;
       const averageScore = participant?.averageScore ?? null;
-      const estimatedApplicants = getRegionApplicantCount(region, examType, recruitCount);
-      const competitionRate = recruitCount > 0 ? roundNumber(estimatedApplicants / recruitCount) : 0;
+      const applicantCountInfo = getRegionApplicantCount(quota, examType);
+      const competitionRate =
+        recruitCount > 0 && applicantCountInfo.applicantCount !== null
+          ? roundNumber(applicantCountInfo.applicantCount / recruitCount)
+          : null;
 
-      const scoreBands = buildScoreBands(scoreBandMap.get(`${region.id}-${examType}`) ?? []);
+      const scoreBands = buildScoreBands(scoreBandMap.get(`${quota.regionId}-${examType}`) ?? []);
       const oneMultipleCutScore = getScoreAtRank(scoreBands, recruitCount);
 
       const passMultiple = getPassMultiple(recruitCount);
@@ -203,11 +217,13 @@ export async function buildPassCutPredictionRows(params: {
       const sureMinScore = getScoreAtRank(scoreBands, recruitCount);
 
       rows.push({
-        regionId: region.id,
-        regionName: region.name,
+        regionId: quota.regionId,
+        regionName: quota.regionName,
         examType,
         recruitCount,
-        estimatedApplicants,
+        applicantCount: applicantCountInfo.applicantCount,
+        estimatedApplicants: applicantCountInfo.applicantCount ?? 0,
+        isApplicantCountExact: applicantCountInfo.isExact,
         competitionRate,
         participantCount,
         averageScore,
@@ -229,6 +245,7 @@ export function getCurrentPassCutSnapshot(
 ): {
   participantCount: number;
   recruitCount: number;
+  applicantCount: number | null;
   averageScore: number | null;
   oneMultipleCutScore: number | null;
   sureMinScore: number | null;
@@ -240,6 +257,7 @@ export function getCurrentPassCutSnapshot(
     return {
       participantCount: 0,
       recruitCount: 0,
+      applicantCount: null,
       averageScore: null,
       oneMultipleCutScore: null,
       sureMinScore: null,
@@ -251,6 +269,7 @@ export function getCurrentPassCutSnapshot(
   return {
     participantCount: matched.participantCount,
     recruitCount: matched.recruitCount,
+    applicantCount: matched.applicantCount,
     averageScore: matched.averageScore,
     oneMultipleCutScore: matched.oneMultipleCutScore,
     sureMinScore: matched.sureMinScore,

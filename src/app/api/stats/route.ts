@@ -79,11 +79,11 @@ function roundTwo(value: number): number {
   return Number(value.toFixed(2));
 }
 
-function getRegionRecruitCount(
-  region: { recruitCount: number; recruitCountCareer: number },
+function getQuotaRecruitCount(
+  quota: { recruitCount: number; recruitCountCareer: number },
   examType: ExamType
 ): number {
-  return examType === ExamType.PUBLIC ? region.recruitCount : region.recruitCountCareer;
+  return examType === ExamType.PUBLIC ? quota.recruitCount : quota.recruitCountCareer;
 }
 
 function getScoreBandInfoAtRank(
@@ -210,18 +210,23 @@ export async function GET(request: NextRequest) {
       }),
       prisma.region.findMany({
         orderBy: { name: "asc" },
+        select: { id: true, name: true },
       }),
       prisma.$queryRaw<Array<{ date: string; count: bigint | number }>>`
-        SELECT DATE_FORMAT(createdAt, '%Y-%m-%d') AS date, COUNT(*) AS count
-        FROM Submission
-        WHERE examId = ${exam.id}
-        GROUP BY DATE_FORMAT(createdAt, '%Y-%m-%d')
-        ORDER BY DATE_FORMAT(createdAt, '%Y-%m-%d')
+        SELECT
+          TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+          COUNT(*)::bigint AS count
+        FROM "Submission"
+        WHERE "examId" = ${exam.id}
+        GROUP BY TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
+        ORDER BY TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
       `,
       prisma.$queryRaw<Array<{ bucket: bigint | number; count: bigint | number }>>`
-        SELECT LEAST(FLOOR(GREATEST(finalScore, 0) / 10), 24) AS bucket, COUNT(*) AS count
-        FROM Submission
-        WHERE examId = ${exam.id}
+        SELECT
+          LEAST(FLOOR(GREATEST("finalScore", 0) / 10), 24)::int AS bucket,
+          COUNT(*)::bigint AS count
+        FROM "Submission"
+        WHERE "examId" = ${exam.id}
         GROUP BY bucket
         ORDER BY bucket
       `,
@@ -230,6 +235,7 @@ export async function GET(request: NextRequest) {
         by: ["regionId", "examType"],
         where: {
           examId: exam.id,
+          isSuspicious: false,
           subjectScores: {
             some: {},
             none: { isFailed: true },
@@ -243,6 +249,7 @@ export async function GET(request: NextRequest) {
         by: ["regionId", "examType", "finalScore"],
         where: {
           examId: exam.id,
+          isSuspicious: false,
           subjectScores: {
             some: {},
             none: { isFailed: true },
@@ -256,6 +263,13 @@ export async function GET(request: NextRequest) {
     ]);
 
     const regionNameById = new Map(regions.map((region) => [region.id, region.name] as const));
+
+    // 시험별 모집인원 조회
+    const examQuotas = await prisma.examRegionQuota.findMany({
+      where: { examId: exam.id },
+      select: { regionId: true, recruitCount: true, recruitCountCareer: true },
+    });
+    const quotaByRegionId = new Map(examQuotas.map((q) => [q.regionId, q] as const));
 
     const byExamType = {
       [ExamType.PUBLIC]: 0,
@@ -359,8 +373,11 @@ export async function GET(request: NextRequest) {
 
     const byRegionPrediction: RegionPredictionAggregate[] = [];
     for (const region of regions) {
+      const quota = quotaByRegionId.get(region.id);
+      if (!quota) continue;
+
       for (const examType of [ExamType.PUBLIC, ExamType.CAREER] as const) {
-        const recruitCount = getRegionRecruitCount(region, examType);
+        const recruitCount = getQuotaRecruitCount(quota, examType);
         if (!Number.isInteger(recruitCount) || recruitCount < 1) {
           continue;
         }

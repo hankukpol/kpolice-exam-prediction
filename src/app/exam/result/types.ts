@@ -31,7 +31,7 @@ export interface ResultScore {
 export interface ResultSubjectCorrectRateSummary {
   subjectId: number;
   subjectName: string;
-  averageCorrectRate: number;
+  averageCorrectRate: number | null;
   hardestQuestion: number | null;
   hardestRate: number | null;
   easiestQuestion: number | null;
@@ -75,8 +75,13 @@ export interface ResultResponse {
       maxScore: number;
       myRank: number;
       totalParticipants: number;
+      correctCount: number;
+      questionCount: number;
+      topPercent: number;
+      percentile: number;
       averageScore: number;
       highestScore: number;
+      lowestScore: number;
       top10Average: number;
       top30Average: number;
     }>;
@@ -85,8 +90,13 @@ export interface ResultResponse {
       maxScore: number;
       myRank: number;
       totalParticipants: number;
+      correctCount: number;
+      questionCount: number;
+      topPercent: number;
+      percentile: number;
       averageScore: number;
       highestScore: number;
+      lowestScore: number;
       top10Average: number;
       top30Average: number;
     };
@@ -94,12 +104,14 @@ export interface ResultResponse {
   participantStatus: {
     currentRank: number;
     totalParticipants: number;
+    topPercent: number;
     percentile: number;
     lastUpdated: string;
   };
   statistics: {
     totalParticipants: number;
     totalRank: number;
+    topPercent: number;
     totalPercentile: number;
     hasCutoff: boolean;
     rankingBasis: "ALL_PARTICIPANTS" | "NON_CUTOFF_PARTICIPANTS";

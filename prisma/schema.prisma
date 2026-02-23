@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -38,6 +39,14 @@ enum DifficultyRatingLevel {
   VERY_HARD
 }
 
+enum PassCutSnapshotStatus {
+  READY
+  COLLECTING_LOW_PARTICIPATION
+  COLLECTING_UNSTABLE
+  COLLECTING_MISSING_APPLICANT_COUNT
+  COLLECTING_INSUFFICIENT_SAMPLE
+}
+
 model User {
   id          Int          @id @default(autoincrement())
   name        String
@@ -52,6 +61,7 @@ model User {
   passCutReleasesCreated PassCutRelease[]
   rescoreDetails RescoreDetail[]
   finalPredictions FinalPrediction[]
+  submissionLogs SubmissionLog[]
 }
 
 model Exam {
@@ -68,20 +78,35 @@ model Exam {
   comments    Comment[]
   rescoreEvents RescoreEvent[]
   passCutReleases PassCutRelease[]
+  quotas  ExamRegionQuota[]
 
   @@unique([year, round])
 }
 
 model Region {
-  id                 Int          @id @default(autoincrement())
-  name               String       @unique
-  isActive           Boolean      @default(true)
-  recruitCount       Int
-  recruitCountCareer Int
-  applicantCount       Int?
-  applicantCountCareer Int?
-  submissions        Submission[]
-  passCutSnapshots   PassCutSnapshot[]
+  id               Int                @id @default(autoincrement())
+  name             String             @unique
+  isActive         Boolean            @default(true)
+  submissions      Submission[]
+  passCutSnapshots PassCutSnapshot[]
+  quotas           ExamRegionQuota[]
+}
+
+model ExamRegionQuota {
+  id                   Int      @id @default(autoincrement())
+  examId               Int
+  regionId             Int
+  recruitCount         Int      // 공채 모집인원
+  recruitCountCareer   Int      // 경행경채 모집인원
+  applicantCount       Int?     // 공채 출원인원
+  applicantCountCareer Int?     // 경행경채 출원인원
+  examNumberStart      String?  // 유효 응시번호 시작 (예: "00001")
+  examNumberEnd        String?  // 유효 응시번호 끝 (예: "00300")
+  exam                 Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  region               Region   @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@unique([examId, regionId])
+  @@map("exam_region_quotas")
 }
 
 model Subject {
@@ -143,9 +168,12 @@ model Submission {
   bonusType     BonusType      @default(NONE)
   bonusRate     Float          @default(0)
   finalScore    Float
-  editCount     Int            @default(0)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @default(now()) @updatedAt
+  editCount         Int            @default(0)
+  isSuspicious      Boolean        @default(false)
+  suspiciousReason  String?        @db.Text
+  submitDurationMs  Int?           // 페이지 로드 → 제출까지 소요시간 (밀리초)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @default(now()) @updatedAt
   exam          Exam           @relation(fields: [examId], references: [id], onDelete: Restrict)
   user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
   region        Region         @relation(fields: [regionId], references: [id], onDelete: Restrict)
@@ -154,11 +182,13 @@ model Submission {
   difficultyRatings DifficultyRating[]
   rescoreDetails RescoreDetail[]
   finalPrediction FinalPrediction?
+  logs          SubmissionLog[]
 
   @@unique([userId, examId])
   @@unique([examId, regionId, examNumber])
   @@index([examId, regionId, examType])
   @@index([examId, examType, finalScore])
+  @@index([examId, regionId, examType, isSuspicious])
 }
 
 model UserAnswer {
@@ -229,15 +259,16 @@ model Faq {
 }
 
 model Banner {
-  id        Int      @id @default(autoincrement())
-  zone      String
-  imageUrl  String
-  linkUrl   String?
-  altText   String   @default("")
-  isActive  Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  id          Int      @id @default(autoincrement())
+  zone        String
+  imageUrl    String?
+  linkUrl     String?
+  altText     String   @default("")
+  htmlContent String?  @db.Text
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
 
   @@index([zone, isActive])
 }
@@ -334,6 +365,12 @@ model PassCutSnapshot {
   passCutReleaseId    Int
   regionId            Int
   examType            ExamType
+  status              PassCutSnapshotStatus @default(READY)
+  statusReason        String?  @db.Text
+  applicantCount      Int?
+  targetParticipantCount Int?
+  coverageRate        Float?
+  stabilityScore      Float?
   participantCount    Int
   recruitCount        Int
   averageScore        Float?
@@ -364,4 +401,21 @@ model FinalPrediction {
   user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// 제출/수정 감사 로그
+model SubmissionLog {
+  id               Int        @id @default(autoincrement())
+  submissionId     Int
+  userId           Int
+  action           String     // "CREATE" | "UPDATE"
+  ipAddress        String?
+  submitDurationMs Int?
+  changedFields    String?    @db.Text  // JSON: 변경된 필드 목록
+  createdAt        DateTime   @default(now())
+  submission       Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@index([userId, createdAt])
 }

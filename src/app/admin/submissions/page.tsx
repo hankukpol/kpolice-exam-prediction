@@ -29,11 +29,14 @@ interface SubmissionRow {
   regionId: number;
   regionName: string;
   gender: "MALE" | "FEMALE";
+  examNumber: string;
   totalScore: number;
   finalScore: number;
   bonusType: "NONE" | "VETERAN_5" | "VETERAN_10" | "HERO_3" | "HERO_5";
   bonusRate: number;
   hasCutoff: boolean;
+  isSuspicious: boolean;
+  suspiciousReason: string | null;
   createdAt: string;
 }
 
@@ -81,6 +84,14 @@ interface SubmissionDetailResponse {
     selectedAnswer: number;
     isCorrect: boolean;
   }>;
+  logs: Array<{
+    id: number;
+    action: string;
+    ipAddress: string | null;
+    submitDurationMs: number | null;
+    changedFields: string | null;
+    createdAt: string;
+  }>;
 }
 
 type NoticeState = {
@@ -114,6 +125,7 @@ export default function AdminSubmissionsPage() {
   const [selectedExamId, setSelectedExamId] = useState<number | "">("");
   const [selectedRegionId, setSelectedRegionId] = useState<number | "">("");
   const [selectedExamType, setSelectedExamType] = useState<"" | ExamTypeValue>("");
+  const [selectedSuspicious, setSelectedSuspicious] = useState<"" | "true" | "false">("");
   const [searchInput, setSearchInput] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
 
@@ -135,9 +147,10 @@ export default function AdminSubmissionsPage() {
     if (selectedExamId) params.set("examId", String(selectedExamId));
     if (selectedRegionId) params.set("regionId", String(selectedRegionId));
     if (selectedExamType) params.set("examType", selectedExamType);
+    if (selectedSuspicious) params.set("suspicious", selectedSuspicious);
     if (searchKeyword) params.set("search", searchKeyword);
     return params.toString();
-  }, [page, searchKeyword, selectedExamId, selectedExamType, selectedRegionId]);
+  }, [page, searchKeyword, selectedExamId, selectedExamType, selectedRegionId, selectedSuspicious]);
 
   const loadFilters = useCallback(async () => {
     const [examResponse, examsMetaResponse] = await Promise.all([
@@ -282,7 +295,7 @@ export default function AdminSubmissionsPage() {
         <p className="mt-1 text-sm text-slate-600">사용자 제출 기록을 조회하고 상세 답안을 확인합니다.</p>
       </header>
 
-      <section className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-5">
+      <section className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-6">
         <select
           className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm"
           value={selectedExamId}
@@ -328,10 +341,23 @@ export default function AdminSubmissionsPage() {
           {careerExamEnabled ? <option value="CAREER">경행경채</option> : null}
         </select>
 
+        <select
+          className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm"
+          value={selectedSuspicious}
+          onChange={(event) => {
+            setSelectedSuspicious(event.target.value as "" | "true" | "false");
+            setPage(1);
+          }}
+        >
+          <option value="">전체 상태</option>
+          <option value="true">의심 답안</option>
+          <option value="false">정상 답안</option>
+        </select>
+
         <Input
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="이름 또는 연락처 검색"
+          placeholder="이름, 연락처 또는 응시번호 검색"
         />
         <Button
           type="button"
@@ -368,9 +394,11 @@ export default function AdminSubmissionsPage() {
                 <th className="px-4 py-3">연락처</th>
                 <th className="px-4 py-3">유형</th>
                 <th className="px-4 py-3">지역</th>
+                <th className="px-4 py-3">응시번호</th>
                 <th className="px-4 py-3">총점</th>
                 <th className="px-4 py-3">최종점수</th>
                 <th className="px-4 py-3">과락</th>
+                <th className="px-4 py-3">상태</th>
                 <th className="px-4 py-3">제출일</th>
                 <th className="px-4 py-3 text-right">작업</th>
               </tr>
@@ -378,7 +406,7 @@ export default function AdminSubmissionsPage() {
             <tbody className="divide-y divide-slate-100">
               {submissions.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-4 text-slate-600" colSpan={10}>
+                  <td className="px-4 py-4 text-slate-600" colSpan={12}>
                     조회된 제출 데이터가 없습니다.
                   </td>
                 </tr>
@@ -390,6 +418,7 @@ export default function AdminSubmissionsPage() {
                     <td className="px-4 py-3 text-slate-700">{submission.userPhone}</td>
                     <td className="px-4 py-3 text-slate-700">{formatExamType(submission.examType)}</td>
                     <td className="px-4 py-3 text-slate-700">{submission.regionName}</td>
+                    <td className="px-4 py-3 text-slate-700 font-mono text-xs">{submission.examNumber}</td>
                     <td className="px-4 py-3 text-slate-700">{submission.totalScore.toFixed(2)}</td>
                     <td className="px-4 py-3 text-slate-900 font-semibold">
                       {submission.finalScore.toFixed(2)}
@@ -398,6 +427,18 @@ export default function AdminSubmissionsPage() {
                       {submission.hasCutoff ? (
                         <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-medium text-rose-700">
                           과락
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {submission.isSuspicious ? (
+                        <span
+                          className="cursor-help rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700"
+                          title={submission.suspiciousReason ?? "의심 답안"}
+                        >
+                          의심
                         </span>
                       ) : (
                         <span className="text-slate-500">-</span>
@@ -551,6 +592,58 @@ export default function AdminSubmissionsPage() {
                 </table>
               </div>
             </section>
+
+            {detail.logs.length > 0 && (
+              <section className="mt-5">
+                <h4 className="text-sm font-semibold text-slate-900">수정 이력</h4>
+                <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-slate-200">
+                  <table className="min-w-full divide-y divide-slate-200 text-sm">
+                    <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">일시</th>
+                        <th className="px-3 py-2">작업</th>
+                        <th className="px-3 py-2">IP</th>
+                        <th className="px-3 py-2">소요시간</th>
+                        <th className="px-3 py-2">변경 필드</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {detail.logs.map((log) => (
+                        <tr key={log.id} className="bg-white">
+                          <td className="whitespace-nowrap px-3 py-2 text-slate-700">
+                            {formatDateTimeText(log.createdAt)}
+                          </td>
+                          <td className="px-3 py-2">
+                            <span
+                              className={`rounded-full px-2 py-1 text-xs font-medium ${
+                                log.action === "CREATE"
+                                  ? "bg-blue-100 text-blue-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {log.action === "CREATE" ? "생성" : "수정"}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs text-slate-600">
+                            {log.ipAddress ?? "-"}
+                          </td>
+                          <td className="px-3 py-2 text-slate-700">
+                            {log.submitDurationMs != null
+                              ? `${Math.round(log.submitDurationMs / 1000)}초`
+                              : "-"}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-slate-600">
+                            {log.changedFields
+                              ? (JSON.parse(log.changedFields) as string[]).join(", ")
+                              : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
 
             <div className="mt-6 flex justify-end gap-2">
               <Button

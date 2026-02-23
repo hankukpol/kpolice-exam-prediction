@@ -1,8 +1,19 @@
-"use client";
+﻿"use client";
 
 interface PassCutSnapshot {
   participantCount: number;
   recruitCount: number;
+  applicantCount: number | null;
+  targetParticipantCount: number | null;
+  coverageRate: number | null;
+  stabilityScore: number | null;
+  status:
+    | "READY"
+    | "COLLECTING_LOW_PARTICIPATION"
+    | "COLLECTING_UNSTABLE"
+    | "COLLECTING_MISSING_APPLICANT_COUNT"
+    | "COLLECTING_INSUFFICIENT_SAMPLE";
+  statusReason: string | null;
   averageScore: number | null;
   oneMultipleCutScore: number | null;
   sureMinScore: number | null;
@@ -22,16 +33,6 @@ interface PassCutHistoryTableProps {
   current: PassCutSnapshot;
 }
 
-function formatScore(value: number | null): string {
-  if (value === null) return "-";
-  return value.toFixed(2);
-}
-
-function formatThreshold(value: number | null): string {
-  if (value === null) return "데이터 수집 중";
-  return `${value.toFixed(2)}↑`;
-}
-
 function formatDate(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
@@ -42,6 +43,39 @@ function formatDate(value: string): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+function formatScore(value: number | null): string {
+  if (value === null) return "데이터 수집 중";
+  return value.toFixed(2);
+}
+
+function getDefaultReason(status: PassCutSnapshot["status"]): string {
+  if (status === "COLLECTING_LOW_PARTICIPATION") return "참여율 부족";
+  if (status === "COLLECTING_UNSTABLE") return "안정도 부족";
+  if (status === "COLLECTING_MISSING_APPLICANT_COUNT") return "응시인원 미입력";
+  if (status === "COLLECTING_INSUFFICIENT_SAMPLE") return "표본 부족";
+  return "데이터 수집 중";
+}
+
+function formatThreshold(snapshot: PassCutSnapshot | null, value: number | null): string {
+  if (!snapshot) return "-";
+  if (snapshot.status !== "READY") {
+    return `미집계(${snapshot.statusReason ?? getDefaultReason(snapshot.status)})`;
+  }
+  return formatScore(value);
+}
+
+function formatCoverage(snapshot: PassCutSnapshot | null): string {
+  if (!snapshot) return "-";
+  if (snapshot.coverageRate === null) return "-";
+  return `${snapshot.coverageRate.toFixed(1)}%`;
+}
+
+function formatStability(snapshot: PassCutSnapshot | null): string {
+  if (!snapshot) return "-";
+  if (snapshot.stabilityScore === null) return "-";
+  return snapshot.stabilityScore.toFixed(1);
 }
 
 export default function PassCutHistoryTable({ releases, current }: PassCutHistoryTableProps) {
@@ -64,7 +98,7 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
     <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
       <h3 className="text-base font-semibold text-slate-900">합격컷 발표 현황</h3>
       <div className="mt-4 overflow-x-auto">
-        <table className="min-w-[760px] w-full border-collapse text-sm">
+        <table className="min-w-[860px] w-full border-collapse text-sm">
           <thead>
             <tr className="bg-slate-100 text-slate-700">
               <th className="border border-slate-200 px-3 py-2 text-left">구분</th>
@@ -86,10 +120,50 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               ))}
             </tr>
             <tr>
+              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">응시인원</td>
+              {columns.map((column) => (
+                <td key={`${column.key}-applicant`} className="border border-slate-200 px-3 py-2 text-center">
+                  {column.snapshot
+                    ? column.snapshot.applicantCount === null
+                      ? "미입력"
+                      : `${column.snapshot.applicantCount.toLocaleString("ko-KR")}명`
+                    : "-"}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">목표인원</td>
+              {columns.map((column) => (
+                <td key={`${column.key}-target`} className="border border-slate-200 px-3 py-2 text-center">
+                  {column.snapshot
+                    ? column.snapshot.targetParticipantCount === null
+                      ? "-"
+                      : `${column.snapshot.targetParticipantCount.toLocaleString("ko-KR")}명`
+                    : "-"}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">참여율</td>
+              {columns.map((column) => (
+                <td key={`${column.key}-coverage`} className="border border-slate-200 px-3 py-2 text-center">
+                  {formatCoverage(column.snapshot)}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">안정도</td>
+              {columns.map((column) => (
+                <td key={`${column.key}-stability`} className="border border-slate-200 px-3 py-2 text-center">
+                  {formatStability(column.snapshot)}
+                </td>
+              ))}
+            </tr>
+            <tr>
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">확실권</td>
               {columns.map((column) => (
                 <td key={`${column.key}-sure`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? formatThreshold(column.snapshot.sureMinScore) : "-"}
+                  {formatThreshold(column.snapshot, column.snapshot?.sureMinScore ?? null)}
                 </td>
               ))}
             </tr>
@@ -97,7 +171,7 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">유력권</td>
               {columns.map((column) => (
                 <td key={`${column.key}-likely`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? formatThreshold(column.snapshot.likelyMinScore) : "-"}
+                  {formatThreshold(column.snapshot, column.snapshot?.likelyMinScore ?? null)}
                 </td>
               ))}
             </tr>
@@ -105,7 +179,7 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">가능권</td>
               {columns.map((column) => (
                 <td key={`${column.key}-possible`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? formatThreshold(column.snapshot.possibleMinScore) : "-"}
+                  {formatThreshold(column.snapshot, column.snapshot?.possibleMinScore ?? null)}
                 </td>
               ))}
             </tr>
@@ -113,11 +187,7 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">1배수컷</td>
               {columns.map((column) => (
                 <td key={`${column.key}-one`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot
-                    ? column.snapshot.oneMultipleCutScore === null
-                      ? "데이터 수집 중"
-                      : formatScore(column.snapshot.oneMultipleCutScore)
-                    : "-"}
+                  {formatThreshold(column.snapshot, column.snapshot?.oneMultipleCutScore ?? null)}
                 </td>
               ))}
             </tr>
@@ -132,7 +202,9 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
           </tbody>
         </table>
       </div>
-      <p className="mt-3 text-xs text-slate-500">참여자 수가 증가할수록 예측 정확도가 높아집니다.</p>
+      <p className="mt-3 text-xs text-slate-500">
+        미집계 항목은 자동 발표 조건(참여율/안정도/응시인원 입력/표본수)을 충족하지 못한 상태입니다.
+      </p>
     </section>
   );
 }

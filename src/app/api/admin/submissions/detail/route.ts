@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
         finalScore: true,
         bonusType: true,
         bonusRate: true,
+        isSuspicious: true,
+        suspiciousReason: true,
         createdAt: true,
         user: {
           select: {
@@ -91,6 +93,18 @@ export async function GET(request: NextRequest) {
           },
           orderBy: [{ subjectId: "asc" }, { questionNumber: "asc" }],
         },
+        logs: {
+          select: {
+            id: true,
+            action: true,
+            ipAddress: true,
+            submitDurationMs: true,
+            changedFields: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 10,
+        },
       },
     });
 
@@ -117,6 +131,8 @@ export async function GET(request: NextRequest) {
         finalScore: Number(submission.finalScore),
         bonusType: submission.bonusType,
         bonusRate: Number(submission.bonusRate),
+        isSuspicious: submission.isSuspicious,
+        suspiciousReason: submission.suspiciousReason,
         createdAt: submission.createdAt,
       },
       subjectScores: submission.subjectScores.map((subjectScore) => ({
@@ -134,6 +150,14 @@ export async function GET(request: NextRequest) {
         questionNumber: answer.questionNumber,
         selectedAnswer: answer.selectedAnswer,
         isCorrect: answer.isCorrect,
+      })),
+      logs: submission.logs.map((log) => ({
+        id: log.id,
+        action: log.action,
+        ipAddress: log.ipAddress,
+        submitDurationMs: log.submitDurationMs,
+        changedFields: log.changedFields,
+        createdAt: log.createdAt,
       })),
     });
   } catch (error) {

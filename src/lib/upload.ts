@@ -1,6 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
 
 export const DEFAULT_ALLOWED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 export const DEFAULT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -15,7 +13,7 @@ export interface SaveImageUploadOptions {
 
 export interface SavedImageResult {
   fileName: string;
-  absolutePath: string;
+  objectPath: string;
   publicUrl: string;
 }
 
@@ -119,45 +117,152 @@ export async function saveImageUpload(options: SaveImageUploadOptions): Promise<
 
   const safePrefix = sanitizePrefix(options.prefix);
   const fileName = `${safePrefix}-${Date.now()}-${randomUUID().slice(0, 8)}.${extension}`;
-  const uploadDir = path.join(process.cwd(), "public", "uploads", options.uploadSubdir);
-  const absolutePath = path.join(uploadDir, fileName);
-  await mkdir(uploadDir, { recursive: true });
+  const objectPath = `${options.uploadSubdir}/${fileName}`;
 
-  const fileBuffer = Buffer.from(await options.file.arrayBuffer());
-  await writeFile(absolutePath, fileBuffer);
+  const fileBuffer = new Uint8Array(await options.file.arrayBuffer());
+  await uploadToSupabaseStorage({
+    objectPath,
+    body: new Blob([fileBuffer], { type: options.file.type }),
+    contentType: options.file.type,
+  });
+
+  const publicUrl = buildSupabasePublicUrl(objectPath);
 
   return {
     fileName,
-    absolutePath,
-    publicUrl: `/uploads/${options.uploadSubdir}/${fileName}`,
+    objectPath,
+    publicUrl,
   };
 }
 
-function toAbsolutePublicPath(publicUrl: string): string | null {
-  if (!publicUrl.startsWith("/uploads/")) {
+function resolveSupabaseUrl(): string {
+  const fromServer = process.env.SUPABASE_URL?.trim();
+  const fromPublic = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const value = fromServer || fromPublic;
+  if (!value) {
+    throw new Error("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) is required for storage uploads.");
+  }
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    throw new Error("SUPABASE_URL is invalid. Use a full URL such as https://<project>.supabase.co");
+  }
+}
+
+function resolveServiceRoleKey(): string {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!key) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for storage uploads.");
+  }
+  return key;
+}
+
+function resolveStorageBucket(): string {
+  const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim();
+  return bucket && bucket.length > 0 ? bucket : "uploads";
+}
+
+function encodeObjectPath(objectPath: string): string {
+  return objectPath
+    .split("/")
+    .filter((part) => part.length > 0)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function buildSupabasePublicUrl(objectPath: string): string {
+  const origin = resolveSupabaseUrl();
+  const bucket = resolveStorageBucket();
+  const encodedBucket = encodeURIComponent(bucket);
+  const encodedPath = encodeObjectPath(objectPath);
+  return `${origin}/storage/v1/object/public/${encodedBucket}/${encodedPath}`;
+}
+
+async function uploadToSupabaseStorage(params: {
+  objectPath: string;
+  body: Blob;
+  contentType: string;
+}): Promise<void> {
+  const origin = resolveSupabaseUrl();
+  const serviceRoleKey = resolveServiceRoleKey();
+  const bucket = resolveStorageBucket();
+  const encodedBucket = encodeURIComponent(bucket);
+  const encodedPath = encodeObjectPath(params.objectPath);
+  const uploadUrl = `${origin}/storage/v1/object/${encodedBucket}/${encodedPath}`;
+
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
+      "x-upsert": "false",
+      "Content-Type": params.contentType,
+    },
+    body: params.body,
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Failed to upload image to Supabase Storage (${response.status}): ${details}`);
+  }
+}
+
+function parseSupabaseObjectFromPublicUrl(publicUrl: string): { bucket: string; objectPath: string } | null {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(publicUrl);
+  } catch {
     return null;
   }
 
-  if (publicUrl.includes("..")) {
+  const marker = "/storage/v1/object/public/";
+  const markerIndex = parsedUrl.pathname.indexOf(marker);
+  if (markerIndex < 0) {
     return null;
   }
 
-  const relativePath = publicUrl.replace(/^\/+/, "");
-  const absolutePath = path.resolve(path.join(process.cwd(), "public", relativePath));
-  const uploadsRoot = path.resolve(path.join(process.cwd(), "public", "uploads"));
-
-  if (!absolutePath.startsWith(uploadsRoot)) {
+  const rest = parsedUrl.pathname.slice(markerIndex + marker.length);
+  const segments = rest.split("/").filter((part) => part.length > 0);
+  if (segments.length < 2) {
     return null;
   }
 
-  return absolutePath;
+  const [bucketSegment, ...pathSegments] = segments;
+  const bucket = decodeURIComponent(bucketSegment);
+  const objectPath = pathSegments.map((segment) => decodeURIComponent(segment)).join("/");
+  if (!bucket || !objectPath) {
+    return null;
+  }
+
+  return { bucket, objectPath };
 }
 
 export async function deleteUploadedFileByPublicUrl(publicUrl: string | null | undefined): Promise<void> {
   if (!publicUrl) return;
 
-  const absolutePath = toAbsolutePublicPath(publicUrl);
-  if (!absolutePath) return;
+  const parsed = parseSupabaseObjectFromPublicUrl(publicUrl);
+  if (!parsed) return;
 
-  await rm(absolutePath, { force: true });
+  const origin = resolveSupabaseUrl();
+  const serviceRoleKey = resolveServiceRoleKey();
+  const encodedBucket = encodeURIComponent(parsed.bucket);
+  const deleteUrl = `${origin}/storage/v1/object/${encodedBucket}`;
+
+  const response = await fetch(deleteUrl, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify([parsed.objectPath]),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(`Failed to delete image from Supabase Storage (${response.status}): ${details}`);
+  }
 }

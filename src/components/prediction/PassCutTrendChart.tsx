@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   Bar,
@@ -15,6 +15,17 @@ import {
 interface PassCutSnapshot {
   participantCount: number;
   recruitCount: number;
+  applicantCount: number | null;
+  targetParticipantCount: number | null;
+  coverageRate: number | null;
+  stabilityScore: number | null;
+  status:
+    | "READY"
+    | "COLLECTING_LOW_PARTICIPATION"
+    | "COLLECTING_UNSTABLE"
+    | "COLLECTING_MISSING_APPLICANT_COUNT"
+    | "COLLECTING_INSUFFICIENT_SAMPLE";
+  statusReason: string | null;
   averageScore: number | null;
   oneMultipleCutScore: number | null;
   sureMinScore: number | null;
@@ -40,19 +51,23 @@ function roundNumber(value: number): number {
 
 export default function PassCutTrendChart({ releases, current }: PassCutTrendChartProps) {
   const chartData = [
-    ...releases.map((release) => ({
-      name: `${release.releaseNumber}차`,
-      participants: release.snapshot?.participantCount ?? 0,
-      sure: release.snapshot?.sureMinScore,
-      likely: release.snapshot?.likelyMinScore,
-      possible: release.snapshot?.possibleMinScore,
-    })),
+    ...releases.map((release) => {
+      const snapshot = release.snapshot;
+      const ready = snapshot?.status === "READY";
+      return {
+        name: `${release.releaseNumber}차`,
+        participants: snapshot?.participantCount ?? 0,
+        sure: ready ? snapshot?.sureMinScore ?? null : null,
+        likely: ready ? snapshot?.likelyMinScore ?? null : null,
+        possible: ready ? snapshot?.possibleMinScore ?? null : null,
+      };
+    }),
     {
       name: "현재",
       participants: current.participantCount,
-      sure: current.sureMinScore,
-      likely: current.likelyMinScore,
-      possible: current.possibleMinScore,
+      sure: current.status === "READY" ? current.sureMinScore : null,
+      likely: current.status === "READY" ? current.likelyMinScore : null,
+      possible: current.status === "READY" ? current.possibleMinScore : null,
     },
   ];
 
@@ -129,7 +144,7 @@ export default function PassCutTrendChart({ releases, current }: PassCutTrendCha
       </div>
       {!hasScoreData ? (
         <p className="mt-3 text-xs text-slate-500">
-          아직 합격권 컷 점수 데이터가 부족해 참여자 수만 표시됩니다.
+          아직 READY 상태의 합격권 컷 데이터가 부족해 참여자 수만 표시됩니다.
         </p>
       ) : null}
     </section>

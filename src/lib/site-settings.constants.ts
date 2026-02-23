@@ -16,7 +16,12 @@ export type SiteSettingKey =
   | "site.mainCardCompetitiveEnabled"
   | "site.mainCardScoreDistributionEnabled"
   | "site.submissionEditLimit"
-  | "site.finalPredictionEnabled";
+  | "site.finalPredictionEnabled"
+  | "site.autoPassCutEnabled"
+  | "site.autoPassCutMode"
+  | "site.autoPassCutCheckIntervalSec"
+  | "site.autoPassCutThresholdProfile"
+  | "site.autoPassCutReadyRatioProfile";
 
 export type SiteSettingValueType = "string" | "nullable-string" | "boolean" | "number";
 
@@ -41,6 +46,11 @@ export const SITE_SETTING_TYPES: Record<SiteSettingKey, SiteSettingValueType> = 
   "site.mainCardScoreDistributionEnabled": "boolean",
   "site.submissionEditLimit": "number",
   "site.finalPredictionEnabled": "boolean",
+  "site.autoPassCutEnabled": "boolean",
+  "site.autoPassCutMode": "string",
+  "site.autoPassCutCheckIntervalSec": "number",
+  "site.autoPassCutThresholdProfile": "string",
+  "site.autoPassCutReadyRatioProfile": "string",
 };
 
 export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
@@ -64,4 +74,9 @@ export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
   "site.mainCardScoreDistributionEnabled": true,
   "site.submissionEditLimit": 3,
   "site.finalPredictionEnabled": false,
+  "site.autoPassCutEnabled": false,
+  "site.autoPassCutMode": "HYBRID",
+  "site.autoPassCutCheckIntervalSec": 300,
+  "site.autoPassCutThresholdProfile": "BALANCED",
+  "site.autoPassCutReadyRatioProfile": "BALANCED",
 };
