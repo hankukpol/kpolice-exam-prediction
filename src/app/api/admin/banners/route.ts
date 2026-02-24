@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { isBannerZone, revalidateBannerCache } from "@/lib/banners";
 import { prisma } from "@/lib/prisma";
+import { sanitizeBannerHtml } from "@/lib/sanitize-banner-html";
 import { deleteUploadedFileByPublicUrl, saveImageUpload, validateImageFile } from "@/lib/upload";
 
 export const runtime = "nodejs";
@@ -55,10 +56,7 @@ function isRecordNotFoundError(error: unknown): boolean {
 }
 
 /** htmlContent 저장 전 <script> 태그만 제거하는 최소 sanitize */
-function stripScriptTags(html: string): string {
-  return html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
-}
-
+// htmlContent is sanitized before persistence by sanitizeBannerHtml.
 function isJsonContentType(request: NextRequest): boolean {
   const ct = request.headers.get("content-type") ?? "";
   return ct.includes("application/json");
@@ -119,12 +117,14 @@ async function handlePostJson(request: NextRequest) {
       return NextResponse.json({ error: "배너 존(zone) 값이 올바르지 않습니다." }, { status: 400 });
     }
 
-    const htmlContent = typeof body.htmlContent === "string" ? stripScriptTags(body.htmlContent) : "";
+    const htmlContent = typeof body.htmlContent === "string" ? sanitizeBannerHtml(body.htmlContent) : "";
     if (!htmlContent.trim()) {
       return NextResponse.json({ error: "배너 HTML 콘텐츠가 비어있습니다." }, { status: 400 });
     }
 
     const altText = typeof body.altText === "string" ? body.altText.trim() : "";
+    const mobileImageUrl = typeof body.mobileImageUrl === "string" && body.mobileImageUrl.trim()
+      ? body.mobileImageUrl.trim() : null;
     const sortOrder = typeof body.sortOrder === "number" && Number.isInteger(body.sortOrder) && body.sortOrder >= 0
       ? body.sortOrder : 0;
     const isActive = typeof body.isActive === "boolean" ? body.isActive : true;
@@ -133,6 +133,7 @@ async function handlePostJson(request: NextRequest) {
       data: {
         zone: zoneRaw,
         imageUrl: null,
+        mobileImageUrl,
         htmlContent,
         altText,
         isActive,
@@ -259,15 +260,21 @@ async function handlePutJson(request: NextRequest, bannerId: number) {
       return NextResponse.json({ error: "배너 존(zone) 값이 올바르지 않습니다." }, { status: 400 });
     }
 
-    const htmlContent = typeof body.htmlContent === "string" ? stripScriptTags(body.htmlContent) : null;
+    const htmlContent = typeof body.htmlContent === "string" ? sanitizeBannerHtml(body.htmlContent) : null;
     if (htmlContent !== null && !htmlContent.trim()) {
       return NextResponse.json({ error: "배너 HTML 콘텐츠가 비어있습니다." }, { status: 400 });
     }
 
     const altText = typeof body.altText === "string" ? body.altText.trim() : undefined;
+    const mobileImageUrl = typeof body.mobileImageUrl === "string"
+      ? (body.mobileImageUrl.trim() || null)
+      : undefined;
     const sortOrder = typeof body.sortOrder === "number" && Number.isInteger(body.sortOrder) && body.sortOrder >= 0
       ? body.sortOrder : undefined;
     const isActive = typeof body.isActive === "boolean" ? body.isActive : undefined;
+
+    // 모바일 이미지가 변경되면 이전 파일 삭제
+    const shouldDeleteOldMobileImage = mobileImageUrl !== undefined && existing.mobileImageUrl && existing.mobileImageUrl !== mobileImageUrl;
 
     const updated = await prisma.banner.update({
       where: { id: bannerId },
@@ -277,10 +284,15 @@ async function handlePutJson(request: NextRequest, bannerId: number) {
         imageUrl: null,
         linkUrl: null,
         ...(altText !== undefined && { altText }),
+        ...(mobileImageUrl !== undefined && { mobileImageUrl }),
         ...(sortOrder !== undefined && { sortOrder }),
         ...(isActive !== undefined && { isActive }),
       },
     });
+
+    if (shouldDeleteOldMobileImage) {
+      await safeDeleteUploadedFile(existing.mobileImageUrl, "배너 수정 후 이전 모바일 이미지 정리");
+    }
 
     safeRevalidateBannerCache();
 
@@ -402,6 +414,7 @@ export async function DELETE(request: NextRequest) {
     });
 
     await safeDeleteUploadedFile(deleted.imageUrl, "배너 삭제 후 이미지 정리");
+    await safeDeleteUploadedFile(deleted.mobileImageUrl, "배너 삭제 후 모바일 이미지 정리");
     safeRevalidateBannerCache();
 
     return NextResponse.json({

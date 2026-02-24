@@ -130,7 +130,7 @@ export default async function HomePage() {
 
   return (
     <main>
-      <section className="relative overflow-hidden bg-[linear-gradient(180deg,#0a2540_0%,#1d4ed8_45%,#2563eb_72%,#f3f4f6_100%)] pb-10 pt-0">
+      <section className="relative overflow-hidden bg-slate-100 pb-10 pt-0">
         {heroBanner ? (
           <div className="w-full">
             <BannerImage banner={heroBanner} fullWidth={true} />

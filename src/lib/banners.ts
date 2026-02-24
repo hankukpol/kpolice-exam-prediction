@@ -1,6 +1,7 @@
 import "server-only";
 import { revalidateTag, unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { sanitizeBannerHtml } from "@/lib/sanitize-banner-html";
 
 export const BANNER_ZONES = ["hero", "middle", "bottom"] as const;
 export type BannerZone = (typeof BANNER_ZONES)[number];
@@ -9,6 +10,7 @@ export interface PublicBannerItem {
   id: number;
   zone: BannerZone;
   imageUrl: string | null;
+  mobileImageUrl: string | null;
   linkUrl: string | null;
   altText: string;
   htmlContent: string | null;
@@ -36,9 +38,10 @@ async function fetchActiveBannersFromDb(): Promise<PublicBannerItem[]> {
       id: banner.id,
       zone: banner.zone as BannerZone,
       imageUrl: banner.imageUrl,
+      mobileImageUrl: banner.mobileImageUrl,
       linkUrl: banner.linkUrl,
       altText: banner.altText,
-      htmlContent: banner.htmlContent,
+      htmlContent: banner.htmlContent ? sanitizeBannerHtml(banner.htmlContent) : null,
       isActive: banner.isActive,
       sortOrder: banner.sortOrder,
       createdAt: banner.createdAt.toISOString(),

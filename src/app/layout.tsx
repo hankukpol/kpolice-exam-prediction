@@ -17,7 +17,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body className="bg-police-900 text-slate-100 antialiased">
+      <body className="bg-slate-100 text-slate-100 antialiased">
         <AuthSessionProvider>
           <ToastProvider>
             <div className="flex min-h-screen flex-col">

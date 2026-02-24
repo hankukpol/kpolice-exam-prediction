@@ -442,6 +442,17 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
     <div className="space-y-6">
       <PredictionLiveDashboard prediction={prediction} />
 
+      {isPassCutLoading ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
+          합격컷 발표 이력을 불러오는 중입니다...
+        </section>
+      ) : passCutHistory ? (
+        <>
+          <PassCutHistoryTable releases={passCutHistory.releases} current={passCutHistory.current} myScore={summary.myScore} />
+          <PassCutTrendChart releases={passCutHistory.releases} current={passCutHistory.current} myScore={summary.myScore} />
+        </>
+      ) : null}
+
       <section className="rounded-xl border border-slate-200 bg-white p-6">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <h2 className="text-base font-semibold text-slate-900">경쟁자 순위</h2>
@@ -517,17 +528,6 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
           </Button>
         </div>
       </section>
-
-      {isPassCutLoading ? (
-        <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
-          합격컷 발표 이력을 불러오는 중입니다...
-        </section>
-      ) : passCutHistory ? (
-        <>
-          <PassCutHistoryTable releases={passCutHistory.releases} current={passCutHistory.current} />
-          <PassCutTrendChart releases={passCutHistory.releases} current={passCutHistory.current} />
-        </>
-      ) : null}
 
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 space-y-1.5">
         <p className="font-semibold">안내사항</p>

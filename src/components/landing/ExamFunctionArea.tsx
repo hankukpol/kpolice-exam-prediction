@@ -90,9 +90,9 @@ export default function ExamFunctionArea({
   return (
     <section
       id="exam-functions"
-      className="border border-slate-300 bg-[#efefef] p-0 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.45)]"
+      className="border border-slate-200 bg-slate-50 p-0"
     >
-      <div className="border-b border-slate-300 bg-white px-1 sm:px-3">
+      <div className="border-b border-slate-200 bg-white px-1 sm:px-3">
         <div className="grid grid-cols-3 gap-1 py-1 sm:flex sm:min-w-max sm:items-center sm:gap-0 sm:py-0">
           {visibleTabs.map((tab) => {
             const disabled = tab.requireSubmission && !canAccessRestrictedTabs;
@@ -112,8 +112,8 @@ export default function ExamFunctionArea({
         </div>
       </div>
 
-      <div className="bg-[#efefef] p-0 sm:p-0">
-        <div className="border border-slate-300 border-t-0 bg-white p-4 sm:p-8">
+      <div className="bg-slate-50 p-0 sm:p-0">
+        <div className="border border-slate-200 border-t-0 bg-white p-4 sm:p-8">
           {activeTab === "main" ? <ExamMainOverviewPanel /> : null}
           {activeTab === "input" ? (
             <ExamInputPage

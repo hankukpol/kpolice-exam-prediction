@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 interface PassCutSnapshot {
   participantCount: number;
@@ -31,6 +31,7 @@ interface PassCutHistoryRelease {
 interface PassCutHistoryTableProps {
   releases: PassCutHistoryRelease[];
   current: PassCutSnapshot;
+  myScore?: number | null;
 }
 
 function formatDate(value: string): string {
@@ -46,40 +47,58 @@ function formatDate(value: string): string {
 }
 
 function formatScore(value: number | null): string {
-  if (value === null) return "데이터 수집 중";
+  if (value === null) return "-";
   return value.toFixed(2);
-}
-
-function getDefaultReason(status: PassCutSnapshot["status"]): string {
-  if (status === "COLLECTING_LOW_PARTICIPATION") return "참여율 부족";
-  if (status === "COLLECTING_UNSTABLE") return "안정도 부족";
-  if (status === "COLLECTING_MISSING_APPLICANT_COUNT") return "응시인원 미입력";
-  if (status === "COLLECTING_INSUFFICIENT_SAMPLE") return "표본 부족";
-  return "데이터 수집 중";
 }
 
 function formatThreshold(snapshot: PassCutSnapshot | null, value: number | null): string {
   if (!snapshot) return "-";
   if (snapshot.status !== "READY") {
-    return `미집계(${snapshot.statusReason ?? getDefaultReason(snapshot.status)})`;
+    return `미집계`;
   }
   return formatScore(value);
 }
 
-function formatCoverage(snapshot: PassCutSnapshot | null): string {
-  if (!snapshot) return "-";
-  if (snapshot.coverageRate === null) return "-";
-  return `${snapshot.coverageRate.toFixed(1)}%`;
+interface ColumnDef {
+  key: string;
+  title: string;
+  subtitle: string;
+  snapshot: PassCutSnapshot | null;
 }
 
-function formatStability(snapshot: PassCutSnapshot | null): string {
-  if (!snapshot) return "-";
-  if (snapshot.stabilityScore === null) return "-";
-  return snapshot.stabilityScore.toFixed(1);
+interface ScoreRowDef {
+  label: string;
+  getValue: (snapshot: PassCutSnapshot | null) => number | null;
+  useThresholdFormat?: boolean;
 }
 
-export default function PassCutHistoryTable({ releases, current }: PassCutHistoryTableProps) {
-  const columns = [
+function getDelta(columns: ColumnDef[], colIndex: number, getValue: (s: PassCutSnapshot | null) => number | null): number | null {
+  if (colIndex < 1) return null;
+  const curr = columns[colIndex].snapshot;
+  const prev = columns[colIndex - 1].snapshot;
+  if (!curr || !prev) return null;
+  if (curr.status !== "READY" || prev.status !== "READY") return null;
+  const currVal = getValue(curr);
+  const prevVal = getValue(prev);
+  if (currVal === null || prevVal === null) return null;
+  const diff = currVal - prevVal;
+  if (Math.abs(diff) < 0.005) return null;
+  return Number(diff.toFixed(2));
+}
+
+function DeltaBadge({ delta }: { delta: number | null }) {
+  if (delta === null) return null;
+  // 컷 상승 = 나에게 불리 = 빨간색, 컷 하락 = 나에게 유리 = 파란색
+  const isUp = delta > 0;
+  return (
+    <span className={`ml-1 text-[10px] font-medium ${isUp ? "text-red-500" : "text-blue-500"}`}>
+      {isUp ? "▲" : "▼"}{Math.abs(delta).toFixed(1)}
+    </span>
+  );
+}
+
+export default function PassCutHistoryTable({ releases, current, myScore }: PassCutHistoryTableProps) {
+  const columns: ColumnDef[] = [
     ...releases.map((release) => ({
       key: `release-${release.releaseNumber}`,
       title: `${release.releaseNumber}차`,
@@ -94,11 +113,21 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
     },
   ];
 
+  const scoreRows: ScoreRowDef[] = [
+    { label: "1배수컷", getValue: (s) => s?.oneMultipleCutScore ?? null, useThresholdFormat: true },
+    { label: "확실권", getValue: (s) => s?.sureMinScore ?? null, useThresholdFormat: true },
+    { label: "유력권", getValue: (s) => s?.likelyMinScore ?? null, useThresholdFormat: true },
+    { label: "가능권", getValue: (s) => s?.possibleMinScore ?? null, useThresholdFormat: true },
+    { label: "평균점", getValue: (s) => s?.averageScore ?? null },
+  ];
+
+  const showMyScore = typeof myScore === "number" && Number.isFinite(myScore);
+
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
       <h3 className="text-base font-semibold text-slate-900">합격컷 발표 현황</h3>
       <div className="mt-4 overflow-x-auto">
-        <table className="min-w-[860px] w-full border-collapse text-sm">
+        <table className="min-w-[640px] w-full border-collapse text-sm">
           <thead>
             <tr className="bg-slate-100 text-slate-700">
               <th className="border border-slate-200 px-3 py-2 text-left">구분</th>
@@ -111,6 +140,38 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
             </tr>
           </thead>
           <tbody>
+            {/* 내 점수 행 */}
+            {showMyScore ? (
+              <tr>
+                <td className="border border-slate-200 bg-blue-50 px-3 py-2 font-semibold text-blue-700">내 점수</td>
+                {columns.map((column) => (
+                  <td key={`${column.key}-myscore`} className="border border-slate-200 bg-blue-50 px-3 py-2 text-center font-semibold text-blue-700">
+                    {myScore.toFixed(2)}
+                  </td>
+                ))}
+              </tr>
+            ) : null}
+
+            {/* 점수 행들 (1배수컷, 확실권, 유력권, 가능권, 평균점) */}
+            {scoreRows.map((row) => (
+              <tr key={row.label}>
+                <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">{row.label}</td>
+                {columns.map((column, colIndex) => {
+                  const displayValue = row.useThresholdFormat
+                    ? formatThreshold(column.snapshot, row.getValue(column.snapshot))
+                    : formatScore(row.getValue(column.snapshot));
+                  const delta = getDelta(columns, colIndex, row.getValue);
+                  return (
+                    <td key={`${column.key}-${row.label}`} className="border border-slate-200 px-3 py-2 text-center">
+                      {displayValue}
+                      <DeltaBadge delta={delta} />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+
+            {/* 참여자 행 */}
             <tr>
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">참여자</td>
               {columns.map((column) => (
@@ -119,6 +180,8 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
                 </td>
               ))}
             </tr>
+
+            {/* 응시인원 행 */}
             <tr>
               <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">응시인원</td>
               {columns.map((column) => (
@@ -131,79 +194,11 @@ export default function PassCutHistoryTable({ releases, current }: PassCutHistor
                 </td>
               ))}
             </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">목표인원</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-target`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot
-                    ? column.snapshot.targetParticipantCount === null
-                      ? "-"
-                      : `${column.snapshot.targetParticipantCount.toLocaleString("ko-KR")}명`
-                    : "-"}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">참여율</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-coverage`} className="border border-slate-200 px-3 py-2 text-center">
-                  {formatCoverage(column.snapshot)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">안정도</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-stability`} className="border border-slate-200 px-3 py-2 text-center">
-                  {formatStability(column.snapshot)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">확실권</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-sure`} className="border border-slate-200 px-3 py-2 text-center">
-                  {formatThreshold(column.snapshot, column.snapshot?.sureMinScore ?? null)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">유력권</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-likely`} className="border border-slate-200 px-3 py-2 text-center">
-                  {formatThreshold(column.snapshot, column.snapshot?.likelyMinScore ?? null)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">가능권</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-possible`} className="border border-slate-200 px-3 py-2 text-center">
-                  {formatThreshold(column.snapshot, column.snapshot?.possibleMinScore ?? null)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">1배수컷</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-one`} className="border border-slate-200 px-3 py-2 text-center">
-                  {formatThreshold(column.snapshot, column.snapshot?.oneMultipleCutScore ?? null)}
-                </td>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-slate-200 bg-slate-50 px-3 py-2 font-medium text-slate-700">평균점</td>
-              {columns.map((column) => (
-                <td key={`${column.key}-avg`} className="border border-slate-200 px-3 py-2 text-center">
-                  {column.snapshot ? formatScore(column.snapshot.averageScore) : "-"}
-                </td>
-              ))}
-            </tr>
           </tbody>
         </table>
       </div>
       <p className="mt-3 text-xs text-slate-500">
-        미집계 항목은 자동 발표 조건(참여율/안정도/응시인원 입력/표본수)을 충족하지 못한 상태입니다.
+        미집계 항목은 참여 데이터가 충분하지 않은 상태입니다. 참여자가 늘어나면 자동으로 집계됩니다.
       </p>
     </section>
   );

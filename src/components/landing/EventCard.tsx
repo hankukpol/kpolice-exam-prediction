@@ -10,9 +10,10 @@ function isExternalUrl(url: string): boolean {
 }
 
 export default function EventCard({ event, fullWidth = false }: EventCardProps) {
-  const hasLink = Boolean(event.linkUrl);
+  const safeLinkUrl = event.linkUrl && !event.linkUrl.startsWith("//") ? event.linkUrl : null;
+  const hasLink = Boolean(safeLinkUrl);
   const linkText = event.linkText?.trim() || "View details";
-  const external = hasLink ? isExternalUrl(event.linkUrl as string) : false;
+  const external = safeLinkUrl ? isExternalUrl(safeLinkUrl) : false;
 
   return (
     <section
@@ -37,7 +38,7 @@ export default function EventCard({ event, fullWidth = false }: EventCardProps) 
             ) : null}
             {hasLink ? (
               <a
-                href={event.linkUrl as string}
+                href={safeLinkUrl as string}
                 target={external ? "_blank" : undefined}
                 rel={external ? "noreferrer noopener" : undefined}
                 className="inline-flex bg-black px-5 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800"

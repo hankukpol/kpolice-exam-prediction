@@ -55,13 +55,23 @@ function normalizeBgColor(value: FormDataEntryValue | null): string | null {
 
 function isValidLinkUrl(value: string | null): boolean {
   if (!value) return true;
-  if (value.startsWith("/")) return true;
+  if (value.startsWith("/")) return !value.startsWith("//");
 
   try {
     const parsed = new URL(value);
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
+  }
+}
+
+async function safeDeleteUploadedFile(publicUrl: string | null | undefined, context: string): Promise<void> {
+  if (!publicUrl) return;
+
+  try {
+    await deleteUploadedFileByPublicUrl(publicUrl);
+  } catch (cleanupError) {
+    console.error(`${context} 정리 중 오류가 발생했습니다.`, cleanupError);
   }
 }
 
@@ -83,6 +93,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
+
+  let uploadedImageUrl: string | null = null;
+  let isCreated = false;
 
   try {
     const formData = await request.formData();
@@ -122,6 +135,7 @@ export async function POST(request: NextRequest) {
         uploadSubdir: "events",
       });
       imageUrl = savedImage.publicUrl;
+      uploadedImageUrl = savedImage.publicUrl;
     }
 
     const created = await prisma.eventSection.create({
@@ -138,10 +152,14 @@ export async function POST(request: NextRequest) {
         endAt,
       },
     });
+    isCreated = true;
 
     revalidateEventsCache();
     return NextResponse.json({ success: true, event: created }, { status: 201 });
   } catch (error) {
+    if (uploadedImageUrl && !isCreated) {
+      await safeDeleteUploadedFile(uploadedImageUrl, "이벤트 생성 실패 후 신규 업로드 파일");
+    }
     console.error("이벤트 생성 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "이벤트 생성에 실패했습니다." }, { status: 500 });
   }
@@ -155,6 +173,9 @@ export async function PUT(request: NextRequest) {
   if (!eventId) {
     return NextResponse.json({ error: "수정할 이벤트 ID가 필요합니다." }, { status: 400 });
   }
+
+  let uploadedImageUrl: string | null = null;
+  let isUpdated = false;
 
   try {
     const existing = await prisma.eventSection.findUnique({
@@ -226,6 +247,7 @@ export async function PUT(request: NextRequest) {
         uploadSubdir: "events",
       });
       nextImageUrl = savedImage.publicUrl;
+      uploadedImageUrl = savedImage.publicUrl;
       shouldDeleteExistingImage = true;
     } else if (removeImage) {
       nextImageUrl = null;
@@ -247,14 +269,18 @@ export async function PUT(request: NextRequest) {
         endAt: nextEndAt,
       },
     });
+    isUpdated = true;
 
     if (shouldDeleteExistingImage && existing.imageUrl && existing.imageUrl !== nextImageUrl) {
-      await deleteUploadedFileByPublicUrl(existing.imageUrl);
+      await safeDeleteUploadedFile(existing.imageUrl, "이벤트 수정 후 기존 이미지");
     }
 
     revalidateEventsCache();
     return NextResponse.json({ success: true, event: updated });
   } catch (error) {
+    if (uploadedImageUrl && !isUpdated) {
+      await safeDeleteUploadedFile(uploadedImageUrl, "이벤트 수정 실패 후 신규 업로드 파일");
+    }
     console.error("이벤트 수정 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "이벤트 수정에 실패했습니다." }, { status: 500 });
   }
@@ -275,7 +301,7 @@ export async function DELETE(request: NextRequest) {
     });
 
     if (deleted.imageUrl) {
-      await deleteUploadedFileByPublicUrl(deleted.imageUrl);
+      await safeDeleteUploadedFile(deleted.imageUrl, "이벤트 삭제 후 이미지");
     }
 
     revalidateEventsCache();

@@ -149,8 +149,8 @@ export async function saveImageUpload(options: SaveImageUploadOptions): Promise<
 }
 
 function resolveSupabaseUrl(): string {
-  const fromServer = process.env.SUPABASE_URL?.trim();
-  const fromPublic = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const fromServer = readEnv("SUPABASE_URL");
+  const fromPublic = readEnv("NEXT_PUBLIC_SUPABASE_URL");
   const value = fromServer || fromPublic;
   if (!value) {
     throw new Error("SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) is required for storage uploads.");
@@ -164,16 +164,35 @@ function resolveSupabaseUrl(): string {
 }
 
 function resolveServiceRoleKey(): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const key = readEnv("SUPABASE_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SECRET_KEY");
   if (!key) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for storage uploads.");
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) is required for storage uploads.");
   }
   return key;
 }
 
 function resolveStorageBucket(): string {
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim();
+  const bucket = readEnv("SUPABASE_STORAGE_BUCKET");
   return bucket && bucket.length > 0 ? bucket : "uploads";
+}
+
+function readEnv(name: string): string | null {
+  const raw = process.env[name];
+  if (!raw) return null;
+  let normalized = raw.trim();
+  if (!normalized) return null;
+
+  const hasDoubleQuotes = normalized.startsWith("\"") && normalized.endsWith("\"");
+  const hasSingleQuotes = normalized.startsWith("'") && normalized.endsWith("'");
+  if ((hasDoubleQuotes || hasSingleQuotes) && normalized.length >= 2) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+
+  // Vercel/CLI 입력에서 끝에 "\n" 문자열이 섞인 경우를 방어한다.
+  normalized = normalized.replace(/(?:\\r\\n|\\n|\\r)+$/g, "");
+  normalized = normalized.replace(/[\r\n]+$/g, "").trim();
+
+  return normalized || null;
 }
 
 function shouldUseLocalUploadFallback(): boolean {
@@ -242,22 +261,69 @@ async function uploadToSupabaseStorage(params: {
   const encodedPath = encodeObjectPath(params.objectPath);
   const uploadUrl = `${origin}/storage/v1/object/${encodedBucket}/${encodedPath}`;
 
-  const response = await fetch(uploadUrl, {
+  const sendUpload = async (): Promise<Response> =>
+    fetch(uploadUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        "x-upsert": "false",
+        "Content-Type": params.contentType,
+      },
+      body: params.body,
+      cache: "no-store",
+    });
+
+  let response = await sendUpload();
+  if (response.ok) return;
+
+  const details = await response.text();
+  if (response.status === 400 && isBucketNotFoundError(details)) {
+    await ensureSupabaseBucketExists({ origin, serviceRoleKey, bucket });
+    response = await sendUpload();
+    if (response.ok) return;
+
+    const retryDetails = await response.text();
+    throw new Error(
+      `Failed to upload image to Supabase Storage after bucket creation (${response.status}): ${retryDetails}`
+    );
+  }
+
+  throw new Error(`Failed to upload image to Supabase Storage (${response.status}): ${details}`);
+}
+
+function isBucketNotFoundError(details: string): boolean {
+  const normalized = details.toLowerCase();
+  return normalized.includes("bucket not found");
+}
+
+async function ensureSupabaseBucketExists(params: {
+  origin: string;
+  serviceRoleKey: string;
+  bucket: string;
+}): Promise<void> {
+  const createBucketUrl = `${params.origin}/storage/v1/bucket`;
+  const response = await fetch(createBucketUrl, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${serviceRoleKey}`,
-      apikey: serviceRoleKey,
-      "x-upsert": "false",
-      "Content-Type": params.contentType,
+      Authorization: `Bearer ${params.serviceRoleKey}`,
+      apikey: params.serviceRoleKey,
+      "Content-Type": "application/json",
     },
-    body: params.body,
+    body: JSON.stringify({
+      id: params.bucket,
+      name: params.bucket,
+      public: true,
+    }),
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    const details = await response.text();
-    throw new Error(`Failed to upload image to Supabase Storage (${response.status}): ${details}`);
+  if (response.ok || response.status === 409) {
+    return;
   }
+
+  const details = await response.text();
+  throw new Error(`Failed to create Supabase Storage bucket '${params.bucket}' (${response.status}): ${details}`);
 }
 
 function parseSupabaseObjectFromPublicUrl(publicUrl: string): { bucket: string; objectPath: string } | null {

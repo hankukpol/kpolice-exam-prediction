@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import BannerHtmlEditor from "@/components/admin/BannerHtmlEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import BannerHtmlEditor from "@/components/admin/BannerHtmlEditor";
+import { escapeHtmlAttribute, sanitizeBannerHtml } from "@/lib/sanitize-banner-html";
 
 type BannerZone = "hero" | "middle" | "bottom";
 
@@ -13,6 +14,7 @@ interface BannerItem {
   id: number;
   zone: BannerZone;
   imageUrl: string | null;
+  mobileImageUrl: string | null;
   linkUrl: string | null;
   altText: string;
   htmlContent: string | null;
@@ -29,6 +31,7 @@ interface BannersResponse {
 interface ZoneFormState {
   id: number | null;
   htmlContent: string;
+  mobileImageUrl: string | null;
   altText: string;
   isActive: boolean;
   sortOrder: number;
@@ -50,38 +53,42 @@ const ZONE_LABELS: Record<BannerZone, string> = {
 };
 
 const ZONE_HINTS: Record<BannerZone, string> = {
-  hero: "권장 해상도 1920×600~800px",
-  middle: "권장 해상도 1920×300~500px",
-  bottom: "권장 해상도 1920×300~500px",
+  hero: "권장 해상도 1920x600~800",
+  middle: "권장 해상도 1920x300~500",
+  bottom: "권장 해상도 1920x300~500",
 };
 
 function createEmptyZoneState(sortOrder = 0): ZoneFormState {
   return {
     id: null,
     htmlContent: "",
+    mobileImageUrl: null,
     altText: "",
     isActive: true,
     sortOrder,
   };
 }
 
-/** 기존 이미지 기반 배너를 에디터용 HTML로 자동 변환 */
 function toZoneState(banner: BannerItem | undefined): ZoneFormState {
   if (!banner) return createEmptyZoneState();
 
-  let htmlContent = banner.htmlContent ?? "";
+  let htmlContent = banner.htmlContent ? sanitizeBannerHtml(banner.htmlContent) : "";
 
-  // 레거시 배너(htmlContent 없음): imageUrl+linkUrl → <img>+<a> 태그로 자동 변환
+  // Legacy image-only banners are converted into editor HTML to keep admin UX consistent.
   if (!htmlContent && banner.imageUrl) {
-    const imgTag = `<img src="${banner.imageUrl}" alt="${banner.altText || "배너 이미지"}" style="width:100%;height:auto;" />`;
-    htmlContent = banner.linkUrl
-      ? `<a href="${banner.linkUrl}">${imgTag}</a>`
+    const safeImageUrl = escapeHtmlAttribute(banner.imageUrl);
+    const safeAltText = escapeHtmlAttribute(banner.altText || "배너 이미지");
+    const imgTag = `<img src="${safeImageUrl}" alt="${safeAltText}" style="width: 100%; height: auto;" />`;
+    const wrappedHtml = banner.linkUrl
+      ? `<a href="${escapeHtmlAttribute(banner.linkUrl)}">${imgTag}</a>`
       : imgTag;
+    htmlContent = sanitizeBannerHtml(wrappedHtml);
   }
 
   return {
     id: banner.id,
     htmlContent,
+    mobileImageUrl: banner.mobileImageUrl ?? null,
     altText: banner.altText,
     isActive: banner.isActive,
     sortOrder: banner.sortOrder,
@@ -116,6 +123,7 @@ export default function AdminBannersPage() {
     middle: false,
     bottom: false,
   });
+  const [uploadingMobileZone, setUploadingMobileZone] = useState<BannerZone | null>(null);
 
   const hasAnyBanner = useMemo(() => allBanners.length > 0, [allBanners.length]);
 
@@ -123,18 +131,13 @@ export default function AdminBannersPage() {
     setIsLoading(true);
     setNotice(null);
     try {
-      const response = await fetch("/api/admin/banners", {
-        method: "GET",
-        cache: "no-store",
-      });
+      const response = await fetch("/api/admin/banners", { method: "GET", cache: "no-store" });
       const data = (await response.json()) as BannersResponse & { error?: string };
       if (!response.ok) {
         throw new Error(data.error ?? "배너 목록을 불러오지 못했습니다.");
       }
 
-      const sorted = [...(data.banners ?? [])].sort(
-        (a, b) => a.sortOrder - b.sortOrder || a.id - b.id
-      );
+      const sorted = [...(data.banners ?? [])].sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id);
       setAllBanners(sorted);
 
       const primaryByZone: Partial<Record<BannerZone, BannerItem>> = {};
@@ -161,7 +164,7 @@ export default function AdminBannersPage() {
     void loadBanners();
   }, []);
 
-  function bannersByZone(zone: BannerZone) {
+  function bannersByZone(zone: BannerZone): BannerItem[] {
     return allBanners.filter((item) => item.zone === zone);
   }
 
@@ -190,6 +193,32 @@ export default function AdminBannersPage() {
     }));
   }
 
+  async function handleMobileImageUpload(zone: BannerZone, file: File) {
+    setUploadingMobileZone(zone);
+    setNotice(null);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const response = await fetch("/api/admin/banners/upload-image", {
+        method: "POST",
+        body: formData,
+      });
+      const data = (await response.json()) as { success?: boolean; url?: string; error?: string };
+      if (!response.ok || !data.success || !data.url) {
+        throw new Error(data.error ?? "모바일 이미지 업로드에 실패했습니다.");
+      }
+      updateZoneState(zone, { mobileImageUrl: data.url });
+      setNotice({ type: "success", message: "모바일 이미지가 업로드되었습니다. 저장 버튼을 눌러 반영하세요." });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "모바일 이미지 업로드에 실패했습니다.",
+      });
+    } finally {
+      setUploadingMobileZone(null);
+    }
+  }
+
   async function handleSaveZone(zone: BannerZone) {
     const current = zoneStates[zone];
     if (!current.id && !current.htmlContent.trim()) {
@@ -201,9 +230,7 @@ export default function AdminBannersPage() {
     }
 
     const confirmed = window.confirm(
-      current.id
-        ? `${ZONE_LABELS[zone]} 배너를 저장하시겠습니까?`
-        : `${ZONE_LABELS[zone]} 배너를 등록하시겠습니까?`
+      current.id ? `${ZONE_LABELS[zone]} 배너를 저장하시겠습니까?` : `${ZONE_LABELS[zone]} 배너를 등록하시겠습니까?`
     );
     if (!confirmed) return;
 
@@ -214,6 +241,7 @@ export default function AdminBannersPage() {
       const body = {
         zone,
         htmlContent: current.htmlContent,
+        mobileImageUrl: current.mobileImageUrl,
         altText: current.altText.trim(),
         isActive: current.isActive,
         sortOrder: current.sortOrder,
@@ -221,7 +249,6 @@ export default function AdminBannersPage() {
 
       const endpoint = current.id ? `/api/admin/banners?id=${current.id}` : "/api/admin/banners";
       const method = current.id ? "PUT" : "POST";
-
       const response = await fetch(endpoint, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -255,9 +282,7 @@ export default function AdminBannersPage() {
     setNotice(null);
 
     try {
-      const response = await fetch(`/api/admin/banners?id=${id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(`/api/admin/banners?id=${id}`, { method: "DELETE" });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!response.ok || !data.success) {
         throw new Error(data.error ?? "배너 삭제에 실패했습니다.");
@@ -291,8 +316,14 @@ export default function AdminBannersPage() {
           에디터에서 이미지를 삽입하고, 소스 보기(&lt;/&gt;)로 HTML을 직접 편집할 수 있습니다.
         </p>
         <p className="mt-1 text-sm text-slate-600">
-          이벤트/공지는 <Link className="font-semibold underline" href="/admin/events">이벤트 관리</Link>,{" "}
-          <Link className="font-semibold underline" href="/admin/site">사이트 설정</Link>에서 함께 운영하세요.
+          관련 메뉴:{" "}
+          <Link className="font-semibold underline" href="/admin/events">
+            이벤트 관리
+          </Link>{" "}
+          /{" "}
+          <Link className="font-semibold underline" href="/admin/site">
+            사이트 설정
+          </Link>
         </p>
       </header>
 
@@ -310,14 +341,14 @@ export default function AdminBannersPage() {
 
       {!hasAnyBanner ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          등록된 배너가 없습니다. 상단 히어로는 사이트 기본 설정 텍스트로 표시됩니다.
+          등록된 배너가 없습니다.
         </p>
       ) : null}
 
       {ZONE_ORDER.map((zone) => {
         const current = zoneStates[zone];
-        const isSaving = savingZone === zone;
         const zoneBannerList = bannersByZone(zone);
+        const isSaving = savingZone === zone;
 
         return (
           <section key={zone} className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
@@ -327,18 +358,13 @@ export default function AdminBannersPage() {
                 <p className="text-xs text-slate-500">{ZONE_HINTS[zone]}</p>
               </div>
               <Button type="button" variant="outline" onClick={() => setCreateMode(zone)}>
-                + 새 배너 등록 모드
+                + 새 배너
               </Button>
             </div>
 
-            {/* 에디터 영역 */}
             <div className="space-y-2">
               <p className="text-sm text-slate-700">
-                편집 대상 {current.id ? `(ID ${current.id})` : "(신규)"}
-                {" · "}
-                <span className="text-xs text-slate-500">
-                  툴바의 &lt;/&gt; 버튼으로 HTML 소스 편집 모드 전환
-                </span>
+                편집 대상: {current.id ? `(ID ${current.id})` : "(신규)"} / 에디터 코드 보기로 HTML 소스 편집
               </p>
               <BannerHtmlEditor
                 value={current.htmlContent}
@@ -347,30 +373,77 @@ export default function AdminBannersPage() {
               />
             </div>
 
-            {/* 프리뷰 토글 */}
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">모바일 배너 이미지</p>
+                <p className="text-xs text-slate-500">모바일(768px 이하)에서 PC용 HTML 배너 대신 표시됩니다. 권장 해상도 750×800~1000px</p>
+              </div>
+              {current.mobileImageUrl ? (
+                <div className="flex items-start gap-4">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={current.mobileImageUrl}
+                    alt="모바일 배너 미리보기"
+                    className="h-24 w-auto rounded-md border border-slate-200 object-contain"
+                  />
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs text-slate-600 break-all">{current.mobileImageUrl}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-rose-600 hover:text-rose-700"
+                      onClick={() => updateZoneState(zone, { mobileImageUrl: null })}
+                    >
+                      모바일 이미지 제거
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              <div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  id={`${zone}-mobile-image`}
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleMobileImageUpload(zone, file);
+                    event.target.value = "";
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={uploadingMobileZone === zone}
+                  onClick={() => document.getElementById(`${zone}-mobile-image`)?.click()}
+                >
+                  {uploadingMobileZone === zone ? "업로드 중..." : current.mobileImageUrl ? "모바일 이미지 변경" : "모바일 이미지 업로드"}
+                </Button>
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  setShowPreview((prev) => ({ ...prev, [zone]: !prev[zone] }))
-                }
+                onClick={() => setShowPreview((prev) => ({ ...prev, [zone]: !prev[zone] }))}
               >
-                {showPreview[zone] ? "프리뷰 숨기기" : "프리뷰 보기"}
+                {showPreview[zone] ? "미리보기 숨기기" : "미리보기 보기"}
               </Button>
               {showPreview[zone] && current.htmlContent.trim() ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
                   <p className="mb-2 text-xs font-semibold text-slate-500">미리보기</p>
                   <div
                     className="overflow-hidden"
-                    dangerouslySetInnerHTML={{ __html: current.htmlContent }}
+                    dangerouslySetInnerHTML={{ __html: sanitizeBannerHtml(current.htmlContent) }}
                   />
                 </div>
               ) : null}
             </div>
 
-            {/* 추가 설정 */}
             <div className="grid gap-4 md:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor={`${zone}-alt-text`}>대체 텍스트 (SEO)</Label>
@@ -391,7 +464,9 @@ export default function AdminBannersPage() {
                   step={1}
                   value={current.sortOrder}
                   onChange={(event) =>
-                    updateZoneState(zone, { sortOrder: Math.max(0, Number(event.target.value) || 0) })
+                    updateZoneState(zone, {
+                      sortOrder: Math.max(0, Number(event.target.value) || 0),
+                    })
                   }
                 />
               </div>
@@ -424,11 +499,8 @@ export default function AdminBannersPage() {
               ) : null}
             </div>
 
-            {/* 등록된 배너 목록 */}
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-semibold text-slate-900">
-                등록된 배너 목록 ({zoneBannerList.length})
-              </p>
+              <p className="text-sm font-semibold text-slate-900">등록된 배너 목록 ({zoneBannerList.length})</p>
               {zoneBannerList.length < 1 ? (
                 <p className="text-sm text-slate-500">등록된 배너가 없습니다.</p>
               ) : (
@@ -454,12 +526,14 @@ export default function AdminBannersPage() {
                         <div className="text-xs text-slate-600">
                           <p>ID #{banner.id}</p>
                           <p>정렬 {banner.sortOrder}</p>
-                          <p>{banner.isActive ? "활성" : "비활성"} · {formatDateTime(banner.updatedAt)}</p>
+                          <p>
+                            {banner.isActive ? "활성" : "비활성"} / {formatDateTime(banner.updatedAt)}
+                          </p>
                         </div>
                       </div>
                       <div className="flex gap-2">
                         <Button type="button" size="sm" variant="outline" onClick={() => setEditMode(zone, banner)}>
-                          폼 불러오기
+                          불러오기
                         </Button>
                         <Button
                           type="button"

@@ -259,10 +259,11 @@ model Faq {
 }
 
 model Banner {
-  id          Int      @id @default(autoincrement())
-  zone        String
-  imageUrl    String?
-  linkUrl     String?
+  id               Int      @id @default(autoincrement())
+  zone             String
+  imageUrl         String?
+  mobileImageUrl   String?
+  linkUrl          String?
   altText     String   @default("")
   htmlContent String?  @db.Text
   isActive    Boolean  @default(true)

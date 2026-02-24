@@ -8,9 +8,22 @@ export const runtime = "nodejs";
 
 const MAX_UPLOAD_SIZE = 5 * 1024 * 1024;
 
+async function safeDeleteUploadedFile(publicUrl: string | null | undefined, context: string): Promise<void> {
+  if (!publicUrl) return;
+
+  try {
+    await deleteUploadedFileByPublicUrl(publicUrl);
+  } catch (cleanupError) {
+    console.error(`${context} 정리 중 오류가 발생했습니다.`, cleanupError);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
+
+  let uploadedImageUrl: string | null = null;
+  let settingsUpdated = false;
 
   try {
     const formData = await request.formData();
@@ -37,12 +50,14 @@ export async function POST(request: NextRequest) {
       maxBytes: MAX_UPLOAD_SIZE,
     });
     const publicUrl = savedImage.publicUrl;
-
-    if (existing?.value && existing.value !== publicUrl) {
-      await deleteUploadedFileByPublicUrl(existing.value);
-    }
+    uploadedImageUrl = publicUrl;
 
     await upsertSiteSettings([{ key: "site.bannerImageUrl", value: publicUrl }]);
+    settingsUpdated = true;
+
+    if (existing?.value && existing.value !== publicUrl) {
+      await safeDeleteUploadedFile(existing.value, "사이트 배너 교체 후 기존 이미지");
+    }
 
     return NextResponse.json({
       success: true,
@@ -50,6 +65,9 @@ export async function POST(request: NextRequest) {
       message: "배너 이미지가 업로드되었습니다.",
     });
   } catch (error) {
+    if (uploadedImageUrl && !settingsUpdated) {
+      await safeDeleteUploadedFile(uploadedImageUrl, "사이트 배너 업로드 실패 후 신규 파일");
+    }
     console.error("배너 이미지 업로드 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "배너 이미지 업로드에 실패했습니다." }, { status: 500 });
   }
