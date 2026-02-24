@@ -37,14 +37,15 @@ const tabs: TabItem[] = [
 ];
 
 function tabClassName(active: boolean, disabled: boolean): string {
-  const base = "relative px-3 py-4 text-base font-semibold transition sm:px-6";
+  const base =
+    "relative inline-flex w-full min-w-0 items-center justify-center rounded-md px-2 py-2 text-xs font-semibold transition sm:w-auto sm:px-6 sm:py-4 sm:text-base";
   if (disabled) {
     return `${base} cursor-not-allowed text-slate-400`;
   }
   if (active) {
-    return `${base} text-slate-900 after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-full after:bg-slate-900`;
+    return `${base} bg-slate-100 text-slate-900 sm:bg-transparent sm:after:absolute sm:after:bottom-0 sm:after:left-0 sm:after:h-[2px] sm:after:w-full sm:after:bg-slate-900`;
   }
-  return `${base} text-slate-400 hover:text-slate-600`;
+  return `${base} text-slate-500 hover:bg-slate-100 hover:text-slate-700 sm:bg-transparent sm:text-slate-400 sm:hover:bg-transparent sm:hover:text-slate-600`;
 }
 
 export default function ExamFunctionArea({
@@ -91,8 +92,8 @@ export default function ExamFunctionArea({
       id="exam-functions"
       className="border border-slate-300 bg-[#efefef] p-0 shadow-[0_16px_40px_-28px_rgba(0,0,0,0.45)]"
     >
-      <div className="overflow-x-auto border-b border-slate-300 bg-white px-1 sm:px-3">
-        <div className="flex min-w-max items-center">
+      <div className="border-b border-slate-300 bg-white px-1 sm:px-3">
+        <div className="grid grid-cols-3 gap-1 py-1 sm:flex sm:min-w-max sm:items-center sm:gap-0 sm:py-0">
           {visibleTabs.map((tab) => {
             const disabled = tab.requireSubmission && !canAccessRestrictedTabs;
             return (
