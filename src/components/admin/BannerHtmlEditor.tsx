@@ -40,14 +40,21 @@ export default function BannerHtmlEditor({ value, onChange, height = "400" }: Ba
       method: "POST",
       body: formData,
     })
-      .then((res) => res.json())
-      .then((data: { success?: boolean; url?: string; error?: string }) => {
-        if (data.success && data.url) {
+      .then(async (res) => {
+        const data = (await res.json().catch(() => ({}))) as {
+          success?: boolean;
+          url?: string;
+          error?: string;
+          details?: string;
+        };
+
+        if (res.ok && data.success && data.url) {
           uploadHandler({
             result: [{ url: data.url, name: file.name, size: file.size }],
           });
         } else {
-          uploadHandler({ errorMessage: data.error ?? "이미지 업로드에 실패했습니다." });
+          const message = data.details ? `${data.error ?? "이미지 업로드에 실패했습니다."} (${data.details})` : (data.error ?? "이미지 업로드에 실패했습니다.");
+          uploadHandler({ errorMessage: message });
         }
       })
       .catch(() => {

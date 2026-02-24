@@ -38,6 +38,13 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("에디터 이미지 업로드 중 오류가 발생했습니다.", error);
-    return NextResponse.json({ error: "이미지 업로드에 실패했습니다." }, { status: 500 });
+    const details = error instanceof Error ? error.message : "Unknown error";
+    return NextResponse.json(
+      {
+        error: "이미지 업로드에 실패했습니다.",
+        ...(process.env.NODE_ENV !== "production" ? { details } : {}),
+      },
+      { status: 500 }
+    );
   }
 }

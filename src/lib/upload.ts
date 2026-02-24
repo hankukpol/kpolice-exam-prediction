@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 export const DEFAULT_ALLOWED_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 export const DEFAULT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -16,6 +18,8 @@ export interface SavedImageResult {
   objectPath: string;
   publicUrl: string;
 }
+
+const LOCAL_UPLOAD_PUBLIC_ROOT = "uploads";
 
 function extensionByMimeType(mimeType: string): string | null {
   if (mimeType === "image/jpeg") return "jpg";
@@ -120,13 +124,22 @@ export async function saveImageUpload(options: SaveImageUploadOptions): Promise<
   const objectPath = `${options.uploadSubdir}/${fileName}`;
 
   const fileBuffer = new Uint8Array(await options.file.arrayBuffer());
-  await uploadToSupabaseStorage({
-    objectPath,
-    body: new Blob([fileBuffer], { type: options.file.type }),
-    contentType: options.file.type,
-  });
-
-  const publicUrl = buildSupabasePublicUrl(objectPath);
+  let publicUrl: string;
+  try {
+    await uploadToSupabaseStorage({
+      objectPath,
+      body: new Blob([fileBuffer], { type: options.file.type }),
+      contentType: options.file.type,
+    });
+    publicUrl = buildSupabasePublicUrl(objectPath);
+  } catch (error) {
+    if (!shouldUseLocalUploadFallback()) {
+      throw error;
+    }
+    console.warn("Supabase Storage upload failed. Falling back to local public uploads in development.", error);
+    await saveToLocalPublicUploads(objectPath, fileBuffer);
+    publicUrl = buildLocalPublicUrl(objectPath);
+  }
 
   return {
     fileName,
@@ -161,6 +174,44 @@ function resolveServiceRoleKey(): string {
 function resolveStorageBucket(): string {
   const bucket = process.env.SUPABASE_STORAGE_BUCKET?.trim();
   return bucket && bucket.length > 0 ? bucket : "uploads";
+}
+
+function shouldUseLocalUploadFallback(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  const fallback = process.env.UPLOAD_LOCAL_FALLBACK?.trim().toLowerCase();
+  if (fallback === "0" || fallback === "false" || fallback === "off") return false;
+  return true;
+}
+
+function normalizeObjectPath(objectPath: string): string[] {
+  return objectPath
+    .split("/")
+    .filter((part) => part.length > 0 && part !== "." && part !== "..");
+}
+
+function getLocalUploadRootAbsolutePath(): string {
+  return path.resolve(process.cwd(), "public", LOCAL_UPLOAD_PUBLIC_ROOT);
+}
+
+function getLocalUploadAbsolutePath(objectPath: string): string {
+  const root = getLocalUploadRootAbsolutePath();
+  const segments = normalizeObjectPath(objectPath);
+  const absolute = path.resolve(root, ...segments);
+  if (!absolute.startsWith(`${root}${path.sep}`) && absolute !== root) {
+    throw new Error("Invalid upload object path.");
+  }
+  return absolute;
+}
+
+function buildLocalPublicUrl(objectPath: string): string {
+  const encodedPath = encodeObjectPath(objectPath);
+  return `/${LOCAL_UPLOAD_PUBLIC_ROOT}/${encodedPath}`;
+}
+
+async function saveToLocalPublicUploads(objectPath: string, fileBytes: Uint8Array): Promise<void> {
+  const absolutePath = getLocalUploadAbsolutePath(objectPath);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await writeFile(absolutePath, fileBytes);
 }
 
 function encodeObjectPath(objectPath: string): string {
@@ -242,6 +293,19 @@ function parseSupabaseObjectFromPublicUrl(publicUrl: string): { bucket: string; 
 export async function deleteUploadedFileByPublicUrl(publicUrl: string | null | undefined): Promise<void> {
   if (!publicUrl) return;
 
+  const localObjectPath = parseLocalObjectPathFromPublicUrl(publicUrl);
+  if (localObjectPath) {
+    const localPath = getLocalUploadAbsolutePath(localObjectPath);
+    try {
+      await unlink(localPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+    return;
+  }
+
   const parsed = parseSupabaseObjectFromPublicUrl(publicUrl);
   if (!parsed) return;
 
@@ -265,4 +329,27 @@ export async function deleteUploadedFileByPublicUrl(publicUrl: string | null | u
     const details = await response.text();
     throw new Error(`Failed to delete image from Supabase Storage (${response.status}): ${details}`);
   }
+}
+
+function parseLocalObjectPathFromPublicUrl(publicUrl: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(publicUrl);
+  } catch {
+    parsed = new URL(publicUrl, "http://localhost");
+  }
+
+  const marker = `/${LOCAL_UPLOAD_PUBLIC_ROOT}/`;
+  if (!parsed.pathname.startsWith(marker)) {
+    return null;
+  }
+
+  const rest = parsed.pathname.slice(marker.length);
+  const segments = rest
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .map((segment) => decodeURIComponent(segment));
+  if (segments.length < 1) return null;
+
+  return segments.join("/");
 }
