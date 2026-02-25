@@ -100,7 +100,7 @@ if "!SKIP_MIGRATE!"=="0" (
         echo [1/2] No schema changes. Skipping DB migration.
     )
 ) else (
-    echo [1/2] Skipping DB migration (--skip-migrate)
+    echo [1/2] Skipping DB migration --skip-migrate
 )
 
 echo.

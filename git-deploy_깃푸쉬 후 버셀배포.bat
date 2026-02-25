@@ -60,7 +60,7 @@ if "!HAS_STAGED_CHANGES!"=="1" (
     echo.
     for /f %%b in ('git branch --show-current') do set "BRANCH=%%b"
     if not defined BRANCH set "BRANCH=master"
-    echo [4/5] Pushing to GitHub... (!BRANCH!)
+    echo [4/5] Pushing to GitHub... branch=!BRANCH!
     call :push_with_retry "!BRANCH!"
     if errorlevel 1 (
         echo.
@@ -101,7 +101,7 @@ set "RETRY=1"
 git push origin "%TARGET_BRANCH%"
 if not errorlevel 1 exit /b 0
 if !RETRY! geq !MAX_RETRY! exit /b 1
-echo [WARN] Push failed. Retrying in 10 seconds... (!RETRY!/^!MAX_RETRY^!)
+echo [WARN] Push failed. Retrying in 10 seconds... try !RETRY!/!MAX_RETRY!
 timeout /t 10 /nobreak >nul
 set /a RETRY+=1
 goto :push_retry
