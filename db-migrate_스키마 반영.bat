@@ -1,4 +1,5 @@
 @echo off
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 title DB Migration
 
@@ -7,22 +8,20 @@ echo   DB Migration (Supabase)
 echo ============================================
 echo.
 
-set /p MIGRATION_NAME=Migration name (ex: add_new_column):
-
+set "MIGRATION_NAME=%~1"
 if "%MIGRATION_NAME%"=="" (
-    echo.
-    echo [ERROR] Please enter a name.
-    pause
-    exit /b 1
+    for /f %%t in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "NOW=%%t"
+    set "MIGRATION_NAME=auto_schema_!NOW!"
 )
+
+echo [INFO] Migration name: !MIGRATION_NAME!
 
 echo.
 echo [1/2] Running migration...
-call npx prisma migrate dev --name %MIGRATION_NAME%
-if %errorlevel% neq 0 (
+call npx prisma migrate dev --name "!MIGRATION_NAME!"
+if errorlevel 1 (
     echo.
-    echo [ERROR] Migration failed! Check schema.prisma
-    pause
+    echo [ERROR] Migration failed! Check schema.prisma / DATABASE_URL / migration history.
     exit /b 1
 )
 echo [1/2] Migration OK
@@ -30,10 +29,9 @@ echo [1/2] Migration OK
 echo.
 echo [2/2] Generating Prisma Client...
 call npx prisma generate
-if %errorlevel% neq 0 (
+if errorlevel 1 (
     echo.
     echo [ERROR] Prisma generate failed!
-    pause
     exit /b 1
 )
 echo [2/2] Prisma Client OK
@@ -41,8 +39,6 @@ echo [2/2] Prisma Client OK
 echo.
 echo ============================================
 echo   Migration complete!
-echo   Now run dev.bat to test locally,
-echo   then git-deploy.bat to deploy.
 echo ============================================
 echo.
-pause
+exit /b 0
