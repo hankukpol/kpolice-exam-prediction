@@ -70,11 +70,14 @@ type EditBonusType = "NONE" | "VETERAN_5" | "VETERAN_10" | "HERO_3" | "HERO_5";
 
 interface EditSubmissionResponse {
   submission?: {
+    id: number;
     gender: Gender;
     examType: ExamType;
     regionId: number;
     examNumber: string | null;
     bonusType: EditBonusType;
+    editCount: number;
+    maxEditLimit: number;
   };
   scores: Array<{
     subjectName: string;
@@ -147,6 +150,8 @@ export default function ExamInputPage({
   const [isMetaLoading, setIsMetaLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [autoEditId, setAutoEditId] = useState<number | null>(null);
+  const [editCountInfo, setEditCountInfo] = useState<{ editCount: number; maxEditLimit: number } | null>(null);
 
   const [gender, setGender] = useState<Gender | "">("");
   const [examType, setExamType] = useState<ExamType>(ExamType.PUBLIC);
@@ -173,6 +178,9 @@ export default function ExamInputPage({
     [ExamType.CAREER]: {},
   });
 
+  const effectiveEditId = editId ? Number(editId) : autoEditId;
+  const isEditLimitReached = editCountInfo !== null && editCountInfo.maxEditLimit > 0 && editCountInfo.editCount >= editCountInfo.maxEditLimit;
+
   useEffect(() => {
     let isMounted = true;
 
@@ -182,7 +190,7 @@ export default function ExamInputPage({
       try {
         const [metaRes, editRes] = await Promise.all([
           fetch("/api/exams?active=true", { method: "GET", cache: "no-store" }),
-          editId ? fetch(`/api/result?submissionId=${editId}`, { method: "GET", cache: "no-store" }) : Promise.resolve(null)
+          fetch(editId ? `/api/result?submissionId=${editId}` : `/api/result`, { method: "GET", cache: "no-store" }),
         ]);
 
         const data = (await metaRes.json()) as ExamsResponse & { error?: string };
@@ -191,11 +199,14 @@ export default function ExamInputPage({
         }
 
         let editData: EditSubmissionResponse | null = null;
-        if (editRes) {
-          const parsed = (await editRes.json()) as EditSubmissionResponse;
-          if (!editRes.ok) throw new Error(parsed.error ?? "수정할 답안을 불러오지 못했습니다.");
-          editData = parsed;
+        if (editRes.ok) {
+          editData = (await editRes.json()) as EditSubmissionResponse;
+        } else if (editId) {
+          // URL에 ?edit=<id>가 있는데 조회 실패 → 에러
+          const parsed = (await editRes.json()) as { error?: string };
+          throw new Error(parsed.error ?? "수정할 답안을 불러오지 못했습니다.");
         }
+        // editId 없이 조회했는데 404 → 신규 사용자, 정상 흐름
 
         if (!isMounted) return;
 
@@ -203,6 +214,11 @@ export default function ExamInputPage({
 
         if (editData && editData.submission) {
           const sub = editData.submission;
+          // 기존 제출 자동 감지: URL에 editId 없어도 submissionId 저장
+          if (!editId && sub.id) {
+            setAutoEditId(sub.id);
+          }
+          setEditCountInfo({ editCount: sub.editCount ?? 0, maxEditLimit: sub.maxEditLimit ?? 3 });
           setGender(sub.gender);
           const restoredExamType =
             sub.examType === ExamType.CAREER && !data.careerExamEnabled
@@ -540,11 +556,11 @@ export default function ExamInputPage({
         submitDurationMs: Date.now() - pageLoadedAtRef.current,
         answers,
         difficulty: difficulty as Array<{ subjectName: string; rating: DifficultyRating }>,
-        ...(editId ? { submissionId: Number(editId) } : {}),
+        ...(effectiveEditId ? { submissionId: effectiveEditId } : {}),
       };
 
       const response = await fetch("/api/submission", {
-        method: editId ? "PUT" : "POST",
+        method: effectiveEditId ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
       });
@@ -731,6 +747,27 @@ export default function ExamInputPage({
         </div>
       </section>
 
+      {/* 수정 모드 안내 배너 */}
+      {effectiveEditId && editCountInfo && (
+        isEditLimitReached ? (
+          <section className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            <p className="font-semibold">답안 수정 횟수({editCountInfo.maxEditLimit}회)를 모두 사용했습니다.</p>
+            <p className="mt-1">더 이상 수정할 수 없습니다. 내 성적 분석에서 제출 결과를 확인하세요.</p>
+          </section>
+        ) : (
+          <section className="rounded-xl border border-police-200 bg-police-50 p-4 text-sm text-slate-700">
+            <p className="font-semibold text-police-700">기존에 제출한 답안이 불러와졌습니다.</p>
+            <p className="mt-1">
+              수정할 문항만 변경 후 제출하세요.
+              <span className="ml-2 font-medium text-slate-900">
+                수정 {editCountInfo.editCount}/{editCountInfo.maxEditLimit}회 사용
+                ({editCountInfo.maxEditLimit - editCountInfo.editCount}회 남음)
+              </span>
+            </p>
+          </section>
+        )
+      )}
+
       <section className="rounded-xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">OMR 답안 입력</h2>
         <p className="mt-1 text-sm text-slate-600">
@@ -860,8 +897,8 @@ export default function ExamInputPage({
         ) : null}
 
         <div className="mt-5 flex justify-end">
-          <Button type="button" onClick={handleSubmit} disabled={isSubmitting || isMetaLoading}>
-            {isSubmitting ? "처리 중..." : editId ? "답안 수정하기" : "채점하기"}
+          <Button type="button" onClick={handleSubmit} disabled={isSubmitting || isMetaLoading || isEditLimitReached}>
+            {isSubmitting ? "처리 중..." : effectiveEditId ? "답안 수정하기" : "채점하기"}
           </Button>
         </div>
       </section>

@@ -269,6 +269,11 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
             return;
           }
 
+          if (response.status === 400) {
+            setErrorMessage(data.error ?? "합격예측 데이터를 처리할 수 없습니다.");
+            return;
+          }
+
           throw new Error(data.error ?? "합격예측 데이터를 불러오지 못했습니다.");
         }
 
