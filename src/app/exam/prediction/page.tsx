@@ -260,17 +260,15 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
             return;
           }
 
-          if (response.status === 404) {
-            if (embedded) {
-              setErrorMessage("합격예측을 위한 제출 데이터가 없습니다. 먼저 답안을 제출해 주세요.");
-            } else {
+          if (response.status === 404 || response.status === 400) {
+            const apiMessage = data.error ?? "";
+            // "제출 데이터가 없습니다" — 진짜 미제출인 경우에만 입력 페이지로 이동
+            const isNoSubmission = apiMessage.includes("제출 데이터가 없습니다");
+            if (isNoSubmission && !embedded) {
               router.replace("/exam/input");
+              return;
             }
-            return;
-          }
-
-          if (response.status === 400) {
-            setErrorMessage(data.error ?? "합격예측 데이터를 처리할 수 없습니다.");
+            setErrorMessage(apiMessage || "합격예측 데이터를 불러오지 못했습니다.");
             return;
           }
 
