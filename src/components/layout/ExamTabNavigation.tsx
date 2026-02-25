@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 interface ExamTabNavigationProps {
   hasSubmission: boolean;
   finalPredictionEnabled?: boolean;
+  commentsEnabled?: boolean;
 }
 
 interface TabItem {
@@ -33,6 +34,7 @@ function tabClassName(active: boolean, disabled: boolean): string {
 export default function ExamTabNavigation({
   hasSubmission,
   finalPredictionEnabled = false,
+  commentsEnabled = true,
 }: ExamTabNavigationProps) {
   const pathname = usePathname();
 
@@ -64,7 +66,11 @@ export default function ExamTabNavigation({
       tooltip: "답안 제출 후 이용할 수 있습니다.",
     },
   ];
-  const visibleTabs = tabs.filter((tab) => (tab.href === "/exam/final" ? finalPredictionEnabled : true));
+  const visibleTabs = tabs.filter((tab) => {
+    if (tab.href === "/exam/final") return finalPredictionEnabled;
+    if (tab.href === "/exam/comments") return commentsEnabled;
+    return true;
+  });
 
   return (
     <nav className="border-b border-slate-200 bg-white">

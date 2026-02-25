@@ -48,13 +48,6 @@ interface MainStatsRow {
   sureMinScore: number | null;
 }
 
-interface QuotaRowLegacy {
-  regionId: number;
-  regionName: string;
-  recruitCount: number;
-  recruitCountCareer: number;
-}
-
 type ScoreDistributionKey = "TOTAL" | "CORE" | "CRIMINAL_LAW" | "POLICE_STUDIES";
 
 interface ScoreDistributionConfig {

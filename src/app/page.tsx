@@ -120,6 +120,7 @@ export default async function HomePage() {
   const heroBadge = String(siteSettings["site.heroBadge"] ?? "2026년 경찰 1차 필기시험 합격예측");
   const careerExamEnabled = Boolean(siteSettings["site.careerExamEnabled"] ?? true);
   const finalPredictionEnabled = Boolean(siteSettings["site.finalPredictionEnabled"] ?? false);
+  const commentsEnabled = Boolean(siteSettings["site.commentsEnabled"] ?? true);
   const heroTitle = String(
     siteSettings["site.heroTitle"] ?? "OMR 입력부터 합격권 예측까지\n한 번에 확인하세요."
   );
@@ -167,6 +168,7 @@ export default async function HomePage() {
             hasSubmission={hasSubmission}
             isAdmin={isAdmin}
             finalPredictionEnabled={finalPredictionEnabled}
+            commentsEnabled={commentsEnabled}
           />
         </div>
       </section>

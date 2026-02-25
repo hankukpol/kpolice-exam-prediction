@@ -116,26 +116,50 @@ export default function GradeAnalysisTable({ result }: GradeAnalysisTableProps) 
         </table>
       </div>
 
-      {result.statistics.hasCutoff ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
-          <p className="font-semibold">과락 과목이 있습니다.</p>
-          <div className="mt-1 space-y-1">
-            {result.statistics.cutoffSubjects.map((subject) => (
-              <p key={subject.subjectName}>
-                {subject.subjectName}: {formatScore(subject.rawScore)}점 (과락 기준 {formatScore(subject.cutoffScore)}점 미만)
-              </p>
-            ))}
+      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+        {result.statistics.hasCutoff && (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-5">
+            <h3 className="mb-4 flex items-center gap-2 font-bold text-rose-700">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-200 text-sm text-rose-800">
+                !
+              </span>
+              과락 과목이 있습니다
+            </h3>
+            <ul className="flex flex-col gap-2.5">
+              {result.statistics.cutoffSubjects.map((subject) => (
+                <li key={subject.subjectName} className="flex items-center justify-between rounded-xl border border-rose-100 bg-white px-4 py-3 text-sm text-rose-700">
+                  <span className="font-semibold">{subject.subjectName}</span>
+                  <div className="text-right">
+                    <span className="font-bold">{formatScore(subject.rawScore)}점</span>
+                    <span className="ml-1.5 text-xs font-normal text-rose-500">(기준 {formatScore(subject.cutoffScore)}점 미만)</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className={`rounded-2xl border border-slate-200 bg-slate-50/50 p-5 ${!result.statistics.hasCutoff ? 'sm:col-span-2 sm:w-1/2 sm:mx-auto' : ''}`}>
+          <div className="flex flex-col gap-0">
+            <div className="flex items-center justify-between border-b border-slate-200/60 pb-3.5">
+              <span className="text-sm font-medium text-slate-500">원점수 합계</span>
+              <span className="text-base font-semibold text-slate-700">{formatScore(result.submission.totalScore)}점</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-slate-200/60 py-3.5">
+              <span className="text-sm font-medium text-slate-500">
+                가산점
+                <span className="ml-2 inline-flex items-center rounded-md bg-slate-200/60 px-2 py-0.5 text-xs font-normal text-slate-600">
+                  {formatBonusType(result.submission.bonusType)} {(result.submission.bonusRate * 100).toFixed(0)}%
+                </span>
+              </span>
+              <span className="text-base font-semibold text-emerald-600">+{formatScore(result.statistics.bonusScore)}점</span>
+            </div>
+            <div className="flex items-center justify-between pt-4">
+              <span className="text-base font-bold text-slate-900">최종점수</span>
+              <span className="text-2xl font-bold tracking-tight text-blue-600">{formatScore(result.submission.finalScore)}점</span>
+            </div>
           </div>
         </div>
-      ) : null}
-
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-slate-700">
-        <p>원점수 합계: {formatScore(result.submission.totalScore)}점</p>
-        <p>
-          가산점: {formatBonusType(result.submission.bonusType)} ({(result.submission.bonusRate * 100).toFixed(0)}%) / +
-          {formatScore(result.statistics.bonusScore)}점
-        </p>
-        <p className="font-semibold text-slate-900">최종점수: {formatScore(result.submission.finalScore)}점</p>
       </div>
     </section>
   );

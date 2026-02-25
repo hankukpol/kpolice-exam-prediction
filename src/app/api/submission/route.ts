@@ -15,6 +15,7 @@ import {
   getBonusTypeFromPercent,
   isValidBonusType,
   type AnswerInput,
+  type ScoreResult,
 } from "@/lib/scoring";
 
 export const runtime = "nodejs";
@@ -54,6 +55,7 @@ interface SubmissionRequestBody {
 }
 
 type DifficultyRatingValue = "VERY_EASY" | "EASY" | "NORMAL" | "HARD" | "VERY_HARD";
+type DifficultyInput = ReturnType<typeof parseDifficulty>[number];
 
 const ALLOWED_DIFFICULTY_RATINGS: ReadonlySet<DifficultyRatingValue> = new Set([
   "VERY_EASY",
@@ -216,6 +218,104 @@ function resolveBonusType(body: SubmissionRequestBody): BonusType {
   const veteranPercent = parsePercent(body.veteranPercent);
   const heroPercent = parsePercent(body.heroPercent);
   return getBonusTypeFromPercent(veteranPercent, heroPercent);
+}
+
+function isExamNumberOutOfRange(examNumber: string, rangeStart: string, rangeEnd: string): boolean {
+  const inputNum = Number(examNumber);
+  const startNum = Number(rangeStart);
+  const endNum = Number(rangeEnd);
+
+  if (Number.isInteger(inputNum) && Number.isInteger(startNum) && Number.isInteger(endNum)) {
+    return inputNum < startNum || inputNum > endNum;
+  }
+
+  return examNumber < rangeStart || examNumber > rangeEnd;
+}
+
+function buildDifficultyRows(
+  submissionId: number,
+  scoreResult: ScoreResult,
+  difficulty: DifficultyInput[]
+): Array<{ submissionId: number; subjectId: number; rating: DifficultyRatingValue }> {
+  if (difficulty.length < 1) {
+    return [];
+  }
+
+  const subjectIdByName = new Map(
+    scoreResult.scores.map((score) => [normalizeSubjectName(score.subjectName), score.subjectId] as const)
+  );
+
+  return difficulty
+    .map((item) => {
+      const subjectId = subjectIdByName.get(normalizeSubjectName(item.subjectName));
+      if (!subjectId) return null;
+
+      return {
+        submissionId,
+        subjectId,
+        rating: item.rating,
+      };
+    })
+    .filter(
+      (row): row is { submissionId: number; subjectId: number; rating: DifficultyRatingValue } => row !== null
+    );
+}
+
+async function persistSubmissionScoreRows(
+  tx: Prisma.TransactionClient,
+  params: {
+    submissionId: number;
+    scoreResult: ScoreResult;
+    difficulty: DifficultyInput[];
+    replaceExisting: boolean;
+  }
+): Promise<void> {
+  const { submissionId, scoreResult, difficulty, replaceExisting } = params;
+
+  if (replaceExisting) {
+    await tx.userAnswer.deleteMany({ where: { submissionId } });
+    await tx.subjectScore.deleteMany({ where: { submissionId } });
+    await tx.difficultyRating.deleteMany({ where: { submissionId } });
+  }
+
+  if (scoreResult.userAnswers.length > 0) {
+    await tx.userAnswer.createMany({
+      data: scoreResult.userAnswers.map((answer) => ({
+        submissionId,
+        subjectId: answer.subjectId,
+        questionNumber: answer.questionNo,
+        selectedAnswer: answer.selectedAnswer,
+        isCorrect: answer.isCorrect,
+      })),
+    });
+  }
+
+  await tx.subjectScore.createMany({
+    data: scoreResult.scores.map((score) => ({
+      submissionId,
+      subjectId: score.subjectId,
+      rawScore: score.rawScore,
+      isFailed: score.isCutoff,
+    })),
+  });
+
+  const difficultyRows = buildDifficultyRows(submissionId, scoreResult, difficulty);
+  if (difficultyRows.length > 0) {
+    await tx.difficultyRating.createMany({
+      data: difficultyRows,
+    });
+  }
+}
+
+function getUniqueConstraintTargets(error: Prisma.PrismaClientKnownRequestError): string[] {
+  const targetRaw = error.meta?.target;
+  if (Array.isArray(targetRaw)) {
+    return targetRaw.map((item) => String(item));
+  }
+  if (typeof targetRaw === "string") {
+    return [targetRaw];
+  }
+  return [];
 }
 
 function inferErrorStatus(message: string): number {
@@ -531,16 +631,7 @@ export async function POST(request: Request) {
       : (quota?.examNumberEnd ?? null);
 
     if (rangeStart && rangeEnd) {
-      const inputNum = Number(examNumber);
-      const startNum = Number(rangeStart);
-      const endNum = Number(rangeEnd);
-
-      const outOfRange =
-        Number.isInteger(inputNum) && Number.isInteger(startNum) && Number.isInteger(endNum)
-          ? inputNum < startNum || inputNum > endNum
-          : examNumber < rangeStart || examNumber > rangeEnd;
-
-      if (outOfRange) {
+      if (isExamNumberOutOfRange(examNumber, rangeStart, rangeEnd)) {
         return NextResponse.json(
           { error: `응시번호가 유효 범위(${rangeStart}~${rangeEnd}) 밖입니다.` },
           { status: 400 }
@@ -611,59 +702,12 @@ export async function POST(request: Request) {
         },
       });
 
-      if (scoreResult.userAnswers.length > 0) {
-        await tx.userAnswer.createMany({
-          data: scoreResult.userAnswers.map((answer) => ({
-            submissionId: savedSubmission.id,
-            subjectId: answer.subjectId,
-            questionNumber: answer.questionNo,
-            selectedAnswer: answer.selectedAnswer,
-            isCorrect: answer.isCorrect,
-          })),
-        });
-      }
-
-      await tx.subjectScore.createMany({
-        data: scoreResult.scores.map((score) => ({
-          submissionId: savedSubmission.id,
-          subjectId: score.subjectId,
-          rawScore: score.rawScore,
-          isFailed: score.isCutoff,
-        })),
+      await persistSubmissionScoreRows(tx, {
+        submissionId: savedSubmission.id,
+        scoreResult,
+        difficulty,
+        replaceExisting: false,
       });
-
-      if (difficulty.length > 0) {
-        const subjectIdByName = new Map(
-          scoreResult.scores.map((score) => [normalizeSubjectName(score.subjectName), score.subjectId] as const)
-        );
-
-        const difficultyData = difficulty
-          .map((item) => {
-            const subjectId = subjectIdByName.get(normalizeSubjectName(item.subjectName));
-            if (!subjectId) return null;
-
-            return {
-              submissionId: savedSubmission.id,
-              subjectId,
-              rating: item.rating,
-            };
-          })
-          .filter(
-            (
-              row
-            ): row is {
-              submissionId: number;
-              subjectId: number;
-              rating: DifficultyRatingValue;
-            } => row !== null
-          );
-
-        if (difficultyData.length > 0) {
-          await tx.difficultyRating.createMany({
-            data: difficultyData,
-          });
-        }
-      }
 
       await tx.submissionLog.create({
         data: {
@@ -687,12 +731,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const targetRaw = error.meta?.target;
-      const target = Array.isArray(targetRaw)
-        ? targetRaw.map((item) => String(item))
-        : typeof targetRaw === "string"
-          ? [targetRaw]
-          : [];
+      const target = getUniqueConstraintTargets(error);
 
       if (target.some((item) => item.includes("examNumber"))) {
         return NextResponse.json(
@@ -847,16 +886,7 @@ export async function PUT(request: Request) {
       : (quotaForEdit?.examNumberEnd ?? null);
 
     if (editRangeStart && editRangeEnd) {
-      const inputNum = Number(examNumber);
-      const startNum = Number(editRangeStart);
-      const endNum = Number(editRangeEnd);
-
-      const outOfRange =
-        Number.isInteger(inputNum) && Number.isInteger(startNum) && Number.isInteger(endNum)
-          ? inputNum < startNum || inputNum > endNum
-          : examNumber < editRangeStart || examNumber > editRangeEnd;
-
-      if (outOfRange) {
+      if (isExamNumberOutOfRange(examNumber, editRangeStart, editRangeEnd)) {
         return NextResponse.json(
           { error: `응시번호가 유효 범위(${editRangeStart}~${editRangeEnd}) 밖입니다.` },
           { status: 400 }
@@ -917,10 +947,6 @@ export async function PUT(request: Request) {
     changedFields.push("answers");
 
     const updated = await prisma.$transaction(async (tx) => {
-      await tx.userAnswer.deleteMany({ where: { submissionId } });
-      await tx.subjectScore.deleteMany({ where: { submissionId } });
-      await tx.difficultyRating.deleteMany({ where: { submissionId } });
-
       const savedSubmission = await tx.submission.update({
         where: { id: submissionId },
         data: {
@@ -942,53 +968,12 @@ export async function PUT(request: Request) {
         },
       });
 
-      if (scoreResult.userAnswers.length > 0) {
-        await tx.userAnswer.createMany({
-          data: scoreResult.userAnswers.map((answer) => ({
-            submissionId,
-            subjectId: answer.subjectId,
-            questionNumber: answer.questionNo,
-            selectedAnswer: answer.selectedAnswer,
-            isCorrect: answer.isCorrect,
-          })),
-        });
-      }
-
-      await tx.subjectScore.createMany({
-        data: scoreResult.scores.map((score) => ({
-          submissionId,
-          subjectId: score.subjectId,
-          rawScore: score.rawScore,
-          isFailed: score.isCutoff,
-        })),
+      await persistSubmissionScoreRows(tx, {
+        submissionId,
+        scoreResult,
+        difficulty,
+        replaceExisting: true,
       });
-
-      if (difficulty.length > 0) {
-        const subjectIdByName = new Map(
-          scoreResult.scores.map((score) => [normalizeSubjectName(score.subjectName), score.subjectId] as const)
-        );
-
-        const difficultyData = difficulty
-          .map((item) => {
-            const subjectId = subjectIdByName.get(normalizeSubjectName(item.subjectName));
-            if (!subjectId) return null;
-
-            return {
-              submissionId,
-              subjectId,
-              rating: item.rating,
-            };
-          })
-          .filter(
-            (row): row is { submissionId: number; subjectId: number; rating: DifficultyRatingValue } => row !== null
-          );
-
-        if (difficultyData.length > 0) {
-          await tx.difficultyRating.createMany({
-            data: difficultyData,
-          });
-        }
-      }
 
       await tx.submissionLog.create({
         data: {
@@ -1013,12 +998,7 @@ export async function PUT(request: Request) {
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      const targetRaw = error.meta?.target;
-      const target = Array.isArray(targetRaw)
-        ? targetRaw.map((item) => String(item))
-        : typeof targetRaw === "string"
-          ? [targetRaw]
-          : [];
+      const target = getUniqueConstraintTargets(error);
 
       if (target.some((item) => item.includes("examNumber"))) {
         return NextResponse.json(

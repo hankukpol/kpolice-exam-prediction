@@ -17,6 +17,7 @@ interface ExamFunctionAreaProps {
   hasSubmission: boolean;
   isAdmin?: boolean;
   finalPredictionEnabled?: boolean;
+  commentsEnabled?: boolean;
 }
 
 interface TabItem {
@@ -53,13 +54,18 @@ export default function ExamFunctionArea({
   hasSubmission,
   isAdmin = false,
   finalPredictionEnabled = false,
+  commentsEnabled = true,
 }: ExamFunctionAreaProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("main");
   const [localHasSubmission, setLocalHasSubmission] = useState(hasSubmission);
   const canAccessRestrictedTabs = localHasSubmission || isAdmin;
   const visibleTabs = useMemo(
-    () => tabs.filter((tab) => (tab.key === "final" ? finalPredictionEnabled : true)),
-    [finalPredictionEnabled]
+    () => tabs.filter((tab) => {
+      if (tab.key === "final") return finalPredictionEnabled;
+      if (tab.key === "comments") return commentsEnabled;
+      return true;
+    }),
+    [finalPredictionEnabled, commentsEnabled]
   );
 
   useEffect(() => {

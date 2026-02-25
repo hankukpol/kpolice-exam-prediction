@@ -68,6 +68,7 @@ export default function AnswerChangeImpact({ submissionId }: AnswerChangeImpactP
   const [data, setData] = useState<AnswerChangeImpactData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState<string>("전체");
 
   useEffect(() => {
     let mounted = true;
@@ -142,6 +143,11 @@ export default function AnswerChangeImpact({ submissionId }: AnswerChangeImpactP
     );
   }
 
+  const subjects = ["전체", ...Array.from(new Set(data.changedQuestions.map((q) => q.subjectName)))];
+  const filteredQuestions = selectedSubject === "전체"
+    ? data.changedQuestions
+    : data.changedQuestions.filter((q) => q.subjectName === selectedSubject);
+
   return (
     <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -151,11 +157,28 @@ export default function AnswerChangeImpact({ submissionId }: AnswerChangeImpactP
 
       {data.reason ? <p className="text-sm text-slate-600">사유: {data.reason}</p> : null}
 
+      {subjects.length > 2 && (
+        <div className="flex flex-wrap gap-2 pt-1 pb-2">
+          {subjects.map((subject) => (
+            <button
+              key={subject}
+              onClick={() => setSelectedSubject(subject)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedSubject === subject
+                  ? "bg-slate-800 text-white"
+                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+            >
+              {subject}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-slate-200">
         <table className="min-w-[720px] w-full border-collapse text-sm">
           <thead>
             <tr className="bg-slate-100 text-slate-700">
-              <th className="border border-slate-200 px-3 py-2 text-left">과목</th>
+              <th className="border border-slate-200 px-3 py-2 text-left w-[120px]">과목</th>
               <th className="border border-slate-200 px-3 py-2 text-center">문항</th>
               <th className="border border-slate-200 px-3 py-2 text-center">변경 전</th>
               <th className="border border-slate-200 px-3 py-2 text-center">변경 후</th>
@@ -164,18 +187,26 @@ export default function AnswerChangeImpact({ submissionId }: AnswerChangeImpactP
             </tr>
           </thead>
           <tbody>
-            {data.changedQuestions.map((item) => (
-              <tr key={`${item.subjectName}-${item.questionNumber}`}>
-                <td className="border border-slate-200 px-3 py-2">{item.subjectName}</td>
-                <td className="border border-slate-200 px-3 py-2 text-center">{item.questionNumber}</td>
-                <td className="border border-slate-200 px-3 py-2 text-center">{item.oldAnswer ?? "-"}</td>
-                <td className="border border-slate-200 px-3 py-2 text-center">{item.newAnswer}</td>
-                <td className="border border-slate-200 px-3 py-2 text-center">{item.myAnswer ?? "-"}</td>
-                <td className={`border border-slate-200 px-3 py-2 text-center font-semibold ${impactClass(item.impact)}`}>
-                  {impactText(item.impact)}
+            {filteredQuestions.length > 0 ? (
+              filteredQuestions.map((item) => (
+                <tr key={`${item.subjectName}-${item.questionNumber}`}>
+                  <td className="border border-slate-200 px-3 py-2 font-medium text-slate-700">{item.subjectName}</td>
+                  <td className="border border-slate-200 px-3 py-2 text-center">{item.questionNumber}</td>
+                  <td className="border border-slate-200 px-3 py-2 text-center">{item.oldAnswer ?? "-"}</td>
+                  <td className="border border-slate-200 px-3 py-2 text-center font-semibold text-blue-600">{item.newAnswer}</td>
+                  <td className="border border-slate-200 px-3 py-2 text-center">{item.myAnswer ?? "-"}</td>
+                  <td className={`border border-slate-200 px-3 py-2 text-center font-semibold ${impactClass(item.impact)}`}>
+                    {impactText(item.impact)}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} className="border border-slate-200 px-3 py-8 text-center text-slate-500">
+                  해당 과목의 정답 변경 내역이 없습니다.
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>

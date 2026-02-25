@@ -6,6 +6,7 @@ import { maskKoreanName } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 import { consumeFixedWindowRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-ip";
+import { getSiteSettings } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
 
@@ -105,6 +106,11 @@ function formatComment(
 }
 
 export async function GET(request: NextRequest) {
+  const siteSettings = await getSiteSettings();
+  if (!siteSettings["site.commentsEnabled"]) {
+    return NextResponse.json({ error: "댓글 기능이 비활성화되어 있습니다." }, { status: 403 });
+  }
+
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
@@ -209,6 +215,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const siteSettings = await getSiteSettings();
+  if (!siteSettings["site.commentsEnabled"]) {
+    return NextResponse.json({ error: "댓글 기능이 비활성화되어 있습니다." }, { status: 403 });
+  }
+
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
@@ -304,6 +315,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const siteSettings = await getSiteSettings();
+  if (!siteSettings["site.commentsEnabled"]) {
+    return NextResponse.json({ error: "댓글 기능이 비활성화되어 있습니다." }, { status: 403 });
+  }
+
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });

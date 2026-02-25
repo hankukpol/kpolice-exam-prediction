@@ -123,29 +123,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "submissionId가 올바르지 않습니다." }, { status: 400 });
   }
 
-  const activeExam =
-    !submissionId && isAdmin
-      ? await prisma.exam.findFirst({
-          where: { isActive: true },
-          orderBy: [{ examDate: "desc" }, { id: "desc" }],
-          select: { id: true },
-        })
-      : null;
-
+  // 1차: submissionId 지정 시 해당 제출, 아니면 본인 제출 조회
   const submissionWhere: Prisma.SubmissionWhereInput = submissionId
     ? {
         id: submissionId,
         ...(isAdmin ? {} : { userId }),
       }
-    : isAdmin
-      ? {
-          ...(activeExam ? { examId: activeExam.id } : {}),
-        }
-      : {
-          userId,
-        };
+    : { userId };
 
-  const submission = await prisma.submission.findFirst({
+  let submission = await prisma.submission.findFirst({
     where: submissionWhere,
     orderBy: submissionId ? undefined : [{ createdAt: "desc" }, { id: "desc" }],
     select: {
@@ -207,6 +193,38 @@ export async function GET(request: NextRequest) {
       },
     },
   });
+
+  // 2차: 관리자이고 본인 제출이 없으면, 활성 시험의 아무 제출로 대시보드 미리보기
+  if (!submission && !submissionId && isAdmin) {
+    const activeExam = await prisma.exam.findFirst({
+      where: { isActive: true },
+      orderBy: [{ examDate: "desc" }, { id: "desc" }],
+      select: { id: true },
+    });
+    if (activeExam) {
+      submission = await prisma.submission.findFirst({
+        where: { examId: activeExam.id },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: {
+          id: true, userId: true, examId: true, examType: true, regionId: true,
+          gender: true, examNumber: true, totalScore: true, finalScore: true,
+          bonusType: true, bonusRate: true, createdAt: true, editCount: true,
+          exam: { select: { id: true, name: true, year: true, round: true } },
+          region: { select: { id: true, name: true } },
+          subjectScores: {
+            select: {
+              subjectId: true, rawScore: true, isFailed: true,
+              subject: { select: { name: true, questionCount: true, maxScore: true, pointPerQuestion: true } },
+            },
+          },
+          userAnswers: {
+            select: { subjectId: true, questionNumber: true, selectedAnswer: true, isCorrect: true },
+          },
+          difficultyRatings: { select: { subjectId: true, rating: true } },
+        },
+      });
+    }
+  }
 
   if (!submission) {
     return NextResponse.json({ error: "조회할 성적 데이터가 없습니다." }, { status: 404 });

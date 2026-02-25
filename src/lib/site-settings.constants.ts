@@ -21,6 +21,7 @@ export type SiteSettingKey =
   | "site.autoPassCutMode"
   | "site.autoPassCutCheckIntervalSec"
   | "site.autoPassCutThresholdProfile"
+  | "site.commentsEnabled"
   | "site.autoPassCutReadyRatioProfile";
 
 export type SiteSettingValueType = "string" | "nullable-string" | "boolean" | "number";
@@ -45,6 +46,7 @@ export const SITE_SETTING_TYPES: Record<SiteSettingKey, SiteSettingValueType> = 
   "site.mainCardCompetitiveEnabled": "boolean",
   "site.mainCardScoreDistributionEnabled": "boolean",
   "site.submissionEditLimit": "number",
+  "site.commentsEnabled": "boolean",
   "site.finalPredictionEnabled": "boolean",
   "site.autoPassCutEnabled": "boolean",
   "site.autoPassCutMode": "string",
@@ -73,6 +75,7 @@ export const SITE_SETTING_DEFAULTS: SiteSettingsMap = {
   "site.mainCardCompetitiveEnabled": true,
   "site.mainCardScoreDistributionEnabled": true,
   "site.submissionEditLimit": 3,
+  "site.commentsEnabled": true,
   "site.finalPredictionEnabled": false,
   "site.autoPassCutEnabled": false,
   "site.autoPassCutMode": "HYBRID",

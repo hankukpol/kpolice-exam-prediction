@@ -35,6 +35,7 @@ export default async function ExamMainPage() {
   const hasSubmission = isAuthenticated ? await getHasSubmission(userId) : false;
   const settings = await getSiteSettingsUncached();
   const finalPredictionEnabled = Boolean(settings["site.finalPredictionEnabled"] ?? false);
+  const commentsEnabled = Boolean(settings["site.commentsEnabled"] ?? true);
 
   return (
     <ExamFunctionArea
@@ -42,6 +43,7 @@ export default async function ExamMainPage() {
       hasSubmission={hasSubmission}
       isAdmin={isAdmin}
       finalPredictionEnabled={finalPredictionEnabled}
+      commentsEnabled={commentsEnabled}
     />
   );
 }

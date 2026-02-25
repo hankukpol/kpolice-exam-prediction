@@ -105,6 +105,62 @@ function formatLogTime(value: string): string {
   return parsed.toLocaleString("ko-KR");
 }
 
+function buildAnswerMap(answers: AnswerItem[]): Record<string, number> {
+  const nextMap: Record<string, number> = {};
+  for (const answer of answers) {
+    nextMap[buildAnswerKey(answer.subjectId, answer.questionNumber)] = answer.answer;
+  }
+  return nextMap;
+}
+
+function buildAnswerDiffRows(params: {
+  subjects: SubjectItem[];
+  baselineAnswerMap: Record<string, number>;
+  answerMap: Record<string, number>;
+}): AnswerDiffRow[] {
+  const rows: AnswerDiffRow[] = [];
+  const { subjects, baselineAnswerMap, answerMap } = params;
+
+  for (const subject of subjects) {
+    for (let questionNumber = 1; questionNumber <= subject.questionCount; questionNumber += 1) {
+      const key = buildAnswerKey(subject.id, questionNumber);
+      const previousAnswer = baselineAnswerMap[key];
+      const nextAnswer = answerMap[key];
+
+      if (!nextAnswer) {
+        continue;
+      }
+
+      const normalizedPrevious = previousAnswer ?? null;
+      if (normalizedPrevious !== null && normalizedPrevious === nextAnswer) {
+        continue;
+      }
+
+      rows.push({
+        subjectId: subject.id,
+        subjectName: subject.name,
+        questionNumber,
+        previousAnswer: normalizedPrevious,
+        nextAnswer,
+      });
+    }
+  }
+
+  return rows;
+}
+
+function normalizeRescoreSummary(data: {
+  changedQuestions?: number;
+  statusChangedCount?: number;
+  rescoredCount?: number;
+}): { changedQuestions: number; statusChangedCount: number; rescoredCount: number } {
+  return {
+    changedQuestions: data.changedQuestions ?? 0,
+    statusChangedCount: data.statusChangedCount ?? 0,
+    rescoredCount: data.rescoredCount ?? 0,
+  };
+}
+
 export default function AdminAnswersPage() {
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
@@ -135,34 +191,11 @@ export default function AdminAnswersPage() {
   const currentAnswerCount = useMemo(() => Object.keys(answerMap).length, [answerMap]);
 
   const answerDiffRows = useMemo<AnswerDiffRow[]>(() => {
-    const rows: AnswerDiffRow[] = [];
-
-    for (const subject of subjects) {
-      for (let questionNumber = 1; questionNumber <= subject.questionCount; questionNumber += 1) {
-        const key = buildAnswerKey(subject.id, questionNumber);
-        const previousAnswer = baselineAnswerMap[key];
-        const nextAnswer = answerMap[key];
-
-        if (!nextAnswer) {
-          continue;
-        }
-
-        const normalizedPrevious = previousAnswer ?? null;
-        if (normalizedPrevious !== null && normalizedPrevious === nextAnswer) {
-          continue;
-        }
-
-        rows.push({
-          subjectId: subject.id,
-          subjectName: subject.name,
-          questionNumber,
-          previousAnswer: normalizedPrevious,
-          nextAnswer,
-        });
-      }
-    }
-
-    return rows;
+    return buildAnswerDiffRows({
+      subjects,
+      baselineAnswerMap,
+      answerMap,
+    });
   }, [answerMap, baselineAnswerMap, subjects]);
 
   const loadExamOptions = useCallback(async () => {
@@ -205,10 +238,7 @@ export default function AdminAnswersPage() {
         throw new Error(data.error ?? "정답 데이터를 불러오지 못했습니다.");
       }
 
-      const nextMap: Record<string, number> = {};
-      for (const answer of data.answers ?? []) {
-        nextMap[buildAnswerKey(answer.subjectId, answer.questionNumber)] = answer.answer;
-      }
+      const nextMap = buildAnswerMap(data.answers ?? []);
 
       setSubjects(data.subjects ?? []);
       setAnswerMap(nextMap);
@@ -453,9 +483,7 @@ export default function AdminAnswersPage() {
         throw new Error(data.error ?? "정답 저장에 실패했습니다.");
       }
 
-      const changedQuestions = data.changedQuestions ?? 0;
-      const statusChangedCount = data.statusChangedCount ?? 0;
-      const rescoredCount = data.rescoredCount ?? 0;
+      const { changedQuestions, statusChangedCount, rescoredCount } = normalizeRescoreSummary(data);
 
       setNotice({
         type: "success",
@@ -523,9 +551,7 @@ export default function AdminAnswersPage() {
         throw new Error(data.error ?? "CSV 저장에 실패했습니다.");
       }
 
-      const changedQuestions = data.changedQuestions ?? 0;
-      const statusChangedCount = data.statusChangedCount ?? 0;
-      const rescoredCount = data.rescoredCount ?? 0;
+      const { changedQuestions, statusChangedCount, rescoredCount } = normalizeRescoreSummary(data);
 
       setNotice({
         type: "success",

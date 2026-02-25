@@ -239,6 +239,7 @@ export default function AdminSitePage() {
 
       await saveSettings(
         {
+          "site.commentsEnabled": asBoolean(settings["site.commentsEnabled"], true),
           "site.careerExamEnabled": asBoolean(settings["site.careerExamEnabled"], true),
           "site.maintenanceMode": asBoolean(settings["site.maintenanceMode"], false),
           "site.maintenanceMessage": asString(settings["site.maintenanceMessage"]),
@@ -632,6 +633,15 @@ export default function AdminSitePage() {
             onChange={(event) => updateSettingBoolean("site.careerExamEnabled", event.target.checked)}
           />
           경행경채 시험 활성화
+        </label>
+
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={asBoolean(settings["site.commentsEnabled"], true)}
+            onChange={(event) => updateSettingBoolean("site.commentsEnabled", event.target.checked)}
+          />
+          실시간 댓글 활성화
         </label>
 
         <label className="flex items-center gap-2 text-sm text-slate-700">

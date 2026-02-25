@@ -136,6 +136,54 @@ function getDefaultInputMode(): OmrInputMode {
   return isTouchDevice || isNarrowScreen ? "radio" : "quick";
 }
 
+type SubjectProgress = {
+  subjectName: string;
+  filled: number;
+  total: number;
+};
+
+function buildSubjectProgress(subjects: SubjectInfo[], answersBySubject: AnswersBySubject): SubjectProgress[] {
+  return subjects.map((subject) => {
+    const subjectAnswers = answersBySubject[subject.name] ?? {};
+    const filledCount = Object.values(subjectAnswers).filter(
+      (answer): answer is number => typeof answer === "number"
+    ).length;
+
+    return {
+      subjectName: subject.name,
+      filled: filledCount,
+      total: subject.questionCount,
+    };
+  });
+}
+
+function summarizeSubjectProgress(progressBySubject: SubjectProgress[]): { total: number; filled: number } {
+  const total = progressBySubject.reduce((sum, item) => sum + item.total, 0);
+  const filled = progressBySubject.reduce((sum, item) => sum + item.filled, 0);
+  return { total, filled };
+}
+
+function collectSelectedAnswers(
+  subjects: SubjectInfo[],
+  answersBySubject: AnswersBySubject
+): Array<{ subjectName: string; questionNo: number; answer: number }> {
+  const answers: Array<{ subjectName: string; questionNo: number; answer: number }> = [];
+  for (const subject of subjects) {
+    const subjectAnswers = answersBySubject[subject.name] ?? {};
+    for (let questionNo = 1; questionNo <= subject.questionCount; questionNo += 1) {
+      const selected = subjectAnswers[questionNo];
+      if (typeof selected === "number") {
+        answers.push({
+          subjectName: subject.name,
+          questionNo,
+          answer: selected,
+        });
+      }
+    }
+  }
+  return answers;
+}
+
 export default function ExamInputPage({
   embedded = false,
   onSubmitted,
@@ -393,24 +441,11 @@ export default function ExamInputPage({
   );
 
   const progressBySubject = useMemo(() => {
-    return subjects.map((subject) => {
-      const subjectAnswers = currentAnswers[subject.name] ?? {};
-      const filledCount = Object.values(subjectAnswers).filter(
-        (answer): answer is number => typeof answer === "number"
-      ).length;
-
-      return {
-        subjectName: subject.name,
-        filled: filledCount,
-        total: subject.questionCount,
-      };
-    });
+    return buildSubjectProgress(subjects, currentAnswers);
   }, [subjects, currentAnswers]);
 
   const totalProgress = useMemo(() => {
-    const total = progressBySubject.reduce((sum, item) => sum + item.total, 0);
-    const filled = progressBySubject.reduce((sum, item) => sum + item.filled, 0);
-    return { total, filled };
+    return summarizeSubjectProgress(progressBySubject);
   }, [progressBySubject]);
 
   const selectedRegion = useMemo(() => {
@@ -516,20 +551,7 @@ export default function ExamInputPage({
       }
     }
 
-    const answers: Array<{ subjectName: string; questionNo: number; answer: number }> = [];
-    for (const subject of subjects) {
-      const subjectAnswers = currentAnswers[subject.name] ?? {};
-      for (let questionNo = 1; questionNo <= subject.questionCount; questionNo += 1) {
-        const selected = subjectAnswers[questionNo];
-        if (typeof selected === "number") {
-          answers.push({
-            subjectName: subject.name,
-            questionNo,
-            answer: selected,
-          });
-        }
-      }
-    }
+    const answers = collectSelectedAnswers(subjects, currentAnswers);
 
     const difficulty = subjects.map((subject) => ({
       subjectName: subject.name,
