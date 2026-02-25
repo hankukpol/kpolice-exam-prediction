@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -139,6 +141,7 @@ export default function AdminSubmissionsPage() {
   const [detail, setDetail] = useState<SubmissionDetailResponse | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -254,8 +257,8 @@ export default function AdminSubmissionsPage() {
   }
 
   async function handleDeleteSubmission(submissionId: number) {
-    const confirmed = window.confirm("해당 제출 데이터를 삭제하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: "제출 데이터 삭제", description: "해당 제출 데이터를 삭제하시겠습니까?", variant: "danger" });
+    if (!ok) return;
 
     setIsDeleting(true);
     setNotice(null);
@@ -661,6 +664,8 @@ export default function AdminSubmissionsPage() {
           </div>
         </div>
       ) : null}
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

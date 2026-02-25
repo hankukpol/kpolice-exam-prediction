@@ -522,20 +522,27 @@ export async function POST(request: Request) {
       where: { examId_regionId: { examId: exam.id, regionId } },
     });
 
-    // 응시번호 범위 검증
-    if (quota?.examNumberStart && quota?.examNumberEnd) {
+    // 응시번호 범위 검증 (채용유형별 별도 범위)
+    const rangeStart = examType === ExamType.CAREER
+      ? (quota?.examNumberStartCareer ?? null)
+      : (quota?.examNumberStart ?? null);
+    const rangeEnd = examType === ExamType.CAREER
+      ? (quota?.examNumberEndCareer ?? null)
+      : (quota?.examNumberEnd ?? null);
+
+    if (rangeStart && rangeEnd) {
       const inputNum = Number(examNumber);
-      const startNum = Number(quota.examNumberStart);
-      const endNum = Number(quota.examNumberEnd);
+      const startNum = Number(rangeStart);
+      const endNum = Number(rangeEnd);
 
       const outOfRange =
         Number.isInteger(inputNum) && Number.isInteger(startNum) && Number.isInteger(endNum)
           ? inputNum < startNum || inputNum > endNum
-          : examNumber < quota.examNumberStart || examNumber > quota.examNumberEnd;
+          : examNumber < rangeStart || examNumber > rangeEnd;
 
       if (outOfRange) {
         return NextResponse.json(
-          { error: `응시번호가 유효 범위(${quota.examNumberStart}~${quota.examNumberEnd}) 밖입니다.` },
+          { error: `응시번호가 유효 범위(${rangeStart}~${rangeEnd}) 밖입니다.` },
           { status: 400 }
         );
       }
@@ -831,20 +838,27 @@ export async function PUT(request: Request) {
       where: { examId_regionId: { examId: exam.id, regionId } },
     });
 
-    // 응시번호 범위 검증
-    if (quotaForEdit?.examNumberStart && quotaForEdit?.examNumberEnd) {
+    // 응시번호 범위 검증 (채용유형별 별도 범위)
+    const editRangeStart = examType === ExamType.CAREER
+      ? (quotaForEdit?.examNumberStartCareer ?? null)
+      : (quotaForEdit?.examNumberStart ?? null);
+    const editRangeEnd = examType === ExamType.CAREER
+      ? (quotaForEdit?.examNumberEndCareer ?? null)
+      : (quotaForEdit?.examNumberEnd ?? null);
+
+    if (editRangeStart && editRangeEnd) {
       const inputNum = Number(examNumber);
-      const startNum = Number(quotaForEdit.examNumberStart);
-      const endNum = Number(quotaForEdit.examNumberEnd);
+      const startNum = Number(editRangeStart);
+      const endNum = Number(editRangeEnd);
 
       const outOfRange =
         Number.isInteger(inputNum) && Number.isInteger(startNum) && Number.isInteger(endNum)
           ? inputNum < startNum || inputNum > endNum
-          : examNumber < quotaForEdit.examNumberStart || examNumber > quotaForEdit.examNumberEnd;
+          : examNumber < editRangeStart || examNumber > editRangeEnd;
 
       if (outOfRange) {
         return NextResponse.json(
-          { error: `응시번호가 유효 범위(${quotaForEdit.examNumberStart}~${quotaForEdit.examNumberEnd}) 밖입니다.` },
+          { error: `응시번호가 유효 범위(${editRangeStart}~${editRangeEnd}) 밖입니다.` },
           { status: 400 }
         );
       }

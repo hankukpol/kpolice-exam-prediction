@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import BannerHtmlEditor from "@/components/admin/BannerHtmlEditor";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -124,6 +126,7 @@ export default function AdminBannersPage() {
     bottom: false,
   });
   const [uploadingMobileZone, setUploadingMobileZone] = useState<BannerZone | null>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const hasAnyBanner = useMemo(() => allBanners.length > 0, [allBanners.length]);
 
@@ -229,10 +232,11 @@ export default function AdminBannersPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      current.id ? `${ZONE_LABELS[zone]} 배너를 저장하시겠습니까?` : `${ZONE_LABELS[zone]} 배너를 등록하시겠습니까?`
-    );
-    if (!confirmed) return;
+    const ok = await confirm({
+      title: current.id ? "배너 저장" : "배너 등록",
+      description: current.id ? `${ZONE_LABELS[zone]} 배너를 저장하시겠습니까?` : `${ZONE_LABELS[zone]} 배너를 등록하시겠습니까?`,
+    });
+    if (!ok) return;
 
     setSavingZone(zone);
     setNotice(null);
@@ -275,8 +279,8 @@ export default function AdminBannersPage() {
   }
 
   async function handleDeleteBanner(id: number) {
-    const confirmed = window.confirm("선택한 배너를 삭제하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: "배너 삭제", description: "선택한 배너를 삭제하시겠습니까?", variant: "danger" });
+    if (!ok) return;
 
     setDeletingId(id);
     setNotice(null);
@@ -554,6 +558,8 @@ export default function AdminBannersPage() {
           </section>
         );
       })}
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

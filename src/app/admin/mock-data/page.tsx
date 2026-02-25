@@ -1,6 +1,8 @@
 ﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +65,7 @@ export default function AdminMockDataPage() {
   const [includeFinalPredictionMock, setIncludeFinalPredictionMock] = useState(true);
 
   const [isLoading, setIsLoading] = useState(true);
+  const { confirm, modalProps } = useConfirmModal();
   const [isGenerating, setIsGenerating] = useState(false);
   const [isResettingExam, setIsResettingExam] = useState(false);
   const [isResettingAll, setIsResettingAll] = useState(false);
@@ -122,12 +125,13 @@ export default function AdminMockDataPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `선택 시험에 목업 데이터를 생성하시겠습니까?\n\n대상: ${selectedExamLabel}\n공채/지역: ${publicPerRegion}명${
+    const ok = await confirm({
+      title: "목업 데이터 생성",
+      description: `선택 시험에 목업 데이터를 생성하시겠습니까?\n\n대상: ${selectedExamLabel}\n공채/지역: ${publicPerRegion}명${
         careerExamEnabled ? `, 경행경채/지역: ${careerPerRegion}명` : ""
-      }`
-    );
-    if (!confirmed) return;
+      }`,
+    });
+    if (!ok) return;
 
     setIsGenerating(true);
     setNotice(null);
@@ -173,10 +177,12 @@ export default function AdminMockDataPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `선택 시험의 목업 데이터를 완전 삭제하시겠습니까?\n\n대상: ${selectedExamLabel}\n삭제 범위: MOCK 제출 + 고아 MOCK 사용자`
-    );
-    if (!confirmed) return;
+    const ok = await confirm({
+      title: "선택 시험 목업 초기화",
+      description: `선택 시험의 목업 데이터를 완전 삭제하시겠습니까?\n\n대상: ${selectedExamLabel}\n삭제 범위: MOCK 제출 + 고아 MOCK 사용자`,
+      variant: "danger",
+    });
+    if (!ok) return;
 
     setIsResettingExam(true);
     setNotice(null);
@@ -209,10 +215,12 @@ export default function AdminMockDataPage() {
   }
 
   async function handleResetAllMockData() {
-    const confirmed = window.confirm(
-      "전체 MOCK 데이터(모든 시험)를 완전 삭제하시겠습니까?\n\n삭제 범위: MOCK 제출 전체 + 고아 MOCK 사용자 전체"
-    );
-    if (!confirmed) return;
+    const ok = await confirm({
+      title: "전체 MOCK 완전 삭제",
+      description: "전체 MOCK 데이터(모든 시험)를 완전 삭제하시겠습니까?\n\n삭제 범위: MOCK 제출 전체 + 고아 MOCK 사용자 전체",
+      variant: "danger",
+    });
+    if (!ok) return;
 
     setIsResettingAll(true);
     setNotice(null);
@@ -392,6 +400,8 @@ export default function AdminMockDataPage() {
           </div>
         </section>
       ) : null}
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

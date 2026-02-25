@@ -1,20 +1,27 @@
 import Link from "next/link";
+import DashboardSetupChecklist from "@/components/admin/DashboardSetupChecklist";
 import DashboardSubmissionTrendChart from "@/components/admin/DashboardSubmissionTrendChart";
 import { prisma } from "@/lib/prisma";
 
+/* ────────────── 통계 카드 스타일 (6개) ────────────── */
+
 const statCardStyles = [
-  { bg: "bg-white border border-slate-200", text: "text-slate-900", sub: "text-slate-500", label: "text-police-600" },
-  { bg: "bg-white border border-slate-200", text: "text-slate-900", sub: "text-slate-500", label: "text-cyan-600" },
-  { bg: "bg-white border border-slate-200", text: "text-slate-900", sub: "text-slate-500", label: "text-amber-600" },
-  { bg: "bg-white border border-slate-200", text: "text-slate-900", sub: "text-slate-500", label: "text-rose-600" },
+  { label: "text-police-600" },
+  { label: "text-rose-600" },
+  { label: "text-amber-600" },
+  { label: "text-cyan-600" },
+  { label: "text-emerald-600" },
+  { label: "text-violet-600" },
 ];
+
+/* ────────────── 빠른 실행 (6개 핵심) ────────────── */
 
 const quickActions = [
   {
     href: "/admin/exams",
     num: "1",
     title: "시험 생성/활성화",
-    desc: "신규 시험을 만들고 운영 대상 시험을 활성화합니다.",
+    desc: "신규 시험을 만들고 활성화합니다.",
     color: "text-police-600",
     hoverBg: "hover:border-police-300",
   },
@@ -27,131 +34,119 @@ const quickActions = [
     hoverBg: "hover:border-cyan-300",
   },
   {
-    href: "/admin/stats",
-    num: "3",
-    title: "참여 통계 확인",
-    desc: "유형/성별/지역 참여 수를 확인합니다.",
-    color: "text-amber-600",
-    hoverBg: "hover:border-amber-300",
-  },
-  {
     href: "/admin/regions",
-    num: "4",
+    num: "3",
     title: "모집인원 관리",
-    desc: "지역별 공채/경행경채 선발인원을 운영합니다.",
+    desc: "지역별 공채/경행경채 선발인원을 설정합니다.",
     color: "text-emerald-600",
     hoverBg: "hover:border-emerald-300",
+  },
+  {
+    href: "/admin/stats",
+    num: "4",
+    title: "참여 통계",
+    desc: "유형/성별/지역 참여 현황을 확인합니다.",
+    color: "text-amber-600",
+    hoverBg: "hover:border-amber-300",
   },
   {
     href: "/admin/site",
     num: "5",
     title: "사이트 설정",
-    desc: "메인 문구, 공지사항, 점검 모드를 관리합니다.",
+    desc: "메인 문구, 점검 모드를 관리합니다.",
     color: "text-violet-600",
     hoverBg: "hover:border-violet-300",
   },
   {
-    href: "/admin/banners",
-    num: "6",
-    title: "배너 관리",
-    desc: "배너 이미지를 업로드하고 표시를 설정합니다.",
-    color: "text-pink-600",
-    hoverBg: "hover:border-pink-300",
-  },
-  {
-    href: "/admin/events",
-    num: "7",
-    title: "이벤트 관리",
-    desc: "이벤트 섹션 카드와 표시 순서를 운영합니다.",
-    color: "text-teal-600",
-    hoverBg: "hover:border-teal-300",
-  },
-  {
     href: "/admin/users",
-    num: "8",
+    num: "6",
     title: "사용자 관리",
-    desc: "권한 조정, 비밀번호 초기화, 계정 삭제를 수행합니다.",
+    desc: "권한 조정, 비밀번호 초기화를 수행합니다.",
     color: "text-indigo-600",
     hoverBg: "hover:border-indigo-300",
   },
-  {
-    href: "/admin/comments",
-    num: "9",
-    title: "댓글 관리",
-    desc: "부적절 댓글을 개별 또는 일괄 삭제합니다.",
-    color: "text-orange-600",
-    hoverBg: "hover:border-orange-300",
-  },
-  {
-    href: "/admin/submissions",
-    num: "10",
-    title: "제출 현황",
-    desc: "제출 내역 상세와 답안 정보를 조회합니다.",
-    color: "text-slate-600",
-    hoverBg: "hover:border-slate-400",
-  },
 ];
+
+/* ────────────── 페이지 ────────────── */
 
 export default async function AdminDashboardPage() {
   let activeExam: { id: number; year: number; round: number; name: string } | null = null;
   let totalExams = 0;
   let totalSubmissions = 0;
-  let totalAnswerKeys = 0;
   let totalUsers = 0;
-  let regionsWithoutCareerRecruitCount = 0;
-  let activeExamAnswerKeyCount = 0;
+  let todaySubmissions = 0;
+  let publicCount = 0;
+  let careerCount = 0;
+  let publicAnswerKeyCount = 0;
+  let careerAnswerKeyCount = 0;
+  let regionsConfigured = 0;
+  let regionsTotal = 0;
+  let isMaintenanceMode = false;
+  let lastSubmissionAt: Date | null = null;
   let submissionTrend: Array<{ date: string; count: number }> = [];
+  let regionBreakdown: Array<{ name: string; publicCount: number; careerCount: number; total: number }> = [];
   let hasStatsError = false;
 
   try {
-    const [
-      dbActiveExam,
-      dbTotalExams,
-      dbTotalSubmissions,
-      dbTotalAnswerKeys,
-      dbTotalUsers,
-    ] =
-      await prisma.$transaction([
-        prisma.exam.findFirst({
-          where: { isActive: true },
-          orderBy: [{ examDate: "desc" }, { id: "desc" }],
-          select: {
-            id: true,
-            year: true,
-            round: true,
-            name: true,
-          },
-        }),
-        prisma.exam.count(),
-        prisma.submission.count(),
-        prisma.answerKey.count(),
-        prisma.user.count(),
-      ]);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const [dbActiveExam, dbTotalExams, dbTotalUsers] = await prisma.$transaction([
+      prisma.exam.findFirst({
+        where: { isActive: true },
+        orderBy: [{ examDate: "desc" }, { id: "desc" }],
+        select: { id: true, year: true, round: true, name: true },
+      }),
+      prisma.exam.count(),
+      prisma.user.count(),
+    ]);
 
     activeExam = dbActiveExam;
     totalExams = dbTotalExams;
-    totalSubmissions = dbTotalSubmissions;
-    totalAnswerKeys = dbTotalAnswerKeys;
     totalUsers = dbTotalUsers;
 
     if (dbActiveExam) {
-      regionsWithoutCareerRecruitCount = await prisma.examRegionQuota.count({
-        where: {
-          examId: dbActiveExam.id,
-          recruitCountCareer: {
-            lte: 0,
-          },
-        },
-      });
-    }
+      const [
+        dbTotalSub,
+        dbTodaySub,
+        dbExamTypeCounts,
+        dbPublicAK,
+        dbCareerAK,
+        dbRegionsConfigured,
+        dbRegionsTotal,
+        dbLastSubmission,
+      ] = await Promise.all([
+        prisma.submission.count({ where: { examId: dbActiveExam.id } }),
+        prisma.submission.count({ where: { examId: dbActiveExam.id, createdAt: { gte: todayStart } } }),
+        prisma.submission.groupBy({
+          by: ["examType"],
+          where: { examId: dbActiveExam.id },
+          _count: true,
+        }),
+        prisma.answerKey.count({ where: { examId: dbActiveExam.id, subject: { examType: "PUBLIC" } } }),
+        prisma.answerKey.count({ where: { examId: dbActiveExam.id, subject: { examType: "CAREER" } } }),
+        prisma.examRegionQuota.count({ where: { examId: dbActiveExam.id, recruitCount: { gt: 0 } } }),
+        prisma.examRegionQuota.count({ where: { examId: dbActiveExam.id } }),
+        prisma.submission.findFirst({
+          where: { examId: dbActiveExam.id },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        }),
+      ]);
 
-    if (dbActiveExam) {
-      activeExamAnswerKeyCount = await prisma.answerKey.count({
-        where: {
-          examId: dbActiveExam.id,
-        },
-      });
+      totalSubmissions = dbTotalSub;
+      todaySubmissions = dbTodaySub;
+      for (const row of dbExamTypeCounts) {
+        if (row.examType === "PUBLIC") publicCount = row._count;
+        if (row.examType === "CAREER") careerCount = row._count;
+      }
+      publicAnswerKeyCount = dbPublicAK;
+      careerAnswerKeyCount = dbCareerAK;
+      regionsConfigured = dbRegionsConfigured;
+      regionsTotal = dbRegionsTotal;
+      lastSubmissionAt = dbLastSubmission?.createdAt ?? null;
 
+      // 제출 추이
       const trendRaw = await prisma.$queryRaw<Array<{ date: string; count: bigint | number }>>`
         SELECT
           TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
@@ -161,19 +156,64 @@ export default async function AdminDashboardPage() {
         GROUP BY TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
         ORDER BY TO_CHAR("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD')
       `;
-
       submissionTrend = trendRaw
-        .map((item) => ({
-          date: item.date,
-          count: typeof item.count === "bigint" ? Number(item.count) : Number(item.count),
-        }))
+        .map((item) => ({ date: item.date, count: Number(item.count) }))
         .filter((item) => Number.isFinite(item.count))
         .slice(-10);
+
+      // 지역별 제출 현황 (상위 5개)
+      const regionRaw = await prisma.$queryRaw<
+        Array<{ name: string; publicCount: bigint | number; careerCount: bigint | number; total: bigint | number }>
+      >`
+        SELECT
+          r."name",
+          SUM(CASE WHEN s."examType" = 'PUBLIC' THEN 1 ELSE 0 END)::bigint AS "publicCount",
+          SUM(CASE WHEN s."examType" = 'CAREER' THEN 1 ELSE 0 END)::bigint AS "careerCount",
+          COUNT(*)::bigint AS "total"
+        FROM "Submission" s
+        JOIN "Region" r ON s."regionId" = r."id"
+        WHERE s."examId" = ${dbActiveExam.id}
+        GROUP BY r."id", r."name"
+        ORDER BY "total" DESC
+        LIMIT 5
+      `;
+      regionBreakdown = regionRaw.map((row) => ({
+        name: row.name,
+        publicCount: Number(row.publicCount),
+        careerCount: Number(row.careerCount),
+        total: Number(row.total),
+      }));
     }
+
+    // 점검 모드
+    const maintenanceSetting = await prisma.siteSetting.findUnique({ where: { key: "maintenanceMode" } });
+    isMaintenanceMode = maintenanceSetting?.value === "true";
   } catch (error) {
-    console.error("관리자 대시보드 통계 조회 중 오류가 발생했습니다.", error);
+    console.error("관리자 대시보드 통계 조회 중 오류:", error);
     hasStatsError = true;
   }
+
+  /* ────────── 체크리스트 ────────── */
+
+  const checklistItems = activeExam
+    ? [
+        { label: "시험 생성 완료", completed: true, href: "/admin/exams" },
+        { label: "정답 입력 (공채)", completed: publicAnswerKeyCount >= 100, href: "/admin/answers" },
+        { label: "정답 입력 (경행경채)", completed: careerAnswerKeyCount >= 100, href: "/admin/answers" },
+        { label: "모집인원 설정", completed: regionsConfigured > 0 && regionsConfigured === regionsTotal, href: "/admin/regions" },
+        { label: "운영 시작 (점검 모드 해제)", completed: !isMaintenanceMode, href: "/admin/site" },
+      ]
+    : [{ label: "시험 생성", completed: false, href: "/admin/exams" }];
+
+  /* ────────── 통계 카드 데이터 ────────── */
+
+  const totalPercent = totalSubmissions > 0 ? Math.round((publicCount / totalSubmissions) * 100) : 0;
+  const answerKeyStatus =
+    publicAnswerKeyCount >= 100 && careerAnswerKeyCount >= 100
+      ? "등록 완료"
+      : publicAnswerKeyCount + careerAnswerKeyCount > 0
+        ? "일부 등록"
+        : "미등록";
 
   const stats = [
     {
@@ -181,9 +221,73 @@ export default async function AdminDashboardPage() {
       value: activeExam ? `${activeExam.year}년 ${activeExam.round}차` : "없음",
       sub: activeExam?.name ?? "활성화된 시험 없음",
     },
-    { label: "등록 시험 수", value: String(totalExams), sub: "전체 시험" },
-    { label: "정답키 문항 수", value: String(totalAnswerKeys), sub: "등록 문항" },
-    { label: "총 제출 수", value: totalSubmissions.toLocaleString(), sub: `회원 수: ${totalUsers.toLocaleString()}` },
+    {
+      label: "총 제출 수",
+      value: totalSubmissions.toLocaleString(),
+      sub: `회원 수: ${totalUsers.toLocaleString()}`,
+    },
+    {
+      label: "오늘 제출",
+      value: todaySubmissions.toLocaleString(),
+      sub: new Date().toLocaleDateString("ko-KR"),
+    },
+    {
+      label: "공채 / 경행경채",
+      value: totalSubmissions > 0 ? `${totalPercent}% / ${100 - totalPercent}%` : "-",
+      sub: `공채 ${publicCount}명 / 경행경채 ${careerCount}명`,
+    },
+    {
+      label: "정답키 상태",
+      value: answerKeyStatus,
+      sub: `공채 ${publicAnswerKeyCount}문항 / 경행경채 ${careerAnswerKeyCount}문항`,
+    },
+    {
+      label: "등록 시험 수",
+      value: String(totalExams),
+      sub: "전체 시험",
+    },
+  ];
+
+  /* ────────── 시스템 상태 ────────── */
+
+  function formatRelativeTime(date: Date | null): string {
+    if (!date) return "-";
+    const diff = Date.now() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return "방금 전";
+    if (minutes < 60) return `${minutes}분 전`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}시간 전`;
+    const days = Math.floor(hours / 24);
+    return `${days}일 전`;
+  }
+
+  const systemStatus = [
+    {
+      label: "정답키 (공채)",
+      ok: publicAnswerKeyCount >= 100,
+      value: publicAnswerKeyCount >= 100 ? `${publicAnswerKeyCount}문항 등록` : `${publicAnswerKeyCount}문항 (미완료)`,
+    },
+    {
+      label: "정답키 (경행경채)",
+      ok: careerAnswerKeyCount >= 100,
+      value: careerAnswerKeyCount >= 100 ? `${careerAnswerKeyCount}문항 등록` : `${careerAnswerKeyCount}문항 (미완료)`,
+    },
+    {
+      label: "모집인원 설정",
+      ok: regionsConfigured > 0 && regionsConfigured === regionsTotal,
+      value: regionsTotal > 0 ? `${regionsConfigured}/${regionsTotal}개 지역` : "설정 없음",
+    },
+    {
+      label: "서비스 상태",
+      ok: !isMaintenanceMode,
+      value: isMaintenanceMode ? "점검 모드" : "운영 중",
+    },
+    {
+      label: "마지막 제출",
+      ok: true,
+      value: formatRelativeTime(lastSubmissionAt),
+    },
   ];
 
   return (
@@ -203,53 +307,34 @@ export default async function AdminDashboardPage() {
         </div>
       ) : null}
 
-      {!hasStatsError && regionsWithoutCareerRecruitCount > 0 ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          경행경채 모집인원이 0으로 설정된 지역이 {regionsWithoutCareerRecruitCount}개 있습니다.{" "}
-          <Link href="/admin/regions" className="font-semibold underline">
-            모집인원 관리
-          </Link>
-          에서 확인해 주세요.
-        </div>
-      ) : null}
+      {/* 운영 체크리스트 */}
+      {!hasStatsError ? <DashboardSetupChecklist items={checklistItems} /> : null}
 
-      {!hasStatsError && activeExam && activeExamAnswerKeyCount < 1 ? (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          활성 시험에 등록된 정답키가 없습니다.{" "}
-          <Link href="/admin/answers" className="font-semibold underline">
-            정답 관리
-          </Link>
-          에서 정답키를 등록해 주세요.
-        </div>
-      ) : null}
-
-      {/* 통계 카드 */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* 통계 카드 (6개) */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
         {stats.map((stat, index) => {
-          const style = statCardStyles[index];
+          const style = statCardStyles[index % statCardStyles.length];
           return (
             <div
               key={stat.label}
-              className={`rounded-2xl p-5 shadow-sm transition hover:shadow-md ${style.bg}`}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
             >
-              <p className={`text-xs font-bold uppercase tracking-wider ${style.label ?? style.sub}`}>
+              <p className={`text-xs font-bold uppercase tracking-wider ${style.label}`}>
                 {stat.label}
               </p>
-              <p className={`mt-2 text-3xl font-black tracking-tight ${style.text}`}>
+              <p className="mt-2 text-2xl font-black tracking-tight text-slate-900 xl:text-3xl">
                 {stat.value}
               </p>
-              <p className={`mt-1 text-xs font-medium ${style.sub}`}>
-                {stat.sub}
-              </p>
+              <p className="mt-1 text-xs font-medium text-slate-500">{stat.sub}</p>
             </div>
           );
         })}
       </div>
 
-      {/* 차트 영역 */}
+      {/* 차트 + 시스템 상태 */}
       {!hasStatsError ? (
         <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-          {/* 메인 차트 */}
+          {/* 제출 추이 차트 */}
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-800">최근 제출 추이</h2>
@@ -260,48 +345,74 @@ export default async function AdminDashboardPage() {
             <DashboardSubmissionTrendChart data={submissionTrend} />
           </div>
 
-          {/* 우측 요약 */}
+          {/* 시스템 상태 */}
           <div className="flex flex-col gap-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">참여 요약</h3>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">시스템 상태</h3>
               <div className="mt-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">총 제출</span>
-                  <span className="text-sm font-bold text-slate-900">{totalSubmissions.toLocaleString()}</span>
-                </div>
-                <div className="h-px bg-slate-100" />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">회원 수</span>
-                  <span className="text-sm font-bold text-slate-900">{totalUsers.toLocaleString()}</span>
-                </div>
-                <div className="h-px bg-slate-100" />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">정답키</span>
-                  <span className="text-sm font-bold text-slate-900">{totalAnswerKeys}</span>
-                </div>
-                <div className="h-px bg-slate-100" />
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">시험 수</span>
-                  <span className="text-sm font-bold text-slate-900">{totalExams}</span>
-                </div>
+                {systemStatus.map((item) => (
+                  <div key={item.label} className="flex items-center justify-between">
+                    <span className="text-sm text-slate-600">{item.label}</span>
+                    <span className={`text-xs font-semibold ${item.ok ? "text-emerald-600" : "text-amber-600"}`}>
+                      {item.ok ? "\u2705" : "\u26A0\uFE0F"} {item.value}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">활성 시험</h3>
-              <p className="mt-3 text-lg font-bold text-slate-900">
-                {activeExam ? `${activeExam.year}년 ${activeExam.round}차` : "-"}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">{activeExam?.name ?? "활성화된 시험 없음"}</p>
-              {activeExam ? (
+            {activeExam ? (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500">활성 시험</h3>
+                <p className="mt-3 text-lg font-bold text-slate-900">
+                  {activeExam.year}년 {activeExam.round}차
+                </p>
+                <p className="mt-1 text-xs text-slate-500">{activeExam.name}</p>
                 <Link
                   href="/admin/exams"
                   className="mt-3 inline-block rounded-lg bg-police-50 px-3 py-1.5 text-xs font-medium text-police-600 transition hover:bg-police-100"
                 >
                   시험 관리
                 </Link>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* 지역별 제출 현황 */}
+      {!hasStatsError && regionBreakdown.length > 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-800">지역별 제출 현황 (상위 5개)</h2>
+            <Link
+              href="/admin/stats"
+              className="text-xs font-medium text-police-600 hover:text-police-700"
+            >
+              전체 보기
+            </Link>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-medium text-slate-500">
+                  <th className="pb-2 pr-4">지역</th>
+                  <th className="pb-2 pr-4 text-right">공채</th>
+                  <th className="pb-2 pr-4 text-right">경행경채</th>
+                  <th className="pb-2 text-right">합계</th>
+                </tr>
+              </thead>
+              <tbody>
+                {regionBreakdown.map((row) => (
+                  <tr key={row.name} className="border-b border-slate-100 last:border-0">
+                    <td className="py-2 pr-4 font-medium text-slate-700">{row.name}</td>
+                    <td className="py-2 pr-4 text-right text-slate-600">{row.publicCount}</td>
+                    <td className="py-2 pr-4 text-right text-slate-600">{row.careerCount}</td>
+                    <td className="py-2 text-right font-semibold text-slate-900">{row.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}
@@ -309,7 +420,7 @@ export default async function AdminDashboardPage() {
       {/* 빠른 실행 */}
       <div>
         <h2 className="mb-3 text-sm font-semibold text-slate-800">빠른 실행</h2>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
           {quickActions.map((action) => (
             <Link
               key={action.href}
@@ -317,7 +428,9 @@ export default async function AdminDashboardPage() {
               className={`group rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md ${action.hoverBg}`}
             >
               <div className="flex items-center gap-2">
-                <span className={`flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold ${action.color} transition group-hover:bg-slate-200`}>
+                <span
+                  className={`flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-xs font-bold ${action.color} transition group-hover:bg-slate-200`}
+                >
                   {action.num}
                 </span>
                 <p className="text-sm font-semibold text-slate-800">{action.title}</p>

@@ -1,6 +1,8 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,6 +56,7 @@ export default function AdminExamsPage() {
   const [round, setRound] = useState("");
   const [examDate, setExamDate] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const { confirm, modalProps } = useConfirmModal();
 
   const isEditing = editingId !== null;
 
@@ -133,10 +136,13 @@ export default function AdminExamsPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      isEditing ? "시험 정보를 수정하시겠습니까?" : "새 시험을 생성하시겠습니까?"
-    );
-    if (!confirmed) return;
+    const ok = await confirm({
+      title: isEditing ? "시험 수정" : "시험 생성",
+      description: isEditing
+        ? "시험 정보를 수정하시겠습니까?"
+        : "새 시험을 생성하시겠습니까?",
+    });
+    if (!ok) return;
 
     setIsSubmitting(true);
 
@@ -180,6 +186,15 @@ export default function AdminExamsPage() {
   }
 
   async function toggleActivation(exam: ExamItem) {
+    const ok = await confirm({
+      title: exam.isActive ? "시험 비활성화" : "시험 활성화",
+      description: exam.isActive
+        ? `"${exam.year}년 ${exam.round}차" 시험을 비활성화하시겠습니까?`
+        : `"${exam.year}년 ${exam.round}차" 시험을 활성화하시겠습니까?`,
+      variant: exam.isActive ? "danger" : "default",
+    });
+    if (!ok) return;
+
     setNotice(null);
     try {
       const response = await fetch(`${ADMIN_EXAM_API}?id=${exam.id}`, {
@@ -358,6 +373,8 @@ export default function AdminExamsPage() {
           </div>
         )}
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

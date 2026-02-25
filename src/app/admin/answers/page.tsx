@@ -1,6 +1,9 @@
 "use client";
 
 import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
+import QuickOmrInput from "@/components/exam/QuickOmrInput";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 
@@ -120,6 +123,9 @@ export default function AdminAnswersPage() {
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [rescoreReason, setRescoreReason] = useState("");
   const [notice, setNotice] = useState<NoticeState>(null);
+  const [inputMode, setInputMode] = useState<"radio" | "keyboard">("radio");
+  const [focusTokens, setFocusTokens] = useState<number[]>([]);
+  const { confirm, modalProps } = useConfirmModal();
 
   const expectedAnswerCount = useMemo(
     () => subjects.reduce((sum, subject) => sum + subject.questionCount, 0),
@@ -283,12 +289,47 @@ export default function AdminAnswersPage() {
     }
   }, [careerExamEnabled, examType]);
 
+  // 키보드 모드에서 과목 전환 시 포커스 토큰 초기화
+  useEffect(() => {
+    setFocusTokens(subjects.map(() => 0));
+  }, [subjects]);
+
   function updateAnswer(subjectId: number, questionNumber: number, answer: number) {
     const key = buildAnswerKey(subjectId, questionNumber);
     setAnswerMap((current) => ({
       ...current,
       [key]: answer,
     }));
+  }
+
+  function removeAnswer(subjectId: number, questionNumber: number) {
+    const key = buildAnswerKey(subjectId, questionNumber);
+    setAnswerMap((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }
+
+  /** QuickOmrInput용 브릿지: 특정 과목의 답안만 추출 */
+  function getSubjectAnswers(subjectId: number, questionCount: number): Record<number, number | null> {
+    const result: Record<number, number | null> = {};
+    for (let q = 1; q <= questionCount; q++) {
+      const key = buildAnswerKey(subjectId, q);
+      result[q] = answerMap[key] ?? null;
+    }
+    return result;
+  }
+
+  function focusNextSubject(currentIndex: number) {
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < subjects.length) {
+      setFocusTokens((prev) => {
+        const next = [...prev];
+        next[nextIndex] = (prev[nextIndex] ?? 0) + 1;
+        return next;
+      });
+    }
   }
 
   function collectGridRows(): {
@@ -387,10 +428,8 @@ export default function AdminAnswersPage() {
         return;
       }
 
-      const confirmed = window.confirm(buildPreviewConfirmMessage(preview));
-      if (!confirmed) {
-        return;
-      }
+      const ok = await confirm({ title: "정답 저장", description: buildPreviewConfirmMessage(preview) });
+      if (!ok) return;
 
       const response = await fetch(ADMIN_ANSWERS_API, {
         method: "POST",
@@ -454,12 +493,11 @@ export default function AdminAnswersPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      "CSV 정답을 반영하면 변경된 문항 기준으로 재채점이 실행됩니다. 계속하시겠습니까?"
-    );
-    if (!confirmed) {
-      return;
-    }
+    const ok = await confirm({
+      title: "CSV 정답 업로드",
+      description: "CSV 정답을 반영하면 변경된 문항 기준으로 재채점이 실행됩니다. 계속하시겠습니까?",
+    });
+    if (!ok) return;
 
     setIsSaving(true);
     try {
@@ -739,42 +777,89 @@ export default function AdminAnswersPage() {
         </p>
       ) : (
         <form className="space-y-6" onSubmit={saveFromGrid}>
-          {subjects.map((subject) => (
+          {/* 입력 모드 토글 */}
+          <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <span className="text-sm font-medium text-slate-700">입력 방식:</span>
+            <button
+              type="button"
+              onClick={() => setInputMode("radio")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                inputMode === "radio"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+              }`}
+            >
+              라디오 버튼
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode("keyboard")}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                inputMode === "keyboard"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-100"
+              }`}
+            >
+              키보드 빠른 입력
+            </button>
+            {inputMode === "keyboard" ? (
+              <span className="text-xs text-slate-500">숫자 1~4 입력 시 자동 다음 문항 이동 / Backspace로 지우기</span>
+            ) : null}
+          </div>
+
+          {subjects.map((subject, subjectIndex) => (
             <section key={subject.id} className="space-y-3 rounded-lg border border-slate-200 p-4">
               <h2 className="text-base font-semibold text-slate-900">
                 {subject.name} ({subject.questionCount}문항)
               </h2>
 
-              <div className="space-y-3">
-                {Array.from({ length: subject.questionCount }, (_, index) => index + 1).map(
-                  (questionNumber) => {
-                    const key = buildAnswerKey(subject.id, questionNumber);
-                    const current = answerMap[key];
+              {inputMode === "keyboard" ? (
+                <QuickOmrInput
+                  subjectName={subject.name}
+                  questionCount={subject.questionCount}
+                  answers={getSubjectAnswers(subject.id, subject.questionCount)}
+                  onAnswerChange={(questionNo, answer) => {
+                    if (answer === null) {
+                      removeAnswer(subject.id, questionNo);
+                    } else {
+                      updateAnswer(subject.id, questionNo, answer);
+                    }
+                  }}
+                  focusToken={focusTokens[subjectIndex] ?? 0}
+                  onRequestNextSubject={() => focusNextSubject(subjectIndex)}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {Array.from({ length: subject.questionCount }, (_, index) => index + 1).map(
+                    (questionNumber) => {
+                      const key = buildAnswerKey(subject.id, questionNumber);
+                      const current = answerMap[key];
 
-                    return (
-                      <div
-                        key={questionNumber}
-                        className="flex flex-col gap-2 rounded-md border border-slate-100 bg-slate-50 p-3 md:flex-row md:items-center"
-                      >
-                        <p className="w-20 text-sm font-medium text-slate-800">{questionNumber}번</p>
-                        <div className="flex flex-wrap items-center gap-4">
-                          {[1, 2, 3, 4].map((choice) => (
-                            <label key={choice} className="flex items-center gap-1 text-sm text-slate-700">
-                              <input
-                                type="radio"
-                                name={`subject-${subject.id}-question-${questionNumber}`}
-                                checked={current === choice}
-                                onChange={() => updateAnswer(subject.id, questionNumber, choice)}
-                              />
-                              {choice}
-                            </label>
-                          ))}
+                      return (
+                        <div
+                          key={questionNumber}
+                          className="flex flex-col gap-2 rounded-md border border-slate-100 bg-slate-50 p-3 md:flex-row md:items-center"
+                        >
+                          <p className="w-20 text-sm font-medium text-slate-800">{questionNumber}번</p>
+                          <div className="flex flex-wrap items-center gap-4">
+                            {[1, 2, 3, 4].map((choice) => (
+                              <label key={choice} className="flex items-center gap-1 text-sm text-slate-700">
+                                <input
+                                  type="radio"
+                                  name={`subject-${subject.id}-question-${questionNumber}`}
+                                  checked={current === choice}
+                                  onChange={() => updateAnswer(subject.id, questionNumber, choice)}
+                                />
+                                {choice}
+                              </label>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  }
-                )}
-              </div>
+                      );
+                    }
+                  )}
+                </div>
+              )}
             </section>
           ))}
 
@@ -812,6 +897,8 @@ export default function AdminAnswersPage() {
           </Button>
         </form>
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

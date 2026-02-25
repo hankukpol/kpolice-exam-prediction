@@ -14,6 +14,8 @@ interface QuotaUpdateItem {
   applicantCountCareer?: unknown;
   examNumberStart?: unknown;
   examNumberEnd?: unknown;
+  examNumberStartCareer?: unknown;
+  examNumberEndCareer?: unknown;
 }
 
 interface QuotaUpdatePayload {
@@ -136,6 +138,8 @@ export async function GET(request: NextRequest) {
             applicantCountCareer: true,
             examNumberStart: true,
             examNumberEnd: true,
+            examNumberStartCareer: true,
+            examNumberEndCareer: true,
           },
         })
       : [];
@@ -197,6 +201,8 @@ export async function GET(request: NextRequest) {
           passMultipleCareer: formatPassMultiple(quota?.recruitCountCareer ?? 0),
           examNumberStart: quota?.examNumberStart ?? null,
           examNumberEnd: quota?.examNumberEnd ?? null,
+          examNumberStartCareer: quota?.examNumberStartCareer ?? null,
+          examNumberEndCareer: quota?.examNumberEndCareer ?? null,
           submissionCount: counts.total,
           submissionCountPublic: counts.publicCount,
           submissionCountCareer: counts.careerCount,
@@ -244,6 +250,10 @@ export async function PUT(request: NextRequest) {
         typeof item.examNumberStart === "string" ? item.examNumberStart.trim() || null : null;
       const examNumberEnd =
         typeof item.examNumberEnd === "string" ? item.examNumberEnd.trim() || null : null;
+      const examNumberStartCareer =
+        typeof item.examNumberStartCareer === "string" ? item.examNumberStartCareer.trim() || null : null;
+      const examNumberEndCareer =
+        typeof item.examNumberEndCareer === "string" ? item.examNumberEndCareer.trim() || null : null;
 
       return {
         regionId,
@@ -256,6 +266,8 @@ export async function PUT(request: NextRequest) {
         applicantCountCareerValid: applicantCountCareerParsed.ok,
         examNumberStart,
         examNumberEnd,
+        examNumberStartCareer,
+        examNumberEndCareer,
       };
     });
 
@@ -321,6 +333,8 @@ export async function PUT(request: NextRequest) {
             applicantCountCareer: row.applicantCountCareer,
             examNumberStart: row.examNumberStart,
             examNumberEnd: row.examNumberEnd,
+            examNumberStartCareer: row.examNumberStartCareer,
+            examNumberEndCareer: row.examNumberEndCareer,
           },
           create: {
             examId,
@@ -331,6 +345,8 @@ export async function PUT(request: NextRequest) {
             applicantCountCareer: row.applicantCountCareer,
             examNumberStart: row.examNumberStart,
             examNumberEnd: row.examNumberEnd,
+            examNumberStartCareer: row.examNumberStartCareer,
+            examNumberEndCareer: row.examNumberEndCareer,
           },
         })
       );
@@ -389,6 +405,8 @@ export async function POST(request: NextRequest) {
           applicantCountCareer: sq.applicantCountCareer,
           examNumberStart: sq.examNumberStart,
           examNumberEnd: sq.examNumberEnd,
+          examNumberStartCareer: sq.examNumberStartCareer,
+          examNumberEndCareer: sq.examNumberEndCareer,
         },
         create: {
           examId: targetExamId,
@@ -399,6 +417,8 @@ export async function POST(request: NextRequest) {
           applicantCountCareer: sq.applicantCountCareer,
           examNumberStart: sq.examNumberStart,
           examNumberEnd: sq.examNumberEnd,
+          examNumberStartCareer: sq.examNumberStartCareer,
+          examNumberEndCareer: sq.examNumberEndCareer,
         },
       })
     );

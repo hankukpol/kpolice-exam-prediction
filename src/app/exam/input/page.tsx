@@ -290,7 +290,7 @@ export default function ExamInputPage({
 
   // 응시번호 실시간 검증 (디바운스 500ms)
   const checkExamNumber = useCallback(
-    async (num: string, regId: number, exId: number) => {
+    async (num: string, regId: number, exId: number, exType: string) => {
       setExamNumberStatus("checking");
       setExamNumberMessage("");
       try {
@@ -298,6 +298,7 @@ export default function ExamInputPage({
           examId: String(exId),
           regionId: String(regId),
           examNumber: num,
+          examType: exType,
         });
         const res = await fetch(`/api/exam-number/check?${params.toString()}`);
         const data = (await res.json()) as { available?: boolean; reason?: string; error?: string };
@@ -333,7 +334,7 @@ export default function ExamInputPage({
     }
 
     examNumberTimerRef.current = setTimeout(() => {
-      void checkExamNumber(trimmed, regionId as number, meta.activeExam!.id);
+      void checkExamNumber(trimmed, regionId as number, meta.activeExam!.id, examType);
     }, 500);
 
     return () => {
@@ -341,7 +342,7 @@ export default function ExamInputPage({
         clearTimeout(examNumberTimerRef.current);
       }
     };
-  }, [examNumber, regionId, meta?.activeExam, checkExamNumber]);
+  }, [examNumber, regionId, examType, meta?.activeExam, checkExamNumber]);
 
   useEffect(() => {
     setActiveSubjectIndex(0);

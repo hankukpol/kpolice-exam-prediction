@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -64,6 +66,7 @@ export default function AdminCommentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -144,8 +147,8 @@ export default function AdminCommentsPage() {
   }
 
   async function handleDeleteSingle(id: number) {
-    const confirmed = window.confirm("댓글을 삭제하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: "댓글 삭제", description: "댓글을 삭제하시겠습니까?", variant: "danger" });
+    if (!ok) return;
 
     setIsDeleting(true);
     setNotice(null);
@@ -176,8 +179,8 @@ export default function AdminCommentsPage() {
       return;
     }
 
-    const confirmed = window.confirm(`선택한 댓글 ${selectedIds.length}개를 삭제하시겠습니까?`);
-    if (!confirmed) return;
+    const ok = await confirm({ title: "선택 댓글 삭제", description: `선택한 댓글 ${selectedIds.length}개를 삭제하시겠습니까?`, variant: "danger" });
+    if (!ok) return;
 
     setIsDeleting(true);
     setNotice(null);
@@ -343,6 +346,8 @@ export default function AdminCommentsPage() {
           </Button>
         </div>
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

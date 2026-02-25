@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,6 +103,7 @@ export default function AdminSitePage() {
   const [isSavingBasic, setIsSavingBasic] = useState(false);
   const [isSavingSystem, setIsSavingSystem] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const [editingNoticeId, setEditingNoticeId] = useState<number | null>(null);
   const [noticeTitle, setNoticeTitle] = useState("");
@@ -175,8 +178,8 @@ export default function AdminSitePage() {
   }
 
   async function handleSaveBasicSettings() {
-    const confirmed = window.confirm("기본 설정을 저장하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: "기본 설정 저장", description: "기본 설정을 저장하시겠습니까?" });
+    if (!ok) return;
 
     setIsSavingBasic(true);
     setNotice(null);
@@ -203,8 +206,8 @@ export default function AdminSitePage() {
   }
 
   async function handleSaveSystemSettings() {
-    const confirmed = window.confirm("시스템 설정을 저장하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: "시스템 설정 저장", description: "시스템 설정을 저장하시겠습니까?" });
+    if (!ok) return;
 
     setIsSavingSystem(true);
     setNotice(null);
@@ -307,10 +310,8 @@ export default function AdminSitePage() {
         throw new Error("공지 내용을 입력해 주세요.");
       }
 
-      const confirmed = window.confirm(
-        editingNoticeId ? "이 공지를 수정하시겠습니까?" : "새 공지를 등록하시겠습니까?"
-      );
-      if (!confirmed) return;
+      const ok = await confirm({ title: editingNoticeId ? "공지 수정" : "공지 등록", description: editingNoticeId ? "이 공지를 수정하시겠습니까?" : "새 공지를 등록하시겠습니까?" });
+      if (!ok) return;
 
       setIsSavingNotice(true);
       const payload = {
@@ -354,8 +355,8 @@ export default function AdminSitePage() {
   }
 
   async function handleDeleteNotice(id: number) {
-    const confirmed = window.confirm("이 공지를 삭제하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: "공지 삭제", description: "이 공지를 삭제하시겠습니까?", variant: "danger" });
+    if (!ok) return;
 
     setNotice(null);
     try {
@@ -817,6 +818,8 @@ export default function AdminSitePage() {
           {isSavingSystem ? "저장 중..." : "시스템 설정 저장"}
         </Button>
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

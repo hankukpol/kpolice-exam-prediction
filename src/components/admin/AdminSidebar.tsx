@@ -2,25 +2,82 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-const navItems = [
+/* ────────────────────────────── 타입 ────────────────────────────── */
+
+interface NavItem {
+  href: string;
+  label: string;
+  icon: string;
+}
+
+interface NavGroup {
+  key: string;
+  label: string;
+  icon: string;
+  items: NavItem[];
+}
+
+type SidebarEntry = NavItem | NavGroup;
+
+function isGroup(entry: SidebarEntry): entry is NavGroup {
+  return "items" in entry;
+}
+
+/* ──────────────────────── 메뉴 구조 (그룹화) ──────────────────────── */
+
+const sidebarEntries: SidebarEntry[] = [
   { href: "/admin", label: "대시보드", icon: "grid" },
-  { href: "/admin/exams", label: "시험 관리", icon: "file" },
-  { href: "/admin/answers", label: "정답 관리", icon: "check" },
-  { href: "/admin/regions", label: "모집인원 관리", icon: "map" },
-  { href: "/admin/banners", label: "배너 관리", icon: "image" },
-  { href: "/admin/events", label: "이벤트 관리", icon: "calendar" },
-  { href: "/admin/notices", label: "공지사항 관리", icon: "message" },
-  { href: "/admin/faqs", label: "FAQ 관리", icon: "list" },
-  { href: "/admin/pass-cut", label: "합격컷 발표", icon: "flag" },
-  { href: "/admin/mock-data", label: "목업 데이터", icon: "database" },
-  { href: "/admin/site", label: "사이트 설정", icon: "settings" },
-  { href: "/admin/users", label: "사용자 관리", icon: "users" },
-  { href: "/admin/comments", label: "댓글 관리", icon: "message" },
-  { href: "/admin/submissions", label: "제출 현황", icon: "list" },
-  { href: "/admin/stats", label: "참여 통계", icon: "chart" },
+
+  {
+    key: "exam-ops",
+    label: "시험 운영",
+    icon: "file",
+    items: [
+      { href: "/admin/exams", label: "시험 관리", icon: "file" },
+      { href: "/admin/answers", label: "정답 관리", icon: "check" },
+      { href: "/admin/regions", label: "모집인원 관리", icon: "map" },
+      { href: "/admin/pass-cut", label: "합격컷 발표", icon: "flag" },
+    ],
+  },
+
+  {
+    key: "participants",
+    label: "참여자 관리",
+    icon: "users",
+    items: [
+      { href: "/admin/submissions", label: "제출 현황", icon: "list" },
+      { href: "/admin/stats", label: "참여 통계", icon: "chart" },
+      { href: "/admin/users", label: "사용자 관리", icon: "users" },
+      { href: "/admin/comments", label: "댓글 관리", icon: "message" },
+    ],
+  },
+
+  {
+    key: "content",
+    label: "콘텐츠 관리",
+    icon: "image",
+    items: [
+      { href: "/admin/banners", label: "배너 관리", icon: "image" },
+      { href: "/admin/events", label: "이벤트 관리", icon: "calendar" },
+      { href: "/admin/notices", label: "공지사항 관리", icon: "message" },
+      { href: "/admin/faqs", label: "FAQ 관리", icon: "list" },
+    ],
+  },
+
+  {
+    key: "system",
+    label: "시스템",
+    icon: "settings",
+    items: [
+      { href: "/admin/site", label: "사이트 설정", icon: "settings" },
+      { href: "/admin/mock-data", label: "목업 데이터", icon: "database" },
+    ],
+  },
 ];
+
+/* ──────────────────────── 아이콘 맵 ──────────────────────── */
 
 const iconMap: Record<string, React.ReactNode> = {
   grid: (
@@ -104,13 +161,55 @@ const iconMap: Record<string, React.ReactNode> = {
   ),
 };
 
+const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
+  <svg
+    className={`h-3.5 w-3.5 transition-transform duration-200 ${expanded ? "rotate-90" : ""}`}
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={2}
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+  </svg>
+);
+
+/* ──────────────────────── 컴포넌트 ──────────────────────── */
+
 export default function AdminSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   function isActive(href: string): boolean {
     if (href === "/admin") return pathname === "/admin";
     return pathname.startsWith(href);
+  }
+
+  // 현재 경로가 속한 그룹 자동 펼침
+  useEffect(() => {
+    for (const entry of sidebarEntries) {
+      if (isGroup(entry) && entry.items.some((child) => isActive(child.href))) {
+        setExpandedGroups((prev) => {
+          if (prev.has(entry.key)) return prev;
+          const next = new Set(prev);
+          next.add(entry.key);
+          return next;
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  function toggleGroup(key: string) {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
   }
 
   const navContent = (
@@ -120,21 +219,75 @@ export default function AdminSidebar() {
         <p className="mt-0.5 text-xs text-police-300">Admin Console</p>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-0.5 px-3">
-        {navItems.map((item) => {
-          const active = isActive(item.href);
+      <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-2">
+        {sidebarEntries.map((entry) => {
+          if (!isGroup(entry)) {
+            // 단일 메뉴 아이템 (대시보드)
+            const active = isActive(entry.href);
+            return (
+              <Link
+                key={entry.href}
+                href={entry.href}
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+                  active ? "bg-white/15 text-white shadow-sm" : "text-police-200 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                <span className={active ? "text-police-300" : "text-police-400"}>{iconMap[entry.icon]}</span>
+                {entry.label}
+              </Link>
+            );
+          }
+
+          // 그룹 메뉴
+          const expanded = expandedGroups.has(entry.key);
+          const hasActiveChild = entry.items.some((child) => isActive(child.href));
+
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
-                active ? "bg-white/15 text-white shadow-sm" : "text-police-200 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              <span className={active ? "text-police-300" : "text-police-400"}>{iconMap[item.icon]}</span>
-              {item.label}
-            </Link>
+            <div key={entry.key} className="mt-3 first:mt-0">
+              {/* 그룹 헤더 */}
+              <button
+                type="button"
+                onClick={() => toggleGroup(entry.key)}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
+                  hasActiveChild
+                    ? "text-white"
+                    : "text-police-400 hover:text-police-200"
+                }`}
+              >
+                <span className={hasActiveChild ? "text-police-300" : "text-police-500"}>
+                  {iconMap[entry.icon]}
+                </span>
+                <span className="flex-1 text-left">{entry.label}</span>
+                <ChevronIcon expanded={expanded} />
+              </button>
+
+              {/* 하위 메뉴 */}
+              {expanded ? (
+                <div className="mt-0.5 space-y-0.5 pl-3">
+                  {entry.items.map((child) => {
+                    const active = isActive(child.href);
+                    return (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        onClick={() => setMobileOpen(false)}
+                        className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all ${
+                          active
+                            ? "bg-white/15 text-white shadow-sm"
+                            : "text-police-200 hover:bg-white/10 hover:text-white"
+                        }`}
+                      >
+                        <span className={active ? "text-police-300" : "text-police-400"}>
+                          {iconMap[child.icon]}
+                        </span>
+                        {child.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
           );
         })}
       </nav>

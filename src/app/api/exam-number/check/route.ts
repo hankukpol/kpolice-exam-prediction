@@ -1,3 +1,4 @@
+import { ExamType } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
@@ -53,6 +54,7 @@ export async function GET(request: NextRequest) {
   const examId = parsePositiveInt(searchParams.get("examId"));
   const regionId = parsePositiveInt(searchParams.get("regionId"));
   const examNumber = searchParams.get("examNumber")?.trim() ?? "";
+  const examTypeParam = searchParams.get("examType")?.trim() ?? "";
 
   if (!examId || !regionId || !examNumber) {
     return NextResponse.json(
@@ -61,10 +63,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const examType: ExamType =
+    examTypeParam === ExamType.CAREER ? ExamType.CAREER : ExamType.PUBLIC;
+
   try {
     const userId = Number(session.user.id);
 
-    // 1. 응시번호 범위 검증
+    // 1. 응시번호 범위 검증 (공채/경행경채 별도 범위)
     const quota = await prisma.examRegionQuota.findUnique({
       where: {
         examId_regionId: { examId, regionId },
@@ -72,27 +77,36 @@ export async function GET(request: NextRequest) {
       select: {
         examNumberStart: true,
         examNumberEnd: true,
+        examNumberStartCareer: true,
+        examNumberEndCareer: true,
       },
     });
 
-    if (quota?.examNumberStart && quota?.examNumberEnd) {
+    const rangeStart = examType === ExamType.CAREER
+      ? (quota?.examNumberStartCareer ?? null)
+      : (quota?.examNumberStart ?? null);
+    const rangeEnd = examType === ExamType.CAREER
+      ? (quota?.examNumberEndCareer ?? null)
+      : (quota?.examNumberEnd ?? null);
+
+    if (rangeStart && rangeEnd) {
       const inputNum = parseExamNumberInt(examNumber);
-      const startNum = parseExamNumberInt(quota.examNumberStart);
-      const endNum = parseExamNumberInt(quota.examNumberEnd);
+      const startNum = parseExamNumberInt(rangeStart);
+      const endNum = parseExamNumberInt(rangeEnd);
 
       if (inputNum !== null && startNum !== null && endNum !== null) {
         if (inputNum < startNum || inputNum > endNum) {
           return NextResponse.json({
             available: false,
-            reason: `응시번호가 유효 범위(${quota.examNumberStart}~${quota.examNumberEnd}) 밖입니다.`,
+            reason: `응시번호가 유효 범위(${rangeStart}~${rangeEnd}) 밖입니다.`,
           });
         }
       } else {
         // 숫자 파싱 실패 시 문자열 비교
-        if (examNumber < quota.examNumberStart || examNumber > quota.examNumberEnd) {
+        if (examNumber < rangeStart || examNumber > rangeEnd) {
           return NextResponse.json({
             available: false,
-            reason: `응시번호가 유효 범위(${quota.examNumberStart}~${quota.examNumberEnd}) 밖입니다.`,
+            reason: `응시번호가 유효 범위(${rangeStart}~${rangeEnd}) 밖입니다.`,
           });
         }
       }

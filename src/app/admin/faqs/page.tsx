@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +29,7 @@ export default function AdminFaqsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<StatusMessage>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [question, setQuestion] = useState("");
@@ -93,8 +96,8 @@ export default function AdminFaqsPage() {
       return;
     }
 
-    const confirmed = window.confirm(editingId ? "FAQ를 수정하시겠습니까?" : "FAQ를 등록하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: editingId ? "FAQ 수정" : "FAQ 등록", description: editingId ? "FAQ를 수정하시겠습니까?" : "FAQ를 등록하시겠습니까?" });
+    if (!ok) return;
 
     try {
       setIsSaving(true);
@@ -133,7 +136,8 @@ export default function AdminFaqsPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!window.confirm("FAQ를 삭제하시겠습니까?")) return;
+    const ok = await confirm({ title: "FAQ 삭제", description: "FAQ를 삭제하시겠습니까?", variant: "danger" });
+    if (!ok) return;
     setMessage(null);
     try {
       const response = await fetch(`/api/admin/faqs?id=${id}`, { method: "DELETE" });
@@ -266,6 +270,8 @@ export default function AdminFaqsPage() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -51,6 +53,7 @@ export default function AdminUsersPage() {
   const [notice, setNotice] = useState<NoticeState>(null);
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
+  const { confirm, modalProps } = useConfirmModal();
   const [draftRoles, setDraftRoles] = useState<Record<number, UserRole>>({});
 
   const canGoPrev = page > 1;
@@ -107,10 +110,8 @@ export default function AdminUsersPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      `${user.name}님의 권한을 ${nextRole === "ADMIN" ? "관리자" : "일반 사용자"}로 저장하시겠습니까?`
-    );
-    if (!confirmed) return;
+    const ok = await confirm({ title: "권한 변경", description: `${user.name}님의 권한을 ${nextRole === "ADMIN" ? "관리자" : "일반 사용자"}로 저장하시겠습니까?` });
+    if (!ok) return;
 
     setUpdatingUserId(user.id);
     setNotice(null);
@@ -141,8 +142,8 @@ export default function AdminUsersPage() {
   }
 
   async function handleResetPassword(user: UserRow) {
-    const confirmed = window.confirm(`${user.name}님의 비밀번호를 초기화하시겠습니까?`);
-    if (!confirmed) return;
+    const ok = await confirm({ title: "비밀번호 초기화", description: `${user.name}님의 비밀번호를 초기화하시겠습니까?` });
+    if (!ok) return;
 
     setUpdatingUserId(user.id);
     setNotice(null);
@@ -177,10 +178,8 @@ export default function AdminUsersPage() {
   }
 
   async function handleDeleteUser(user: UserRow) {
-    const confirmed = window.confirm(
-      `${user.name} 사용자를 삭제하시겠습니까? 삭제 시 제출/댓글 데이터도 함께 삭제됩니다.`
-    );
-    if (!confirmed) return;
+    const ok = await confirm({ title: "사용자 삭제", description: `${user.name} 사용자를 삭제하시겠습니까? 삭제 시 제출/댓글 데이터도 함께 삭제됩니다.`, variant: "danger" });
+    if (!ok) return;
 
     setDeletingUserId(user.id);
     setNotice(null);
@@ -366,6 +365,8 @@ export default function AdminUsersPage() {
           </Button>
         </div>
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

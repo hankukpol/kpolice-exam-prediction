@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 
 interface ExamItem {
@@ -51,6 +53,7 @@ export default function AdminPassCutPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
@@ -140,8 +143,8 @@ export default function AdminPassCutPage() {
       return;
     }
 
-    const confirmed = window.confirm(`${nextReleaseNumber}차 합격컷을 발표하시겠습니까?`);
-    if (!confirmed) return;
+    const ok = await confirm({ title: "합격컷 발표", description: `${nextReleaseNumber}차 합격컷을 발표하시겠습니까?` });
+    if (!ok) return;
 
     setIsSubmitting(true);
     try {
@@ -295,6 +298,8 @@ export default function AdminPassCutPage() {
           </tbody>
         </table>
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

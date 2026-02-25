@@ -158,6 +158,9 @@ export default function PredictionLiveDashboard({ prediction }: { prediction?: P
         participants: summary.totalParticipants,
         totalApplicants: summary.applicantCount ?? 0,
         hasApplicantCount: summary.applicantCount !== null,
+        competitionRate: summary.applicantCount !== null && summary.recruitCount > 0
+            ? Number((summary.applicantCount / summary.recruitCount).toFixed(1))
+            : null,
         recruitment: summary.recruitCount,
         myRatio: Number(summary.myMultiple.toFixed(2)),
         cutRatio: Number(summary.passMultiple.toFixed(2)),
@@ -349,18 +352,26 @@ export default function PredictionLiveDashboard({ prediction }: { prediction?: P
                             </div>
                         </div>
 
-                        {/* 모집/응시/참여 정보 */}
-                        <div className="grid grid-cols-3 gap-2.5">
+                        {/* 모집/응시/경쟁률/참여 정보 */}
+                        <div className="grid grid-cols-4 gap-2">
                             <div className="text-center">
                                 <p className="text-[10px] text-slate-400 font-medium">모집인원</p>
                                 <p className="text-sm font-bold text-slate-700">{mockData.recruitment}명</p>
                             </div>
                             <div className="text-center">
-                                <p className="text-[10px] text-slate-400 font-medium">응시인원</p>
+                                <p className="text-[10px] text-slate-400 font-medium">접수인원</p>
                                 <p className="text-sm font-bold text-slate-700">
                                     {("hasApplicantCount" in mockData && !mockData.hasApplicantCount)
                                         ? "미입력"
                                         : `${mockData.totalApplicants.toLocaleString()}명`}
+                                </p>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-[10px] text-slate-400 font-medium">경쟁률</p>
+                                <p className="text-sm font-bold text-slate-700">
+                                    {("competitionRate" in mockData && mockData.competitionRate !== null)
+                                        ? `${mockData.competitionRate} : 1`
+                                        : "미입력"}
                                 </p>
                             </div>
                             <div className="text-center">

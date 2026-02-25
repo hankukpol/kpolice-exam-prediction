@@ -100,8 +100,10 @@ model ExamRegionQuota {
   recruitCountCareer   Int      // 경행경채 모집인원
   applicantCount       Int?     // 공채 출원인원
   applicantCountCareer Int?     // 경행경채 출원인원
-  examNumberStart      String?  // 유효 응시번호 시작 (예: "00001")
-  examNumberEnd        String?  // 유효 응시번호 끝 (예: "00300")
+  examNumberStart      String?  // 공채 유효 응시번호 시작 (예: "00001")
+  examNumberEnd        String?  // 공채 유효 응시번호 끝 (예: "00300")
+  examNumberStartCareer String? // 경행경채 유효 응시번호 시작
+  examNumberEndCareer   String? // 경행경채 유효 응시번호 끝
   exam                 Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
   region               Region   @relation(fields: [regionId], references: [id], onDelete: Restrict)
 

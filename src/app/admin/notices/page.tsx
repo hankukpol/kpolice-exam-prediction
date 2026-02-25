@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,6 +56,7 @@ export default function AdminNoticesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<StatusMessage>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [title, setTitle] = useState("");
@@ -126,10 +129,8 @@ export default function AdminNoticesPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      editingId ? "공지사항을 수정하시겠습니까?" : "공지사항을 등록하시겠습니까?"
-    );
-    if (!confirmed) return;
+    const ok = await confirm({ title: editingId ? "공지사항 수정" : "공지사항 등록", description: editingId ? "공지사항을 수정하시겠습니까?" : "공지사항을 등록하시겠습니까?" });
+    if (!ok) return;
 
     try {
       setIsSaving(true);
@@ -170,7 +171,8 @@ export default function AdminNoticesPage() {
   }
 
   async function handleDelete(id: number) {
-    if (!window.confirm("공지사항을 삭제하시겠습니까?")) return;
+    const ok = await confirm({ title: "공지사항 삭제", description: "공지사항을 삭제하시겠습니까?", variant: "danger" });
+    if (!ok) return;
     setMessage(null);
 
     try {
@@ -322,6 +324,8 @@ export default function AdminNoticesPage() {
           </tbody>
         </table>
       </div>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

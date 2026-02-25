@@ -1,6 +1,8 @@
 "use client";
 
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -69,6 +71,7 @@ export default function AdminEventsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [movingId, setMovingId] = useState<number | null>(null);
   const [notice, setNotice] = useState<NoticeState>(null);
+  const { confirm, modalProps } = useConfirmModal();
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [title, setTitle] = useState("");
@@ -161,10 +164,11 @@ export default function AdminEventsPage() {
       return;
     }
 
-    const confirmed = window.confirm(
-      editingId ? "이벤트를 수정하시겠습니까?" : "이벤트를 등록하시겠습니까?"
-    );
-    if (!confirmed) return;
+    const ok = await confirm({
+      title: editingId ? "이벤트 수정" : "이벤트 등록",
+      description: editingId ? "이벤트를 수정하시겠습니까?" : "이벤트를 등록하시겠습니까?",
+    });
+    if (!ok) return;
 
     setIsSaving(true);
 
@@ -213,8 +217,8 @@ export default function AdminEventsPage() {
   }
 
   async function handleDelete(eventId: number) {
-    const confirmed = window.confirm("이 이벤트를 삭제하시겠습니까?");
-    if (!confirmed) return;
+    const ok = await confirm({ title: "이벤트 삭제", description: "이 이벤트를 삭제하시겠습니까?", variant: "danger" });
+    if (!ok) return;
 
     setNotice(null);
     try {
@@ -534,6 +538,8 @@ export default function AdminEventsPage() {
           </tbody>
         </table>
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }
