@@ -350,35 +350,39 @@ export async function calculatePrediction(
     },
   } satisfies Prisma.SubmissionSelect;
 
-  const activeExam =
-    !options.submissionId && isAdmin
-      ? await prisma.exam.findFirst({
-          where: { isActive: true },
-          orderBy: [{ examDate: "desc" }, { id: "desc" }],
-          select: { id: true },
-        })
-      : null;
-
+  // 1차: submissionId 지정 시 해당 제출 조회, 아니면 본인 제출 조회
   const submissionWhere: Prisma.SubmissionWhereInput = options.submissionId
     ? {
         id: options.submissionId,
         ...(isAdmin ? {} : { userId }),
       }
-    : isAdmin
-      ? {
-          ...(activeExam ? { examId: activeExam.id } : {}),
-          subjectScores: {
-            some: {},
-            none: { isFailed: true },
-          },
-        }
-      : { userId };
+    : { userId };
 
-  const submission = await prisma.submission.findFirst({
+  let submission = await prisma.submission.findFirst({
     where: submissionWhere,
     orderBy: options.submissionId ? undefined : [{ createdAt: "desc" }, { id: "desc" }],
     select: submissionSelect,
   });
+
+  // 2차: 관리자이고 본인 제출이 없으면, 활성 시험의 아무 비과락 제출로 대시보드 미리보기
+  if (!submission && !options.submissionId && isAdmin) {
+    const activeExam = await prisma.exam.findFirst({
+      where: { isActive: true },
+      orderBy: [{ examDate: "desc" }, { id: "desc" }],
+      select: { id: true },
+    });
+    submission = await prisma.submission.findFirst({
+      where: {
+        ...(activeExam ? { examId: activeExam.id } : {}),
+        subjectScores: {
+          some: {},
+          none: { isFailed: true },
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: submissionSelect,
+    });
+  }
 
   if (!submission) {
     throw new PredictionError("합격예측을 위한 제출 데이터가 없습니다.", 404);
