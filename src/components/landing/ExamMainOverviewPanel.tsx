@@ -250,9 +250,8 @@ function HighlightCard({
 }) {
   return (
     <article
-      className={`rounded-md border p-4 ${
-        emphasized ? "border-police-200 bg-police-50" : "border-slate-200 bg-white"
-      }`}
+      className={`rounded-md border p-4 ${emphasized ? "border-police-200 bg-police-50" : "border-slate-200 bg-white"
+        }`}
     >
       <p className="text-xs font-semibold text-slate-500">{label}</p>
       <p className={`mt-2 text-lg font-black ${emphasized ? "text-police-700" : "text-slate-900"}`}>
@@ -616,58 +615,79 @@ export default function ExamMainOverviewPanel() {
       ) : null}
 
       {sectionVisibility.overview ? (
-      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white p-5 sm:p-6 sm:pb-8">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <p className="text-xl font-bold tracking-tight text-police-600">
-            {data.liveStats.examYear}.{String(data.liveStats.examRound).padStart(2, "0")} 시행
-          </p>
-          <p className="text-xs font-semibold text-slate-400">UPDATE {formatDateTime(data.updatedAt)}</p>
-        </div>
-        <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">직렬별 실시간 합격예측 분석</h2>
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white p-5 sm:p-6 sm:pb-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xl font-bold tracking-tight text-police-600">
+                {data.liveStats.examYear}.{String(data.liveStats.examRound).padStart(2, "0")} 시행
+              </p>
+              <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+                직렬별 실시간 합격예측 분석
+              </h2>
+              <div className="mt-6 inline-flex gap-1 rounded-md bg-slate-100 p-1">
+                {availableExamTypes.map((examType) => {
+                  const active = selectedExamType === examType;
+                  return (
+                    <button
+                      key={examType}
+                      type="button"
+                      onClick={() => setSelectedExamType(examType)}
+                      className={`rounded-md px-6 py-2 text-sm font-bold transition ${active
+                        ? "bg-white text-police-600 border border-slate-200/50"
+                        : "text-slate-500 hover:text-slate-700"
+                        }`}
+                    >
+                      {examType === "PUBLIC" ? "공채" : "경행경채"}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-        <div className="mt-4 flex justify-end">
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs font-semibold tracking-wide text-slate-500">운영 단계</p>
-            <p className="mt-1 text-sm font-bold text-slate-900">
-              {sampleTone?.label ?? "실시간 예측 운영 중"}
-            </p>
+            <div className="mt-4 flex flex-col items-start gap-3 sm:mt-0 sm:items-end">
+              <p className="text-xs font-semibold text-slate-400">UPDATE {formatDateTime(data.updatedAt)}</p>
+              <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-left sm:text-right">
+                <p className="text-xs font-semibold tracking-wide text-slate-500">운영 단계</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {sampleTone?.label ?? "실시간 예측 운영 중"}
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div className="mt-6 inline-flex gap-1 rounded-md bg-slate-100 p-1">
-          {availableExamTypes.map((examType) => {
-            const active = selectedExamType === examType;
-            return (
-              <button
-                key={examType}
-                type="button"
-                onClick={() => setSelectedExamType(examType)}
-                className={`rounded-md px-6 py-2 text-sm font-bold transition ${active
-                  ? "bg-white text-police-600 border border-slate-200/50"
-                  : "text-slate-500 hover:text-slate-700"
-                  }`}
-              >
-                {examType === "PUBLIC" ? "공채" : "경행경채"}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-5">
-          <p className="text-sm font-bold text-slate-800">지역 선택</p>
-          {focusRegionOptions.length > 0 ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {focusRegionOptions.map((region) => {
+          <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-5">
+            <p className="text-sm font-bold text-slate-800">지역 선택</p>
+            {focusRegionOptions.length > 0 ? (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {focusRegionOptions.map((region) => {
+                  const active = region.id === selectedRegionId;
+                  return (
+                    <button
+                      key={`focus-${region.id}`}
+                      type="button"
+                      className={`rounded-md border px-4 py-3 text-sm font-bold transition ${active
+                          ? "border-police-700 bg-police-700 text-white"
+                          : "border-police-200 bg-white text-police-700 hover:border-police-300 hover:bg-police-50"
+                        }`}
+                      onClick={() => setSelectedRegionId(region.id)}
+                    >
+                      {region.name}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+              {regionOptions.filter((region) => getFocusRegionOrder(region.name) === Number.MAX_SAFE_INTEGER).map((region) => {
                 const active = region.id === selectedRegionId;
                 return (
                   <button
-                    key={`focus-${region.id}`}
+                    key={region.id}
                     type="button"
-                    className={`rounded-md border px-4 py-3 text-sm font-bold transition ${
-                      active
-                        ? "border-police-700 bg-police-700 text-white"
-                        : "border-police-200 bg-white text-police-700 hover:border-police-300 hover:bg-police-50"
-                    }`}
+                    className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${active
+                      ? "border-police-600 bg-police-600 text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-100"
+                      }`}
                     onClick={() => setSelectedRegionId(region.id)}
                   >
                     {region.name}
@@ -675,336 +695,317 @@ export default function ExamMainOverviewPanel() {
                 );
               })}
             </div>
-          ) : null}
-          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-            {regionOptions.filter((region) => getFocusRegionOrder(region.name) === Number.MAX_SAFE_INTEGER).map((region) => {
-              const active = region.id === selectedRegionId;
-              return (
-                <button
-                  key={region.id}
-                  type="button"
-                  className={`rounded-md border px-3 py-2 text-xs font-semibold transition ${active
-                    ? "border-police-600 bg-police-600 text-white"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-100"
-                    }`}
-                  onClick={() => setSelectedRegionId(region.id)}
-                >
-                  {region.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <p className="mt-6 text-sm font-bold text-police-600">
-          {selectedRow ? `${getExamTypeLabel(selectedExamType)} : ${selectedRow.regionName}` : "지역을 선택해 주세요."}
-        </p>
-
-        {selectedRow && sampleTone ? (
-          <>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${sampleTone.badgeClass}`}>
-                {sampleTone.label}
-              </span>
-              <span className="text-sm text-slate-600">{sampleTone.description}</span>
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <HighlightCard
-                label="선발 / 실시간 참여"
-                value={`${selectedRow.recruitCount.toLocaleString("ko-KR")}명 / ${selectedRow.participantCount.toLocaleString("ko-KR")}명`}
-              />
-              <HighlightCard label="실시간 평균" value={formatScore(selectedRow.averageFinalScore)} />
-              <HighlightCard label="합격확실권" value={sureMinHighlight} emphasized={true} />
-              <HighlightCard label="1배수 컷" value={oneMultipleHighlight} />
-            </div>
-          </>
-        ) : null}
-
-        <div className="mt-3 grid gap-4 xl:grid-cols-2 xl:items-stretch">
-          <div className="h-full overflow-hidden rounded-md border border-slate-200 bg-white">
-            <table className="w-full border-collapse text-sm">
-              <tbody className="divide-y divide-slate-200">
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
-                    지역-직렬
-                  </th>
-                  <td className="px-4 py-3.5 font-bold text-slate-900">
-                    {selectedRow ? `${selectedRow.regionName}-${getExamTypeLabel(selectedRow.examType)}` : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">선발인원</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow ? `${selectedRow.recruitCount.toLocaleString("ko-KR")}명` : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
-                    {applicantCountLabel}
-                  </th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow
-                      ? selectedRow.applicantCount === null
-                        ? "미입력"
-                        : `${selectedRow.applicantCount.toLocaleString("ko-KR")}명`
-                      : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">경쟁률</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow ? formatCompetition(selectedRow.competitionRate) : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">실시간 참여인원</th>
-                  <td className="px-4 py-3.5 font-medium text-slate-700">
-                    {selectedRow ? `${selectedRow.participantCount.toLocaleString("ko-KR")}명` : "-"}
-                  </td>
-                </tr>
-                <tr className="divide-x divide-slate-200">
-                  <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
-                    실시간 평균점수
-                    <span className="ml-1 text-xs font-normal text-slate-400">(과락 제외)</span>
-                  </th>
-                  <td className="px-4 py-3.5 font-bold text-police-700">
-                    {selectedRow ? <>{formatScore(selectedRow.averageFinalScore)}</> : "-"}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
           </div>
 
-          <div className="flex h-full flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
-            {isLowSample && selectedRow ? (
-              <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
-                참여인원({selectedRow.participantCount.toLocaleString("ko-KR")}명)이 선발인원({selectedRow.recruitCount.toLocaleString("ko-KR")}명)보다 적어 예측 정확도가 낮습니다.
+          <p className="mt-6 text-sm font-bold text-police-600">
+            {selectedRow ? `${getExamTypeLabel(selectedExamType)} : ${selectedRow.regionName}` : "지역을 선택해 주세요."}
+          </p>
+
+          {selectedRow && sampleTone ? (
+            <>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${sampleTone.badgeClass}`}>
+                  {sampleTone.label}
+                </span>
+                <span className="text-sm text-slate-600">{sampleTone.description}</span>
               </div>
-            ) : null}
-            <div className="flex-1">
-              <table className="h-full w-full border-collapse text-sm">
-                <tbody className="flex h-full flex-col divide-y divide-slate-200 border-b border-slate-200">
-                  <tr className="flex flex-1 divide-x divide-slate-200">
-                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격가능권</th>
-                    <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
-                      {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.possibleRange)) : "-"}
-                    </td>
-                  </tr>
-                  <tr className="flex flex-1 divide-x divide-slate-200">
-                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격유력권</th>
-                    <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
-                      {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.likelyRange)) : "-"}
-                    </td>
-                  </tr>
-                  <tr className="flex flex-1 divide-x divide-slate-200">
-                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격확실권</th>
-                    <td className="flex flex-1 items-center px-4 py-3.5 font-bold text-police-700">
-                      {selectedRow
-                        ? isCollecting || selectedRow.sureMinScore === null
-                          ? "데이터 수집 중"
-                          : `${selectedRow.sureMinScore.toFixed(2)}점 이상`
-                        : "-"}
-                    </td>
-                  </tr>
-                  <tr className="flex flex-1 divide-x divide-slate-200">
-                    <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
-                      1배수 컷 점수
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <HighlightCard
+                  label="선발 / 실시간 참여"
+                  value={`${selectedRow.recruitCount.toLocaleString("ko-KR")}명 / ${selectedRow.participantCount.toLocaleString("ko-KR")}명`}
+                />
+                <HighlightCard label="실시간 평균" value={formatScore(selectedRow.averageFinalScore)} />
+                <HighlightCard label="합격확실권" value={sureMinHighlight} emphasized={true} />
+                <HighlightCard label="1배수 컷" value={oneMultipleHighlight} />
+              </div>
+            </>
+          ) : null}
+
+          <div className="mt-3 grid gap-4 xl:grid-cols-2 xl:items-stretch">
+            <div className="h-full overflow-hidden rounded-md border border-slate-200 bg-white">
+              <table className="w-full border-collapse text-sm">
+                <tbody className="divide-y divide-slate-200">
+                  <tr className="divide-x divide-slate-200">
+                    <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+                      지역-직렬
                     </th>
-                    <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                    <td className="px-4 py-3.5 font-bold text-slate-900">
+                      {selectedRow ? `${selectedRow.regionName}-${getExamTypeLabel(selectedRow.examType)}` : "-"}
+                    </td>
+                  </tr>
+                  <tr className="divide-x divide-slate-200">
+                    <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">선발인원</th>
+                    <td className="px-4 py-3.5 font-medium text-slate-700">
+                      {selectedRow ? `${selectedRow.recruitCount.toLocaleString("ko-KR")}명` : "-"}
+                    </td>
+                  </tr>
+                  <tr className="divide-x divide-slate-200">
+                    <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+                      {applicantCountLabel}
+                    </th>
+                    <td className="px-4 py-3.5 font-medium text-slate-700">
                       {selectedRow
-                        ? isCollecting || isLowSample || selectedRow.oneMultipleCutScore === null
-                          ? "데이터 수집 중"
-                          : formatScore(selectedRow.oneMultipleCutScore)
+                        ? selectedRow.applicantCount === null
+                          ? "미입력"
+                          : `${selectedRow.applicantCount.toLocaleString("ko-KR")}명`
                         : "-"}
+                    </td>
+                  </tr>
+                  <tr className="divide-x divide-slate-200">
+                    <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">경쟁률</th>
+                    <td className="px-4 py-3.5 font-medium text-slate-700">
+                      {selectedRow ? formatCompetition(selectedRow.competitionRate) : "-"}
+                    </td>
+                  </tr>
+                  <tr className="divide-x divide-slate-200">
+                    <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">실시간 참여인원</th>
+                    <td className="px-4 py-3.5 font-medium text-slate-700">
+                      {selectedRow ? `${selectedRow.participantCount.toLocaleString("ko-KR")}명` : "-"}
+                    </td>
+                  </tr>
+                  <tr className="divide-x divide-slate-200">
+                    <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+                      실시간 평균점수
+                      <span className="ml-1 text-xs font-normal text-slate-400">(과락 제외)</span>
+                    </th>
+                    <td className="px-4 py-3.5 font-bold text-police-700">
+                      {selectedRow ? <>{formatScore(selectedRow.averageFinalScore)}</> : "-"}
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+
+            <div className="flex h-full flex-col overflow-hidden rounded-md border border-slate-200 bg-white">
+              {isLowSample && selectedRow ? (
+                <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+                  참여인원({selectedRow.participantCount.toLocaleString("ko-KR")}명)이 선발인원({selectedRow.recruitCount.toLocaleString("ko-KR")}명)보다 적어 예측 정확도가 낮습니다.
+                </div>
+              ) : null}
+              <div className="flex-1">
+                <table className="h-full w-full border-collapse text-sm">
+                  <tbody className="flex h-full flex-col divide-y divide-slate-200 border-b border-slate-200">
+                    <tr className="flex flex-1 divide-x divide-slate-200">
+                      <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격가능권</th>
+                      <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                        {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.possibleRange)) : "-"}
+                      </td>
+                    </tr>
+                    <tr className="flex flex-1 divide-x divide-slate-200">
+                      <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격유력권</th>
+                      <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                        {selectedRow ? (isCollecting ? "데이터 수집 중" : formatRange(selectedRow.likelyRange)) : "-"}
+                      </td>
+                    </tr>
+                    <tr className="flex flex-1 divide-x divide-slate-200">
+                      <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">합격확실권</th>
+                      <td className="flex flex-1 items-center px-4 py-3.5 font-bold text-police-700">
+                        {selectedRow
+                          ? isCollecting || selectedRow.sureMinScore === null
+                            ? "데이터 수집 중"
+                            : `${selectedRow.sureMinScore.toFixed(2)}점 이상`
+                          : "-"}
+                      </td>
+                    </tr>
+                    <tr className="flex flex-1 divide-x divide-slate-200">
+                      <th className="flex w-[140px] items-center bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
+                        1배수 컷 점수
+                      </th>
+                      <td className="flex flex-1 items-center px-4 py-3.5 font-medium text-slate-700">
+                        {selectedRow
+                          ? isCollecting || isLowSample || selectedRow.oneMultipleCutScore === null
+                            ? "데이터 수집 중"
+                            : formatScore(selectedRow.oneMultipleCutScore)
+                          : "-"}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
-        </div>
-        <p className="mt-2 text-xs text-slate-500">
-          * 2026 기준: 필기 합격예측 점수는 취업지원대상자/의사상자 가산점이 반영된 최종점수 기준이며, 무도 가산점은
-          포함하지 않습니다.
-        </p>
-      </section>
+          <p className="mt-2 text-xs text-slate-500">
+            * 2026 기준: 필기 합격예측 점수는 취업지원대상자/의사상자 가산점이 반영된 최종점수 기준이며, 무도 가산점은
+            포함하지 않습니다.
+          </p>
+        </section>
       ) : null}
 
       {sectionVisibility.difficulty ? (
-      <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xl font-bold tracking-tight text-slate-900">
-          과목별 체감난이도 <span className="text-police-600">설문 결과</span>
-        </h3>
+        <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
+          <h3 className="text-xl font-bold tracking-tight text-slate-900">
+            과목별 체감난이도 <span className="text-police-600">설문 결과</span>
+          </h3>
 
-        <div className="mt-5 rounded-md bg-slate-50 p-4 sm:p-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="text-sm font-bold text-slate-700">
-              과목 선택
-              <select
-                className="ml-3 h-10 min-w-[180px] rounded-md border border-slate-300 px-3 text-sm"
-                value={difficultySubjectId ?? ""}
-                onChange={(event) => {
-                  const val = event.target.value;
-                  if (val === "") {
-                    setDifficultySubjectId(null);
-                  } else {
-                    const next = Number(val);
-                    setDifficultySubjectId(Number.isFinite(next) ? next : null);
-                  }
-                }}
-              >
-                <option value="">전체 과목 (평균)</option>
-                {difficultySubjects.map((subject) => (
-                  <option key={subject.subjectId} value={subject.subjectId}>
-                    {subject.subjectName} {subject.subjectId < 0 ? "(공통)" : `(${getExamTypeLabel(subject.examType)})`}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="rounded-md bg-slate-800 px-5 py-2 text-center text-sm font-bold text-white">
-              {difficultySubjects.find((item) => item.subjectId === difficultySubjectId)?.subjectName ?? "전체 과목 (평균)"}
-            </div>
-          </div>
-
-          <div className="mt-8 h-[280px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={difficultyChartData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
-                <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} dy={10} />
-                <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  cursor={{ fill: "#f1f5f9" }}
-                  contentStyle={{ borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}
-                  formatter={(value: unknown) => `${Number(value ?? 0).toFixed(1)}%`}
-                />
-                <Bar dataKey="value" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={60}>
-                  <LabelList dataKey="value" position="top" formatter={(v: unknown) => `${Number(v ?? 0).toFixed(1)}%`} style={{ fontSize: "12px", fill: "#64748b", fontWeight: 600 }} dy={-4} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </section>
-      ) : null}
-
-      {sectionVisibility.competitive ? (
-      <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xl font-bold tracking-tight text-slate-900">실시간 최대/최소 경쟁 예상지역 TOP5</h3>
-        <div className="mt-5 grid gap-4 xl:grid-cols-2">
-          <CompetitiveChart title="실시간 최대 경쟁 예상지역 TOP5" data={competitiveRows.top} />
-          <CompetitiveChart title="실시간 최소 경쟁 예상지역 TOP5" data={competitiveRows.least} />
-        </div>
-      </section>
-      ) : null}
-
-      {sectionVisibility.scoreDistribution ? (
-      <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
-        <h3 className="text-xl font-bold tracking-tight text-slate-900">채점자 성적분포도</h3>
-        {scoreDistributionItems.length > 0 && selectedScoreDistribution ? (
           <div className="mt-5 rounded-md bg-slate-50 p-4 sm:p-6">
-            <div className="flex flex-wrap gap-2">
-              {scoreDistributionItems.map((item) => {
-                const active = item.key === selectedScoreDistribution.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition ${active
-                      ? "border-police-700 bg-police-700 text-white"
-                      : "border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-700"
-                      }`}
-                    onClick={() => setSelectedScoreDistributionKey(item.key)}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-600 sm:text-sm">
-              <span className="rounded-full bg-white px-3 py-1">만점 {selectedScoreDistribution.maxScore}점</span>
-              {selectedScoreDistribution.failThreshold !== null ? (
-                <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">
-                  과락 {selectedScoreDistribution.failThreshold}점 미만
-                </span>
-              ) : null}
-              <span className="rounded-full bg-white px-3 py-1">
-                내 점수{" "}
-                {selectedScoreDistribution.myScore === null
-                  ? "-"
-                  : `${selectedScoreDistribution.myScore.toFixed(1)}점`}
-              </span>
-              {selectedScoreDistribution.failThreshold !== null && selectedScoreDistribution.isFail !== null ? (
-                <span
-                  className={`rounded-full px-3 py-1 ${selectedScoreDistribution.isFail
-                    ? "bg-rose-100 text-rose-700"
-                    : "bg-emerald-100 text-emerald-700"
-                    }`}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <label className="text-sm font-bold text-slate-700">
+                과목 선택
+                <select
+                  className="ml-3 h-10 min-w-[180px] rounded-md border border-slate-300 px-3 text-sm"
+                  value={difficultySubjectId ?? ""}
+                  onChange={(event) => {
+                    const val = event.target.value;
+                    if (val === "") {
+                      setDifficultySubjectId(null);
+                    } else {
+                      const next = Number(val);
+                      setDifficultySubjectId(Number.isFinite(next) ? next : null);
+                    }
+                  }}
                 >
-                  {selectedScoreDistribution.isFail ? "내 상태: 과락" : "내 상태: 통과"}
-                </span>
-              ) : null}
+                  <option value="">전체 과목 (평균)</option>
+                  {difficultySubjects.map((subject) => (
+                    <option key={subject.subjectId} value={subject.subjectId}>
+                      {subject.subjectName} {subject.subjectId < 0 ? "(공통)" : `(${getExamTypeLabel(subject.examType)})`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="rounded-md bg-slate-800 px-5 py-2 text-center text-sm font-bold text-white">
+                {difficultySubjects.find((item) => item.subjectId === difficultySubjectId)?.subjectName ?? "전체 과목 (평균)"}
+              </div>
             </div>
 
-            <div className="mt-6 h-[320px]">
+            <div className="mt-8 h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={selectedScoreDistribution.buckets}
-                  margin={{ top: 16, right: 8, left: -12, bottom: 8 }}
-                >
+                <BarChart data={difficultyChartData} margin={{ top: 20, right: 0, left: -20, bottom: 0 }}>
                   <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    axisLine={false}
-                    tickLine={false}
-                    dy={8}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fontSize: 11, fill: "#94a3b8" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
+                  <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} dy={10} />
+                  <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                   <Tooltip
+                    cursor={{ fill: "#f1f5f9" }}
                     contentStyle={{ borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}
-                    formatter={(value: unknown) => `${Number(value ?? 0).toLocaleString("ko-KR")}명`}
+                    formatter={(value: unknown) => `${Number(value ?? 0).toFixed(1)}%`}
                   />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={42}>
-                    {selectedScoreDistribution.buckets.map((bucket) => {
-                      const color = bucket.isMine
-                        ? "#1d4ed8"
-                        : bucket.isFailRange
-                          ? "#ef4444"
-                          : "#0ea5e9";
-                      return <Cell key={bucket.key} fill={color} />;
-                    })}
-                    <LabelList
-                      dataKey="count"
-                      position="top"
-                      formatter={(value: unknown) => Number(value ?? 0).toLocaleString("ko-KR")}
-                      style={{ fontSize: "11px", fill: "#64748b", fontWeight: 600 }}
-                    />
+                  <Bar dataKey="value" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={60}>
+                    <LabelList dataKey="value" position="top" formatter={(v: unknown) => `${Number(v ?? 0).toFixed(1)}%`} style={{ fontSize: "12px", fill: "#64748b", fontWeight: 600 }} dy={-4} />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-600">
-              {selectedScoreDistribution.failThreshold !== null ? (
-                <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">빨강: 과락 구간</span>
-              ) : null}
-              <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">파랑: 내 위치</span>
-              <span className="rounded-full bg-white px-3 py-1">
-                {myScoreBucketLabel ? `내 위치 구간: ${myScoreBucketLabel}` : "내 점수 데이터 없음"}
-              </span>
-            </div>
           </div>
-        ) : (
-          <p className="mt-3 text-sm text-slate-500">표시할 성적 분포 데이터가 없습니다.</p>
-        )}
-      </section>
+        </section>
+      ) : null}
+
+      {sectionVisibility.competitive ? (
+        <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
+          <h3 className="text-xl font-bold tracking-tight text-slate-900">실시간 최대/최소 경쟁 예상지역 TOP5</h3>
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            <CompetitiveChart title="실시간 최대 경쟁 예상지역 TOP5" data={competitiveRows.top} />
+            <CompetitiveChart title="실시간 최소 경쟁 예상지역 TOP5" data={competitiveRows.least} />
+          </div>
+        </section>
+      ) : null}
+
+      {sectionVisibility.scoreDistribution ? (
+        <section className="rounded-lg border border-slate-200 bg-white p-5 sm:p-6">
+          <h3 className="text-xl font-bold tracking-tight text-slate-900">채점자 성적분포도</h3>
+          {scoreDistributionItems.length > 0 && selectedScoreDistribution ? (
+            <div className="mt-5 rounded-md bg-slate-50 p-4 sm:p-6">
+              <div className="flex flex-wrap gap-2">
+                {scoreDistributionItems.map((item) => {
+                  const active = item.key === selectedScoreDistribution.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition ${active
+                        ? "border-police-700 bg-police-700 text-white"
+                        : "border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-700"
+                        }`}
+                      onClick={() => setSelectedScoreDistributionKey(item.key)}
+                    >
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-600 sm:text-sm">
+                <span className="rounded-full bg-white px-3 py-1">만점 {selectedScoreDistribution.maxScore}점</span>
+                {selectedScoreDistribution.failThreshold !== null ? (
+                  <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">
+                    과락 {selectedScoreDistribution.failThreshold}점 미만
+                  </span>
+                ) : null}
+                <span className="rounded-full bg-white px-3 py-1">
+                  내 점수{" "}
+                  {selectedScoreDistribution.myScore === null
+                    ? "-"
+                    : `${selectedScoreDistribution.myScore.toFixed(1)}점`}
+                </span>
+                {selectedScoreDistribution.failThreshold !== null && selectedScoreDistribution.isFail !== null ? (
+                  <span
+                    className={`rounded-full px-3 py-1 ${selectedScoreDistribution.isFail
+                      ? "bg-rose-100 text-rose-700"
+                      : "bg-emerald-100 text-emerald-700"
+                      }`}
+                  >
+                    {selectedScoreDistribution.isFail ? "내 상태: 과락" : "내 상태: 통과"}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="mt-6 h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={selectedScoreDistribution.buckets}
+                    margin={{ top: 16, right: 8, left: -12, bottom: 8 }}
+                  >
+                    <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11, fill: "#64748b" }}
+                      axisLine={false}
+                      tickLine={false}
+                      dy={8}
+                    />
+                    <YAxis
+                      allowDecimals={false}
+                      tick={{ fontSize: 11, fill: "#94a3b8" }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{ borderRadius: "8px", border: "1px solid #e2e8f0", fontSize: "12px" }}
+                      formatter={(value: unknown) => `${Number(value ?? 0).toLocaleString("ko-KR")}명`}
+                    />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={42}>
+                      {selectedScoreDistribution.buckets.map((bucket) => {
+                        const color = bucket.isMine
+                          ? "#1d4ed8"
+                          : bucket.isFailRange
+                            ? "#ef4444"
+                            : "#0ea5e9";
+                        return <Cell key={bucket.key} fill={color} />;
+                      })}
+                      <LabelList
+                        dataKey="count"
+                        position="top"
+                        formatter={(value: unknown) => Number(value ?? 0).toLocaleString("ko-KR")}
+                        style={{ fontSize: "11px", fill: "#64748b", fontWeight: 600 }}
+                      />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                {selectedScoreDistribution.failThreshold !== null ? (
+                  <span className="rounded-full bg-rose-100 px-3 py-1 text-rose-700">빨강: 과락 구간</span>
+                ) : null}
+                <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">파랑: 내 위치</span>
+                <span className="rounded-full bg-white px-3 py-1">
+                  {myScoreBucketLabel ? `내 위치 구간: ${myScoreBucketLabel}` : "내 점수 데이터 없음"}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-3 text-sm text-slate-500">표시할 성적 분포 데이터가 없습니다.</p>
+          )}
+        </section>
       ) : null}
     </div>
   );
