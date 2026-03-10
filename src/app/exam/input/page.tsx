@@ -66,6 +66,31 @@ interface SubmissionResponse {
   submissionId: number;
 }
 
+interface PreRegistrationData {
+  id: number;
+  examId: number;
+  examType: ExamType;
+  gender: Gender;
+  regionId: number;
+  examNumber: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PreRegistrationResponse {
+  success?: boolean;
+  message?: string;
+  preRegistration?: PreRegistrationData | null;
+  error?: string;
+}
+
+type PublicSiteSettings = Record<string, string | boolean | number | null>;
+
+interface SiteSettingsResponse {
+  settings?: PublicSiteSettings;
+  error?: string;
+}
+
 type EditBonusType = "NONE" | "VETERAN_5" | "VETERAN_10" | "HERO_3" | "HERO_5";
 
 interface EditSubmissionResponse {
@@ -192,14 +217,18 @@ export default function ExamInputPage({
   const searchParams = useSearchParams();
   const editId = searchParams.get("edit");
   const { data: session, status } = useSession();
-  const { showErrorToast } = useToast();
+  const { showErrorToast, showToast } = useToast();
 
   const [meta, setMeta] = useState<ExamsResponse | null>(null);
   const [isMetaLoading, setIsMetaLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPreRegistrationSaving, setIsPreRegistrationSaving] = useState(false);
+  const [isPreRegistrationDeleting, setIsPreRegistrationDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [autoEditId, setAutoEditId] = useState<number | null>(null);
   const [editCountInfo, setEditCountInfo] = useState<{ editCount: number; maxEditLimit: number } | null>(null);
+  const [preRegistration, setPreRegistration] = useState<PreRegistrationData | null>(null);
+  const [siteSettings, setSiteSettings] = useState<PublicSiteSettings>({});
 
   const [gender, setGender] = useState<Gender | "">("");
   const [examType, setExamType] = useState<ExamType>(ExamType.PUBLIC);
@@ -236,9 +265,11 @@ export default function ExamInputPage({
       setIsMetaLoading(true);
       setErrorMessage("");
       try {
-        const [metaRes, editRes] = await Promise.all([
+        const [metaRes, editRes, preRegistrationRes, siteSettingsRes] = await Promise.all([
           fetch("/api/exams?active=true", { method: "GET", cache: "no-store" }),
           fetch(editId ? `/api/result?submissionId=${editId}` : `/api/result`, { method: "GET", cache: "no-store" }),
+          fetch("/api/pre-registration", { method: "GET", cache: "no-store" }),
+          fetch("/api/site-settings", { method: "GET", cache: "no-store" }),
         ]);
 
         const data = (await metaRes.json()) as ExamsResponse & { error?: string };
@@ -256,9 +287,23 @@ export default function ExamInputPage({
         }
         // editId 없이 조회했는데 404 → 신규 사용자, 정상 흐름
 
+        let preRegistrationData: PreRegistrationData | null = null;
+        if (preRegistrationRes.ok) {
+          const parsed = (await preRegistrationRes.json()) as PreRegistrationResponse;
+          preRegistrationData = parsed.preRegistration ?? null;
+        }
+
+        let nextSiteSettings: PublicSiteSettings = {};
+        if (siteSettingsRes.ok) {
+          const parsed = (await siteSettingsRes.json()) as SiteSettingsResponse;
+          nextSiteSettings = parsed.settings ?? {};
+        }
+
         if (!isMounted) return;
 
         setMeta(data);
+        setPreRegistration(preRegistrationData);
+        setSiteSettings(nextSiteSettings);
 
         if (editData && editData.submission) {
           const sub = editData.submission;
@@ -312,6 +357,27 @@ export default function ExamInputPage({
           setAnswerStore(newAnswerStore);
           setDifficultyStore(newDiffStore);
         } else {
+          setEditCountInfo(null);
+          setAutoEditId(null);
+          setVeteranPercent(0);
+          setHeroPercent(0);
+
+          if (preRegistrationData) {
+            const restoredExamType =
+              preRegistrationData.examType === ExamType.CAREER && !data.careerExamEnabled
+                ? ExamType.PUBLIC
+                : preRegistrationData.examType;
+            setGender(preRegistrationData.gender);
+            setExamType(restoredExamType);
+            setRegionId(preRegistrationData.regionId);
+            setExamNumber(preRegistrationData.examNumber);
+          } else {
+            setGender("");
+            setExamType(ExamType.PUBLIC);
+            setRegionId("");
+            setExamNumber("");
+          }
+
           setAnswerStore({
             [ExamType.PUBLIC]: createEmptyAnswers(data.subjectGroups.PUBLIC),
             [ExamType.CAREER]: createEmptyAnswers(data.subjectGroups.CAREER),
@@ -344,6 +410,22 @@ export default function ExamInputPage({
     return examType === ExamType.PUBLIC ? meta.subjectGroups.PUBLIC : meta.subjectGroups.CAREER;
   }, [meta, examType]);
   const careerExamEnabled = Boolean(meta?.careerExamEnabled ?? true);
+  const preRegistrationEnabled = Boolean(siteSettings["site.preRegistrationEnabled"] ?? true);
+  const answerInputEnabled = Boolean(siteSettings["site.answerInputEnabled"] ?? true);
+  const preRegistrationClosedMessage = useMemo(() => {
+    const value = siteSettings["site.preRegistrationClosedMessage"];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    return "사전등록이 마감되었습니다. 답안 입력 오픈 후 다시 이용해 주세요.";
+  }, [siteSettings]);
+  const canManagePreRegistration = preRegistrationEnabled && !effectiveEditId;
+  const canSubmitAnswers = answerInputEnabled;
+  const isPreRegistrationOnlyMode = canManagePreRegistration && !canSubmitAnswers;
+  const isInputFullyClosed = !preRegistrationEnabled && !answerInputEnabled;
+  const answerInputDisabledMessage = preRegistrationEnabled
+    ? "현재는 수험번호 사전등록 기간입니다. 시험 종료 후 답안 입력이 열리면 다시 이용해 주세요."
+    : preRegistrationClosedMessage;
 
   useEffect(() => {
     if (careerExamEnabled) return;
@@ -452,6 +534,10 @@ export default function ExamInputPage({
     if (!meta || !regionId) return null;
     return meta.regions.find((region) => region.id === regionId) ?? null;
   }, [meta, regionId]);
+  const preRegistrationUpdatedText = useMemo(() => {
+    if (!preRegistration) return null;
+    return new Date(preRegistration.updatedAt).toLocaleString("ko-KR");
+  }, [preRegistration]);
 
   const recruitCount = selectedRegion ? getRecruitCount(selectedRegion, examType) : null;
   const isCareerRecruitCountMissing =
@@ -509,7 +595,116 @@ export default function ExamInputPage({
     });
   }
 
+  async function handleSavePreRegistration() {
+    if (!canManagePreRegistration) {
+      setErrorMessage(preRegistrationClosedMessage);
+      return;
+    }
+
+    if (!meta?.activeExam) {
+      setErrorMessage("활성 시험이 없습니다.");
+      return;
+    }
+
+    if (examType === ExamType.CAREER && !careerExamEnabled) {
+      setErrorMessage("현재 경행경채 시험은 비활성화 상태입니다.");
+      return;
+    }
+
+    if (!gender || !regionId) {
+      setErrorMessage("성별과 지역을 먼저 선택해 주세요.");
+      return;
+    }
+
+    const normalizedExamNumber = examNumber.trim();
+    if (!normalizedExamNumber) {
+      setErrorMessage("수험번호를 입력해 주세요.");
+      return;
+    }
+
+    if (examNumberStatus === "unavailable") {
+      setErrorMessage(examNumberMessage || "수험번호를 다시 확인해 주세요.");
+      return;
+    }
+
+    setIsPreRegistrationSaving(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/pre-registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          examId: meta.activeExam.id,
+          examType,
+          gender,
+          regionId,
+          examNumber: normalizedExamNumber,
+        }),
+      });
+
+      const data = (await response.json()) as PreRegistrationResponse;
+      if (!response.ok || !data.preRegistration) {
+        throw new Error(data.error ?? "사전등록 저장 중 오류가 발생했습니다.");
+      }
+
+      setPreRegistration(data.preRegistration);
+      setExamNumber(normalizedExamNumber);
+      showToast(data.message ?? "사전등록이 저장되었습니다.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "사전등록 저장 중 오류가 발생했습니다.";
+      setErrorMessage(message);
+      showErrorToast(message);
+    } finally {
+      setIsPreRegistrationSaving(false);
+    }
+  }
+
+  async function handleDeletePreRegistration() {
+    if (!canManagePreRegistration) {
+      setErrorMessage(preRegistrationClosedMessage);
+      return;
+    }
+
+    if (!meta?.activeExam || !preRegistration) {
+      return;
+    }
+
+    const confirmed = window.confirm("사전등록을 취소하시겠습니까?");
+    if (!confirmed) {
+      return;
+    }
+
+    setIsPreRegistrationDeleting(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(`/api/pre-registration?examId=${meta.activeExam.id}`, {
+        method: "DELETE",
+      });
+
+      const data = (await response.json()) as PreRegistrationResponse;
+      if (!response.ok) {
+        throw new Error(data.error ?? "사전등록 취소 중 오류가 발생했습니다.");
+      }
+
+      setPreRegistration(null);
+      showToast(data.message ?? "사전등록이 취소되었습니다.", "success");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "사전등록 취소 중 오류가 발생했습니다.";
+      setErrorMessage(message);
+      showErrorToast(message);
+    } finally {
+      setIsPreRegistrationDeleting(false);
+    }
+  }
+
   async function handleSubmit() {
+    if (!canSubmitAnswers) {
+      setErrorMessage(answerInputDisabledMessage);
+      return;
+    }
+
     if (!meta?.activeExam) {
       setErrorMessage("활성 시험이 없습니다.");
       return;
@@ -593,6 +788,7 @@ export default function ExamInputPage({
       }
 
       sessionStorage.setItem("latestSubmissionId", String(data.submissionId));
+      setPreRegistration(null);
 
       if (embedded && onSubmitted) {
         onSubmitted(data.submissionId);
@@ -633,12 +829,27 @@ export default function ExamInputPage({
     );
   }
 
+  if (isInputFullyClosed || (!canSubmitAnswers && effectiveEditId)) {
+    return (
+      <section className="rounded-xl border border-amber-200 bg-amber-50 p-8 text-sm text-amber-800">
+        {isInputFullyClosed ? preRegistrationClosedMessage : answerInputDisabledMessage}
+      </section>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-6">
-        <h1 className="text-lg font-semibold text-slate-900">응시정보 입력</h1>
+        <h1 className="text-lg font-semibold text-slate-900">
+          {isPreRegistrationOnlyMode ? "수험번호 사전등록" : "응시정보 입력"}
+        </h1>
         <p className="mt-1 text-sm text-slate-600">
           {meta.activeExam.year}년 {meta.activeExam.round}차 · {meta.activeExam.name}
+        </p>
+        <p className="mt-2 text-sm text-slate-500">
+          {isPreRegistrationOnlyMode
+            ? "시험 전에는 응시정보와 수험번호만 저장할 수 있습니다. 시험 종료 후 다시 로그인하면 저장한 정보가 자동으로 채워집니다."
+            : "응시정보를 확인한 뒤 답안을 입력해 채점을 진행하세요."}
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -727,7 +938,63 @@ export default function ExamInputPage({
           </div>
         </div>
 
-        <div className="mt-6 rounded-xl border border-slate-200 p-4">
+        {canManagePreRegistration ? (
+          <div className="mt-6 rounded-xl border border-sky-200 bg-sky-50/70 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900">사전등록</h2>
+                <p className="mt-1 text-xs text-slate-600">
+                  시험 전에는 응시정보와 수험번호만 먼저 저장하고, 시험 종료 후 로그인해서 OMR만 바로 입력할 수 있습니다.
+                </p>
+                {preRegistration ? (
+                  <p className="mt-2 text-xs text-sky-700">
+                    사전등록 완료
+                    {preRegistrationUpdatedText ? ` · 마지막 저장 ${preRegistrationUpdatedText}` : ""}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500">아직 사전등록된 정보가 없습니다.</p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void handleSavePreRegistration()}
+                  disabled={isPreRegistrationSaving || isPreRegistrationDeleting || isSubmitting}
+                >
+                  {isPreRegistrationSaving
+                    ? "저장 중..."
+                    : preRegistration
+                      ? "사전등록 수정 저장"
+                      : "사전등록 저장"}
+                </Button>
+                {preRegistration ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleDeletePreRegistration()}
+                    disabled={isPreRegistrationSaving || isPreRegistrationDeleting || isSubmitting}
+                  >
+                    {isPreRegistrationDeleting ? "취소 중..." : "사전등록 취소"}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : !effectiveEditId && preRegistration ? (
+          <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50/80 p-4">
+            <h2 className="text-sm font-semibold text-emerald-900">사전등록 정보를 불러왔습니다</h2>
+            <p className="mt-1 text-xs text-emerald-800">
+              저장된 응시정보가 자동으로 채워졌습니다. 답안만 입력하고 바로 채점을 진행할 수 있습니다.
+            </p>
+            {preRegistrationUpdatedText ? (
+              <p className="mt-2 text-xs text-emerald-700">마지막 저장: {preRegistrationUpdatedText}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {canSubmitAnswers ? (
+          <div className="mt-6 rounded-xl border border-slate-200 p-4">
           <h2 className="text-sm font-semibold text-slate-900">가산점</h2>
           <p className="mt-1 text-xs text-slate-500">취업지원과 의사상자 가산점은 동시에 적용할 수 없습니다.</p>
 
@@ -766,11 +1033,12 @@ export default function ExamInputPage({
               </div>
             </fieldset>
           </div>
-        </div>
+          </div>
+        ) : null}
       </section>
 
       {/* 수정 모드 안내 배너 */}
-      {effectiveEditId && editCountInfo && (
+      {canSubmitAnswers && effectiveEditId && editCountInfo && (
         isEditLimitReached ? (
           <section className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
             <p className="font-semibold">답안 수정 횟수({editCountInfo.maxEditLimit}회)를 모두 사용했습니다.</p>
@@ -790,7 +1058,8 @@ export default function ExamInputPage({
         )
       )}
 
-      <section className="rounded-xl border border-slate-200 bg-white p-6">
+      {canSubmitAnswers ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-slate-900">OMR 답안 입력</h2>
         <p className="mt-1 text-sm text-slate-600">
           {examType === ExamType.PUBLIC ? "공채" : "경행경채"} ·
@@ -923,7 +1192,16 @@ export default function ExamInputPage({
             {isSubmitting ? "처리 중..." : effectiveEditId ? "답안 수정하기" : "채점하기"}
           </Button>
         </div>
-      </section>
+        </section>
+      ) : (
+        <section className="rounded-xl border border-sky-200 bg-sky-50 p-6 text-sm text-sky-900">
+          <h2 className="text-base font-semibold">사전등록 진행 중</h2>
+          <p className="mt-2">
+            현재는 수험번호 사전등록만 받고 있습니다. 응시정보를 저장해 두면 시험 종료 후 답안 입력이 열렸을 때
+            다시 입력할 필요 없이 바로 채점을 진행할 수 있습니다.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

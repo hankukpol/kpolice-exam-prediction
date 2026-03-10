@@ -5,6 +5,11 @@ import { authOptions } from "@/lib/auth";
 import { invalidateCorrectRateCache } from "@/lib/correct-rate";
 import { getRegionRecruitCount, normalizeSubjectName, parsePositiveInt } from "@/lib/exam-utils";
 import { getPassMultiple } from "@/lib/prediction";
+import {
+  checkExamNumberAvailability,
+  lockExamNumberMutation,
+  lockUserExamMutation,
+} from "@/lib/pre-registration";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 import { validateAnswerPattern } from "@/lib/answer-validation";
@@ -52,6 +57,16 @@ interface SubmissionRequestBody {
   heroPercent?: unknown;
   submitDurationMs?: unknown;
   answers?: unknown;
+}
+
+class SubmissionRouteError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "SubmissionRouteError";
+    this.status = status;
+  }
 }
 
 type DifficultyRatingValue = "VERY_EASY" | "EASY" | "NORMAL" | "HARD" | "VERY_HARD";
@@ -639,6 +654,20 @@ export async function POST(request: Request) {
       }
     }
 
+    const examNumberAvailabilityForCreate = await checkExamNumberAvailability({
+      examId: exam.id,
+      regionId,
+      examType,
+      examNumber,
+      userId,
+    });
+    if (!examNumberAvailabilityForCreate.available) {
+      return NextResponse.json(
+        { error: examNumberAvailabilityForCreate.reason ?? "수험번호를 사용할 수 없습니다." },
+        { status: 409 }
+      );
+    }
+
     const bonusType = resolveBonusType(body);
     const bonusRate = getBonusPercent(bonusType);
     const recruitCount = quota ? getRegionRecruitCount(quota, examType) : 0;
@@ -682,6 +711,39 @@ export async function POST(request: Request) {
     });
 
     const submission = await prisma.$transaction(async (tx) => {
+      await lockUserExamMutation(tx, { userId, examId: exam.id });
+      await lockExamNumberMutation(tx, {
+        examId: exam.id,
+        regionId: region.id,
+        examNumber,
+      });
+
+      const lockedExistingSubmission = await tx.submission.findFirst({
+        where: {
+          userId,
+          examId: exam.id,
+        },
+        select: { id: true },
+      });
+      if (lockedExistingSubmission) {
+        throw new SubmissionRouteError("이미 해당 시험에 제출한 기록이 있습니다.", 409);
+      }
+
+      const examNumberAvailability = await checkExamNumberAvailability({
+        db: tx,
+        examId: exam.id,
+        regionId,
+        examType,
+        examNumber,
+        userId,
+      });
+      if (!examNumberAvailability.available) {
+        throw new SubmissionRouteError(
+          examNumberAvailability.reason ?? "수험번호를 사용할 수 없습니다.",
+          409
+        );
+      }
+
       const savedSubmission = await tx.submission.create({
         data: {
           examId: exam.id,
@@ -719,6 +781,13 @@ export async function POST(request: Request) {
         },
       });
 
+      await tx.preRegistration.deleteMany({
+        where: {
+          userId,
+          examId: exam.id,
+        },
+      });
+
       return savedSubmission;
     });
 
@@ -730,6 +799,10 @@ export async function POST(request: Request) {
       result: scoreResult,
     });
   } catch (error) {
+    if (error instanceof SubmissionRouteError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const target = getUniqueConstraintTargets(error);
 
@@ -896,6 +969,20 @@ export async function PUT(request: Request) {
 
     const bonusType = resolveBonusType(body);
     const bonusRate = getBonusPercent(bonusType);
+    const examNumberAvailabilityForEdit = await checkExamNumberAvailability({
+      examId: exam.id,
+      regionId,
+      examType,
+      examNumber,
+      userId,
+      excludeSubmissionId: submissionId,
+    });
+    if (!examNumberAvailabilityForEdit.available) {
+      return NextResponse.json(
+        { error: examNumberAvailabilityForEdit.reason ?? "수험번호를 사용할 수 없습니다." },
+        { status: 409 }
+      );
+    }
     const recruitCount = quotaForEdit ? getRegionRecruitCount(quotaForEdit, examType) : 0;
     if (!Number.isInteger(recruitCount) || recruitCount < 1) {
       const message =
@@ -947,6 +1034,29 @@ export async function PUT(request: Request) {
     changedFields.push("answers");
 
     const updated = await prisma.$transaction(async (tx) => {
+      await lockUserExamMutation(tx, { userId, examId: exam.id });
+      await lockExamNumberMutation(tx, {
+        examId: exam.id,
+        regionId: region.id,
+        examNumber,
+      });
+
+      const examNumberAvailability = await checkExamNumberAvailability({
+        db: tx,
+        examId: exam.id,
+        regionId,
+        examType,
+        examNumber,
+        userId,
+        excludeSubmissionId: submissionId,
+      });
+      if (!examNumberAvailability.available) {
+        throw new SubmissionRouteError(
+          examNumberAvailability.reason ?? "수험번호를 사용할 수 없습니다.",
+          409
+        );
+      }
+
       const savedSubmission = await tx.submission.update({
         where: { id: submissionId },
         data: {
@@ -997,6 +1107,10 @@ export async function PUT(request: Request) {
       result: scoreResult,
     });
   } catch (error) {
+    if (error instanceof SubmissionRouteError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const target = getUniqueConstraintTargets(error);
 
