@@ -1,4 +1,3 @@
-import type { Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
@@ -6,6 +5,7 @@ import { maskKoreanName } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 import { consumeFixedWindowRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-ip";
+import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 import { getSiteSettings } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
@@ -77,14 +77,6 @@ async function getTargetExamId(): Promise<number> {
   return latestExam.id;
 }
 
-function getSessionUserId(sessionUserId: string | undefined): number {
-  const userId = Number(sessionUserId);
-  if (!Number.isInteger(userId) || userId < 1) {
-    throw new Error("사용자 정보를 확인할 수 없습니다.");
-  }
-  return userId;
-}
-
 function formatComment(
   comment: {
     id: number;
@@ -105,25 +97,26 @@ function formatComment(
   };
 }
 
+async function getViewer() {
+  const session = await getServerSession(authOptions);
+  return getVerifiedSessionUser(session);
+}
+
 export async function GET(request: NextRequest) {
   const siteSettings = await getSiteSettings();
   if (!siteSettings["site.commentsEnabled"]) {
     return NextResponse.json({ error: "댓글 기능이 비활성화되어 있습니다." }, { status: 403 });
   }
 
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
-
-  let userId: number;
+  let viewer;
   try {
-    userId = getSessionUserId(session.user.id);
+    viewer = await getViewer();
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "사용자 정보를 확인할 수 없습니다." },
-      { status: 401 }
-    );
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
   try {
@@ -151,7 +144,7 @@ export async function GET(request: NextRequest) {
 
       return NextResponse.json({
         examId,
-        comments: comments.map((comment) => formatComment(comment, userId)),
+        comments: comments.map((comment) => formatComment(comment, viewer.id)),
       });
     }
 
@@ -206,7 +199,7 @@ export async function GET(request: NextRequest) {
         totalCount,
         totalPages,
       },
-      comments: normalizedComments.map((comment) => formatComment(comment, userId)),
+      comments: normalizedComments.map((comment) => formatComment(comment, viewer.id)),
     });
   } catch (error) {
     console.error("GET /api/comments error", error);
@@ -220,26 +213,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "댓글 기능이 비활성화되어 있습니다." }, { status: 403 });
   }
 
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
-
-  let userId: number;
+  let viewer;
   try {
-    userId = getSessionUserId(session.user.id);
+    viewer = await getViewer();
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "사용자 정보를 확인할 수 없습니다." },
-      { status: 401 }
-    );
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
   try {
     const clientIp = getClientIp(request);
     const userRateLimit = consumeFixedWindowRateLimit({
       namespace: "comments-post-user",
-      key: String(userId),
+      key: String(viewer.id),
       limit: COMMENT_POST_LIMIT_PER_USER,
       windowMs: COMMENT_POST_WINDOW_MS,
     });
@@ -275,8 +264,12 @@ export async function POST(request: NextRequest) {
 
     const body = (await request.json()) as CommentPayload;
     const rawContent = typeof body.content === "string" ? body.content : "";
-    // HTML 태그 제거 (XSS 방어 — React 자동 이스케이프와 이중 방어)
-    const content = rawContent.replace(/<[^>]*>/g, "").trim();
+    const content = rawContent
+      .replace(/<[^>]*>/g, "")
+      .replace(/javascript\s*:/gi, "")
+      .replace(/on\w+\s*=/gi, "")
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "")
+      .trim();
 
     if (!content) {
       return NextResponse.json({ error: "댓글 내용을 입력해주세요." }, { status: 400 });
@@ -293,7 +286,7 @@ export async function POST(request: NextRequest) {
     const created = await prisma.comment.create({
       data: {
         examId,
-        userId,
+        userId: viewer.id,
         content,
       },
       include: {
@@ -306,7 +299,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
-      comment: formatComment(created, userId),
+      comment: formatComment(created, viewer.id),
     });
   } catch (error) {
     console.error("POST /api/comments error", error);
@@ -320,19 +313,15 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "댓글 기능이 비활성화되어 있습니다." }, { status: 403 });
   }
 
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
-
-  let userId: number;
+  let viewer;
   try {
-    userId = getSessionUserId(session.user.id);
+    viewer = await getViewer();
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "사용자 정보를 확인할 수 없습니다." },
-      { status: 401 }
-    );
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
+    return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
   try {
@@ -360,8 +349,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "댓글을 찾을 수 없습니다." }, { status: 404 });
     }
 
-    const role = (session.user.role as Role | undefined) ?? "USER";
-    const canDelete = comment.userId === userId || role === "ADMIN";
+    const canDelete = comment.userId === viewer.id || isVerifiedAdmin(viewer);
     if (!canDelete) {
       return NextResponse.json({ error: "본인 댓글만 삭제할 수 있습니다." }, { status: 403 });
     }

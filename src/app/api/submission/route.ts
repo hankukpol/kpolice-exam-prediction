@@ -258,7 +258,8 @@ function isExamNumberOutOfRange(examNumber: string, rangeStart: string, rangeEnd
     return inputNum < startNum || inputNum > endNum;
   }
 
-  return examNumber < rangeStart || examNumber > rangeEnd;
+  // 숫자 파싱 실패 시 범위 밖으로 처리 (문자열 대소비교 버그 방지: "9" > "100" 등)
+  return true;
 }
 
 function buildDifficultyRows(
@@ -367,7 +368,7 @@ type BonusPassCapRule = {
   capRatio: number;
   capPercentLabel: string;
   bonusLabel: string;
-  matches: (bonusType: BonusType) => boolean;
+  bonusTypes: BonusType[];
 };
 
 function getBonusPassCapRule(bonusType: BonusType): BonusPassCapRule | null {
@@ -377,7 +378,7 @@ function getBonusPassCapRule(bonusType: BonusType): BonusPassCapRule | null {
       capRatio: 0.3,
       capPercentLabel: "30%",
       bonusLabel: "취업지원대상자",
-      matches: isVeteranBonusType,
+      bonusTypes: [BonusType.VETERAN_5, BonusType.VETERAN_10],
     };
   }
 
@@ -387,7 +388,7 @@ function getBonusPassCapRule(bonusType: BonusType): BonusPassCapRule | null {
       capRatio: 0.1,
       capPercentLabel: "10%",
       bonusLabel: "의사상자",
-      matches: isHeroBonusType,
+      bonusTypes: [BonusType.HERO_3, BonusType.HERO_5],
     };
   }
 
@@ -527,12 +528,131 @@ async function validateBonusPassCap(params: {
 
   const rawPasserIds = new Set(passByRaw.map((row) => row.id));
   const bonusBeneficiaries = passByFinal.filter(
-    (row) => rule.matches(row.bonusType) && !rawPasserIds.has(row.id)
+    (row) => rule.bonusTypes.includes(row.bonusType) && !rawPasserIds.has(row.id)
   );
 
   if (bonusBeneficiaries.length > capCount) {
     throw new Error(
       `${rule.bonusLabel} 가산점으로 합격 가능한 인원 상한(${capCount}명, 선발예정인원의 ${rule.capPercentLabel})을 초과합니다.`
+    );
+  }
+}
+
+async function validateBonusPassCapOptimized(params: {
+  examId: number;
+  regionId: number;
+  examType: ExamType;
+  recruitCount: number;
+  submissionId?: number;
+  bonusType: BonusType;
+  totalScore: number;
+  finalScore: number;
+  hasCutoff: boolean;
+}): Promise<void> {
+  const rule = getBonusPassCapRule(params.bonusType);
+  if (!rule || params.hasCutoff) {
+    return;
+  }
+
+  if (params.recruitCount < rule.minRecruitCount) {
+    throw new Error(`${rule.bonusLabel} 媛?곗젏? 紐⑥쭛?몄썝 ${rule.minRecruitCount}紐??댁긽 吏??뿉?쒕쭔 ?좏깮 媛?ν빀?덈떎.`);
+  }
+
+  const capCount = Math.floor(params.recruitCount * rule.capRatio);
+  if (capCount < 1) {
+    throw new Error(
+      `${rule.bonusLabel} 媛?곗젏 ?⑷꺽 ?곹븳(?좊컻?덉젙?몄썝 ${rule.capPercentLabel})???곸슜?????녿뒗 紐⑥쭛?⑥엯?덈떎.`
+    );
+  }
+
+  const passMultiple = getPassMultiple(params.recruitCount);
+  const passCount = Math.ceil(params.recruitCount * passMultiple);
+  if (passCount < 1) {
+    return;
+  }
+
+  const candidateId = params.submissionId ?? -1;
+  const allowedBonusTypes = Prisma.join(
+    rule.bonusTypes.map((type) => Prisma.sql`CAST(${type} AS "BonusType")`)
+  );
+
+  const [validation] = await prisma.$queryRaw<
+    Array<{
+      totalCount: number;
+      beneficiaryCount: number;
+    }>
+  >(Prisma.sql`
+    WITH pool AS (
+      SELECT
+        s.id,
+        s."totalScore"::double precision AS "totalScore",
+        s."finalScore"::double precision AS "finalScore",
+        s."bonusType"
+      FROM "Submission" s
+      WHERE s."examId" = ${params.examId}
+        AND s."regionId" = ${params.regionId}
+        AND s."examType" = CAST(${params.examType} AS "ExamType")
+        AND s.id <> ${candidateId}
+        AND EXISTS (
+          SELECT 1
+          FROM "SubjectScore" ss
+          WHERE ss."submissionId" = s.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM "SubjectScore" ss
+          WHERE ss."submissionId" = s.id
+            AND ss."isFailed" = true
+        )
+
+      UNION ALL
+
+      SELECT
+        ${candidateId} AS id,
+        ${params.totalScore}::double precision AS "totalScore",
+        ${params.finalScore}::double precision AS "finalScore",
+        CAST(${params.bonusType} AS "BonusType") AS "bonusType"
+    ),
+    counts AS (
+      SELECT COUNT(*)::integer AS "totalCount"
+      FROM pool
+    ),
+    final_cutoff AS (
+      SELECT p."finalScore" AS score
+      FROM pool p
+      ORDER BY p."finalScore" DESC, p.id ASC
+      OFFSET ${passCount - 1}
+      LIMIT 1
+    ),
+    raw_cutoff AS (
+      SELECT p."totalScore" AS score
+      FROM pool p
+      ORDER BY p."totalScore" DESC, p.id ASC
+      OFFSET ${passCount - 1}
+      LIMIT 1
+    )
+    SELECT
+      c."totalCount",
+      COALESCE((
+        SELECT COUNT(*)::integer
+        FROM pool p
+        CROSS JOIN final_cutoff fc
+        CROSS JOIN raw_cutoff rc
+        WHERE p."bonusType" IN (${allowedBonusTypes})
+          AND p."finalScore" >= fc.score
+          AND p."totalScore" < rc.score
+      ), 0) AS "beneficiaryCount"
+    FROM counts c
+  `);
+
+  const totalCount = Number(validation?.totalCount ?? 0);
+  if (totalCount <= params.recruitCount || passCount >= totalCount) {
+    return;
+  }
+
+  if (Number(validation?.beneficiaryCount ?? 0) > capCount) {
+    throw new Error(
+      `${rule.bonusLabel} 媛?곗젏?쇰줈 ?⑷꺽 媛?ν븳 ?몄썝 ?곹븳(${capCount}紐? ?좊컻?덉젙?몄썝??${rule.capPercentLabel})??珥덇낵?⑸땲??`
     );
   }
 }
@@ -708,7 +828,7 @@ export async function POST(request: Request) {
       bonusRate,
     });
 
-    await validateBonusPassCap({
+    await validateBonusPassCapOptimized({
       examId: exam.id,
       regionId: region.id,
       examType,
@@ -1023,7 +1143,7 @@ export async function PUT(request: Request) {
       bonusRate,
     });
 
-    await validateBonusPassCap({
+    await validateBonusPassCapOptimized({
       examId: exam.id,
       regionId: region.id,
       examType,

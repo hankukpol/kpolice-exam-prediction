@@ -6,7 +6,11 @@ const RESET_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const RESET_CODE_LENGTH = 8;
 
 function getHashPepper(): string {
-  return process.env.NEXTAUTH_SECRET ?? "dev-reset-secret";
+  const secret = process.env.NEXTAUTH_SECRET?.trim();
+  if (!secret) {
+    throw new Error("NEXTAUTH_SECRET is required for password reset.");
+  }
+  return secret;
 }
 
 export function hashSecret(value: string): string {

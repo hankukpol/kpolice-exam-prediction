@@ -1,9 +1,10 @@
-﻿import { Prisma, Role } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { parsePositiveInt } from "@/lib/exam-utils";
 import { prisma } from "@/lib/prisma";
+import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,16 +49,20 @@ function roundNumber(value: number): number {
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
 
-  const userId = Number(session.user.id);
-  const isAdmin = ((session.user.role as Role | undefined) ?? Role.USER) === Role.ADMIN;
-  if (!Number.isInteger(userId) || userId <= 0) {
+  let viewer;
+  try {
+    viewer = await getVerifiedSessionUser(session);
+  } catch (error) {
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
+  const userId = viewer.id;
+  const isAdmin = isVerifiedAdmin(viewer);
   const { searchParams } = new URL(request.url);
   const submissionId = parsePositiveInt(searchParams.get("submissionId"));
   const subjectId = parsePositiveInt(searchParams.get("subjectId"));

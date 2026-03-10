@@ -48,53 +48,53 @@ enum PassCutSnapshotStatus {
 }
 
 model User {
-  id          Int          @id @default(autoincrement())
-  name        String
-  phone       String       @unique
-  email       String?      @unique
-  password    String
-  role            Role         @default(USER)
-  createdAt       DateTime     @default(now())
-  termsAgreedAt   DateTime?    // 서비스 이용약관 동의 일시
-  privacyAgreedAt DateTime?    // 개인정보 수집·이용 동의 일시
-  submissions Submission[]
-  comments    Comment[]
-  answerKeyLogs AnswerKeyLog[]
-  rescoreEventsCreated RescoreEvent[]
+  id                     Int                  @id @default(autoincrement())
+  name                   String
+  phone                  String               @unique
+  email                  String?              @unique
+  password               String
+  role                   Role                 @default(USER)
+  createdAt              DateTime             @default(now())
+  termsAgreedAt          DateTime? // 서비스 이용약관 동의 일시
+  privacyAgreedAt        DateTime? // 개인정보 수집·이용 동의 일시
+  submissions            Submission[]
+  comments               Comment[]
+  answerKeyLogs          AnswerKeyLog[]
+  rescoreEventsCreated   RescoreEvent[]
   passCutReleasesCreated PassCutRelease[]
-  rescoreDetails RescoreDetail[]
-  finalPredictions FinalPrediction[]
-  submissionLogs SubmissionLog[]
-  preRegistrations PreRegistration[]
-  passwordResetTokens PasswordResetToken[]
-  recoveryCodes       RecoveryCode[]
-  visitorLogs  VisitorLog[]
+  rescoreDetails         RescoreDetail[]
+  finalPredictions       FinalPrediction[]
+  submissionLogs         SubmissionLog[]
+  preRegistrations       PreRegistration[]
+  passwordResetTokens    PasswordResetToken[]
+  recoveryCodes          RecoveryCode[]
+  visitorLogs            VisitorLog[]
 }
 
 model Exam {
-  id          Int          @id @default(autoincrement())
-  name        String
-  year        Int
-  round       Int
-  examDate    DateTime
-  isActive    Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  answerKeys  AnswerKey[]
-  answerKeyLogs AnswerKeyLog[]
-  submissions Submission[]
-  comments    Comment[]
-  rescoreEvents RescoreEvent[]
-  passCutReleases PassCutRelease[]
-  quotas  ExamRegionQuota[]
+  id               Int               @id @default(autoincrement())
+  name             String
+  year             Int
+  round            Int
+  examDate         DateTime
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  answerKeys       AnswerKey[]
+  answerKeyLogs    AnswerKeyLog[]
+  submissions      Submission[]
+  comments         Comment[]
+  rescoreEvents    RescoreEvent[]
+  passCutReleases  PassCutRelease[]
+  quotas           ExamRegionQuota[]
   preRegistrations PreRegistration[]
 
   @@unique([year, round])
 }
 
 model Region {
-  id               Int                @id @default(autoincrement())
-  name             String             @unique
-  isActive         Boolean            @default(true)
+  id               Int               @id @default(autoincrement())
+  name             String            @unique
+  isActive         Boolean           @default(true)
   submissions      Submission[]
   preRegistrations PreRegistration[]
   passCutSnapshots PassCutSnapshot[]
@@ -102,35 +102,35 @@ model Region {
 }
 
 model ExamRegionQuota {
-  id                   Int      @id @default(autoincrement())
-  examId               Int
-  regionId             Int
-  recruitCount         Int      // 공채 모집인원
-  recruitCountCareer   Int      // 경행경채 모집인원
-  applicantCount       Int?     // 공채 출원인원
-  applicantCountCareer Int?     // 경행경채 출원인원
-  examNumberStart      String?  // 공채 유효 응시번호 시작 (예: "00001")
-  examNumberEnd        String?  // 공채 유효 응시번호 끝 (예: "00300")
+  id                    Int     @id @default(autoincrement())
+  examId                Int
+  regionId              Int
+  recruitCount          Int // 공채 모집인원
+  recruitCountCareer    Int // 경행경채 모집인원
+  applicantCount        Int? // 공채 출원인원
+  applicantCountCareer  Int? // 경행경채 출원인원
+  examNumberStart       String? // 공채 유효 응시번호 시작 (예: "00001")
+  examNumberEnd         String? // 공채 유효 응시번호 끝 (예: "00300")
   examNumberStartCareer String? // 경행경채 유효 응시번호 시작
   examNumberEndCareer   String? // 경행경채 유효 응시번호 끝
-  exam                 Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  region               Region   @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  exam                  Exam    @relation(fields: [examId], references: [id], onDelete: Cascade)
+  region                Region  @relation(fields: [regionId], references: [id], onDelete: Restrict)
 
   @@unique([examId, regionId])
   @@map("exam_region_quotas")
 }
 
 model Subject {
-  id               Int            @id @default(autoincrement())
-  name             String
-  questionCount    Int
-  pointPerQuestion Float
-  maxScore         Float
-  examType         ExamType
-  answerKeys       AnswerKey[]
-  answerKeyLogs    AnswerKeyLog[]
-  userAnswers      UserAnswer[]
-  subjectScores    SubjectScore[]
+  id                Int                @id @default(autoincrement())
+  name              String
+  questionCount     Int
+  pointPerQuestion  Float
+  maxScore          Float
+  examType          ExamType
+  answerKeys        AnswerKey[]
+  answerKeyLogs     AnswerKeyLog[]
+  userAnswers       UserAnswer[]
+  subjectScores     SubjectScore[]
   difficultyRatings DifficultyRating[]
 
   @@unique([name, examType])
@@ -168,53 +168,56 @@ model AnswerKeyLog {
 }
 
 model Submission {
-  id            Int            @id @default(autoincrement())
-  examId        Int
-  userId        Int
-  regionId      Int
-  examType      ExamType
-  gender        Gender
-  examNumber    String
-  totalScore    Float
-  bonusType     BonusType      @default(NONE)
-  bonusRate     Float          @default(0)
-  finalScore    Float
-  editCount         Int            @default(0)
-  isSuspicious      Boolean        @default(false)
-  suspiciousReason  String?        @db.Text
-  submitDurationMs  Int?           // 페이지 로드 → 제출까지 소요시간 (밀리초)
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @default(now()) @updatedAt
-  exam          Exam           @relation(fields: [examId], references: [id], onDelete: Restrict)
-  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
-  region        Region         @relation(fields: [regionId], references: [id], onDelete: Restrict)
-  userAnswers   UserAnswer[]
-  subjectScores SubjectScore[]
+  id                Int                @id @default(autoincrement())
+  examId            Int
+  userId            Int
+  regionId          Int
+  examType          ExamType
+  gender            Gender
+  examNumber        String
+  totalScore        Float
+  bonusType         BonusType          @default(NONE)
+  bonusRate         Float              @default(0)
+  finalScore        Float
+  editCount         Int                @default(0)
+  isSuspicious      Boolean            @default(false)
+  suspiciousReason  String?            @db.Text
+  submitDurationMs  Int? // 페이지 로드 → 제출까지 소요시간 (밀리초)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @default(now()) @updatedAt
+  exam              Exam               @relation(fields: [examId], references: [id], onDelete: Restrict)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  region            Region             @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  userAnswers       UserAnswer[]
+  subjectScores     SubjectScore[]
   difficultyRatings DifficultyRating[]
-  rescoreDetails RescoreDetail[]
-  finalPrediction FinalPrediction?
-  logs          SubmissionLog[]
+  rescoreDetails    RescoreDetail[]
+  finalPrediction   FinalPrediction?
+  logs              SubmissionLog[]
 
   @@unique([userId, examId])
   @@unique([examId, regionId, examNumber])
   @@index([examId, regionId, examType])
   @@index([examId, examType, finalScore])
   @@index([examId, regionId, examType, isSuspicious])
+  @@index([examId, createdAt])
+  @@index([examId, regionId, examType, finalScore])
+  @@index([examId, regionId, examType, totalScore])
 }
 
 model PreRegistration {
-  id         Int       @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   examId     Int
   userId     Int
   regionId   Int
   examType   ExamType
   gender     Gender
   examNumber String
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @default(now()) @updatedAt
-  exam       Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  region     Region    @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+  exam       Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region     Region   @relation(fields: [regionId], references: [id], onDelete: Restrict)
 
   @@unique([userId, examId])
   @@unique([examId, regionId, examNumber])
@@ -267,15 +270,15 @@ model SiteSetting {
 }
 
 model Notice {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   title     String
-  content   String   @db.Text
-  isActive  Boolean  @default(true)
-  priority  Int      @default(0)
+  content   String    @db.Text
+  isActive  Boolean   @default(true)
+  priority  Int       @default(0)
   startAt   DateTime?
   endAt     DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @default(now()) @updatedAt
 }
 
 model Faq {
@@ -289,45 +292,45 @@ model Faq {
 }
 
 model Banner {
-  id               Int      @id @default(autoincrement())
-  zone             String
-  imageUrl         String?
-  mobileImageUrl   String?
-  linkUrl          String?
-  altText     String   @default("")
-  htmlContent String?  @db.Text
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
+  id             Int      @id @default(autoincrement())
+  zone           String
+  imageUrl       String?
+  mobileImageUrl String?
+  linkUrl        String?
+  altText        String   @default("")
+  htmlContent    String?  @db.Text
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
 
   @@index([zone, isActive])
 }
 
 model EventSection {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   title       String
-  description String?  @db.Text
+  description String?   @db.Text
   imageUrl    String?
   linkUrl     String?
   linkText    String?
-  bgColor     String   @default("#ffffff")
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(0)
+  bgColor     String    @default("#ffffff")
+  isActive    Boolean   @default(true)
+  sortOrder   Int       @default(0)
   startAt     DateTime?
   endAt       DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now()) @updatedAt
 }
 
 model DifficultyRating {
-  id           Int        @id @default(autoincrement())
+  id           Int                   @id @default(autoincrement())
   submissionId Int
   subjectId    Int
   rating       DifficultyRatingLevel
-  createdAt    DateTime   @default(now())
-  submission   Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
-  subject      Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  createdAt    DateTime              @default(now())
+  submission   Submission            @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  subject      Subject               @relation(fields: [subjectId], references: [id], onDelete: Restrict)
 
   @@unique([submissionId, subjectId])
   @@index([subjectId, rating])
@@ -335,15 +338,15 @@ model DifficultyRating {
 
 // One rescore run metadata.
 model RescoreEvent {
-  id        Int      @id @default(autoincrement())
+  id        Int             @id @default(autoincrement())
   examId    Int
   examType  ExamType
-  reason    String?  @db.Text
-  summary   String   @db.Text
+  reason    String?         @db.Text
+  summary   String          @db.Text
   createdBy Int
-  createdAt DateTime @default(now())
-  exam      Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  admin     User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  createdAt DateTime        @default(now())
+  exam      Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  admin     User            @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   details   RescoreDetail[]
 
   @@index([examId, createdAt])
@@ -351,7 +354,7 @@ model RescoreEvent {
 
 // Per-submission score deltas recorded for a rescore event.
 model RescoreDetail {
-  id             Int      @id @default(autoincrement())
+  id             Int          @id @default(autoincrement())
   rescoreEventId Int
   submissionId   Int
   userId         Int
@@ -362,8 +365,8 @@ model RescoreDetail {
   oldRank        Int?
   newRank        Int?
   scoreDelta     Float
-  isRead         Boolean  @default(false)
-  createdAt      DateTime @default(now())
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
   rescoreEvent   RescoreEvent @relation(fields: [rescoreEventId], references: [id], onDelete: Cascade)
   submission     Submission   @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -375,15 +378,15 @@ model RescoreDetail {
 
 // 1st~4th pass-cut release snapshots.
 model PassCutRelease {
-  id               Int      @id @default(autoincrement())
+  id               Int               @id @default(autoincrement())
   examId           Int
   releaseNumber    Int
-  releasedAt       DateTime @default(now())
+  releasedAt       DateTime          @default(now())
   participantCount Int
   createdBy        Int
-  memo             String?  @db.Text
-  exam             Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
-  admin            User     @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  memo             String?           @db.Text
+  exam             Exam              @relation(fields: [examId], references: [id], onDelete: Cascade)
+  admin            User              @relation(fields: [createdBy], references: [id], onDelete: Restrict)
   snapshots        PassCutSnapshot[]
 
   @@unique([examId, releaseNumber])
@@ -392,25 +395,25 @@ model PassCutRelease {
 
 // Region + examType row captured at release time.
 model PassCutSnapshot {
-  id                  Int      @id @default(autoincrement())
-  passCutReleaseId    Int
-  regionId            Int
-  examType            ExamType
-  status              PassCutSnapshotStatus @default(READY)
-  statusReason        String?  @db.Text
-  applicantCount      Int?
+  id                     Int                   @id @default(autoincrement())
+  passCutReleaseId       Int
+  regionId               Int
+  examType               ExamType
+  status                 PassCutSnapshotStatus @default(READY)
+  statusReason           String?               @db.Text
+  applicantCount         Int?
   targetParticipantCount Int?
-  coverageRate        Float?
-  stabilityScore      Float?
-  participantCount    Int
-  recruitCount        Int
-  averageScore        Float?
-  oneMultipleCutScore Float?
-  sureMinScore        Float?
-  likelyMinScore      Float?
-  possibleMinScore    Float?
-  passCutRelease      PassCutRelease @relation(fields: [passCutReleaseId], references: [id], onDelete: Cascade)
-  region              Region         @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  coverageRate           Float?
+  stabilityScore         Float?
+  participantCount       Int
+  recruitCount           Int
+  averageScore           Float?
+  oneMultipleCutScore    Float?
+  sureMinScore           Float?
+  likelyMinScore         Float?
+  possibleMinScore       Float?
+  passCutRelease         PassCutRelease        @relation(fields: [passCutReleaseId], references: [id], onDelete: Cascade)
+  region                 Region                @relation(fields: [regionId], references: [id], onDelete: Restrict)
 
   @@unique([passCutReleaseId, regionId, examType])
   @@index([passCutReleaseId])
@@ -418,20 +421,21 @@ model PassCutSnapshot {
 
 // Reserved for post-written/final prediction phase.
 model FinalPrediction {
-  id             Int      @id @default(autoincrement())
-  submissionId   Int      @unique
+  id             Int        @id @default(autoincrement())
+  submissionId   Int        @unique
   userId         Int
   fitnessScore   Float?
   interviewScore Float?
   interviewGrade String?
   finalScore     Float?
   finalRank      Int?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
   submission     Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([interviewGrade, finalScore])
 }
 
 // 제출/수정 감사 로그
@@ -439,10 +443,10 @@ model SubmissionLog {
   id               Int        @id @default(autoincrement())
   submissionId     Int
   userId           Int
-  action           String     // "CREATE" | "UPDATE"
+  action           String // "CREATE" | "UPDATE"
   ipAddress        String?
   submitDurationMs Int?
-  changedFields    String?    @db.Text  // JSON: 변경된 필드 목록
+  changedFields    String?    @db.Text // JSON: 변경된 필드 목록
   createdAt        DateTime   @default(now())
   submission       Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -452,27 +456,27 @@ model SubmissionLog {
 }
 
 model PasswordResetToken {
-  id               Int      @id @default(autoincrement())
-  userId           Int
-  tokenHash        String   @unique
-  expiresAt        DateTime
-  usedAt           DateTime?
-  requestedIp      String?
-  requestedAgent   String?
-  createdAt        DateTime @default(now())
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  tokenHash      String    @unique
+  expiresAt      DateTime
+  usedAt         DateTime?
+  requestedIp    String?
+  requestedAgent String?
+  createdAt      DateTime  @default(now())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt])
   @@index([expiresAt])
 }
 
 model RecoveryCode {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   userId    Int
   codeHash  String
   usedAt    DateTime?
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, usedAt])
   @@index([codeHash])
@@ -480,14 +484,28 @@ model RecoveryCode {
 
 model VisitorLog {
   id          Int      @id @default(autoincrement())
-  date        DateTime @db.Date          // 방문 날짜 (시간 제외)
-  userId      Int?                       // 로그인 사용자 ID (비회원은 null)
-  anonymousId String?  @db.VarChar(36)  // 비회원 UUID (로그인 사용자는 null)
+  date        DateTime @db.Date // 방문 날짜 (시간 제외)
+  userId      Int? // 로그인 사용자 ID (비회원은 null)
+  anonymousId String?  @db.VarChar(36) // 비회원 UUID (로그인 사용자는 null)
   createdAt   DateTime @default(now())
   user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([date, userId])        // 로그인 사용자: 하루 1회
-  @@unique([date, anonymousId])   // 비회원: 하루 1회
+  @@unique([date, userId]) // 로그인 사용자: 하루 1회
+  @@unique([date, anonymousId]) // 비회원: 하루 1회
   @@index([date])
   @@map("visitor_logs")
+}
+
+model AuthRateLimitBucket {
+  id              Int      @id @default(autoincrement())
+  namespace       String
+  key             String
+  count           Int      @default(0)
+  windowStartedAt DateTime
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([namespace, key])
+  @@index([expiresAt])
 }

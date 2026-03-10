@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { PredictionError, calculatePrediction } from "@/lib/prediction";
+import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 
 export const runtime = "nodejs";
 
@@ -18,12 +19,15 @@ function parsePositiveInteger(value: string | null): number | undefined {
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
 
-  const userId = Number(session.user.id);
-  if (!Number.isInteger(userId) || userId < 1) {
+  let viewer;
+  try {
+    viewer = await getVerifiedSessionUser(session);
+  } catch (error) {
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
@@ -31,14 +35,18 @@ export async function GET(request: NextRequest) {
   const submissionId = parsePositiveInteger(searchParams.get("submissionId"));
   const page = parsePositiveInteger(searchParams.get("page"));
   const limit = parsePositiveInteger(searchParams.get("limit"));
-  const role = session.user.role === "ADMIN" ? "ADMIN" : "USER";
+  const role = isVerifiedAdmin(viewer) ? "ADMIN" : "USER";
 
   try {
-    const result = await calculatePrediction(userId, {
-      submissionId,
-      page,
-      limit,
-    }, role);
+    const result = await calculatePrediction(
+      viewer.id,
+      {
+        submissionId,
+        page,
+        limit,
+      },
+      role
+    );
 
     return NextResponse.json(result);
   } catch (error) {

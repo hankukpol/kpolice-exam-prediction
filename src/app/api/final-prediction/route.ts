@@ -2,9 +2,9 @@ import { ExamType } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
-import { parsePositiveInt } from "@/lib/exam-utils";
-import { calculateFinalRankingDetails, calculateKnownFinalRank, calculateKnownFinalScore, roundScore } from "@/lib/final-prediction";
+import { calculateFinalRankingDetails, calculateKnownFinalScore, roundScore } from "@/lib/final-prediction";
 import { prisma } from "@/lib/prisma";
+import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
@@ -33,6 +33,19 @@ const submissionSelect = {
   examNumber: true,
   bonusRate: true,
 } as const;
+
+function parsePositiveInt(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isInteger(value) && value > 0 ? value : null;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  return null;
+}
 
 function parseBoolean(value: unknown): boolean | null {
   if (typeof value === "boolean") {
@@ -71,14 +84,24 @@ function examTypeLabel(examType: ExamType): string {
   return examType === ExamType.CAREER ? "경행경채" : "공채";
 }
 
+function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 7) {
+    return digits ? `${digits.slice(0, 2)}${"*".repeat(Math.max(digits.length - 2, 0))}` : "";
+  }
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-***-${digits.slice(-4)}`;
+  }
+  return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
+}
+
 function isMockSubmissionExamNumber(value: string): boolean {
   return value.startsWith(MOCK_EXAM_NUMBER_PREFIX);
 }
 
 async function ensureFinalPredictionEnabled() {
   const settings = await getSiteSettingsUncached();
-  const enabled = Boolean(settings["site.finalPredictionEnabled"] ?? false);
-  return enabled;
+  return Boolean(settings["site.finalPredictionEnabled"] ?? false);
 }
 
 async function buildAdminPreviewCandidates(): Promise<AdminPreviewCandidate[]> {
@@ -115,7 +138,6 @@ async function buildAdminPreviewCandidates(): Promise<AdminPreviewCandidate[]> {
           select: {
             year: true,
             round: true,
-            name: true,
           },
         },
       },
@@ -127,7 +149,7 @@ async function buildAdminPreviewCandidates(): Promise<AdminPreviewCandidate[]> {
 
   return targetRows.map((row) => ({
     submissionId: row.id,
-    label: `#${row.id} | ${row.exam.year}-${row.exam.round} ${examTypeLabel(row.examType)} | ${row.region.name} | ${row.user.name}(${row.user.phone}) | ${row.examNumber}`,
+    label: `#${row.id} | ${row.exam.year}-${row.exam.round} ${examTypeLabel(row.examType)} | ${row.region.name} | ${row.user.name}(${maskPhone(row.user.phone)}) | ${row.examNumber}`,
   }));
 }
 
@@ -173,23 +195,24 @@ async function findTargetSubmission(params: {
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
 
-  if (!(await ensureFinalPredictionEnabled())) {
-    return NextResponse.json(
-      { error: "최종 환산 예측 기능은 준비 중입니다. 관리자 오픈 후 이용 가능합니다." },
-      { status: 403 }
-    );
-  }
+  let viewer;
+  try {
+    viewer = await getVerifiedSessionUser(session);
+  } catch (error) {
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
 
-  const userId = parsePositiveInt(session.user.id);
-  if (!userId) {
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
-  const isAdmin = session.user.role === "ADMIN";
+  if (!(await ensureFinalPredictionEnabled())) {
+    return NextResponse.json({ error: "최종 예측 기능이 아직 열리지 않았습니다." }, { status: 403 });
+  }
+
+  const userId = viewer.id;
+  const isAdmin = isVerifiedAdmin(viewer);
   const adminPreviewCandidates = isAdmin ? await buildAdminPreviewCandidates() : [];
 
   const { searchParams } = new URL(request.url);
@@ -214,14 +237,11 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: "최종 환산 예측을 조회할 제출 데이터가 없습니다." }, { status: 404 });
+    return NextResponse.json({ error: "최종 예측을 조회할 제출 데이터가 없습니다." }, { status: 404 });
   }
 
   if (isAdmin && !isMockSubmissionExamNumber(submission.examNumber)) {
-    return NextResponse.json(
-      { error: "관리자 미리보기는 MOCK 제출 데이터에서만 지원됩니다." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "관리자 미리보기는 MOCK 제출 데이터만 지원합니다." }, { status: 400 });
   }
 
   const saved = await prisma.finalPrediction.findUnique({
@@ -238,8 +258,6 @@ export async function GET(request: NextRequest) {
 
   const fitnessPassed = saved?.interviewGrade === "PASS";
   const writtenScore = Number(submission.finalScore);
-
-  // interviewScore에 무도 단수가 저장됨 (용도 변경)
   const martialDanLevel =
     saved?.interviewScore === null || saved?.interviewScore === undefined ? 0 : Number(saved.interviewScore);
 
@@ -250,16 +268,6 @@ export async function GET(request: NextRequest) {
     bonusRate: Number(submission.bonusRate),
   });
 
-  const rankInfo =
-    saved?.finalScore === null || saved?.finalScore === undefined || !fitnessPassed
-      ? { finalRank: null as number | null, totalParticipants: 0 }
-      : await calculateKnownFinalRank({
-          examId: submission.examId,
-          regionId: submission.regionId,
-          examType: submission.examType,
-          submissionId: submission.id,
-        });
-
   const ranking =
     saved?.finalScore !== null && saved?.finalScore !== undefined && fitnessPassed
       ? await calculateFinalRankingDetails({
@@ -269,6 +277,11 @@ export async function GET(request: NextRequest) {
           submissionId: submission.id,
         })
       : null;
+
+  const rankInfo = {
+    finalRank: ranking?.finalRank ?? null,
+    totalParticipants: ranking?.totalParticipants ?? 0,
+  };
 
   return NextResponse.json({
     isAdminPreview: isAdmin,
@@ -291,29 +304,30 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
 
-  if (!(await ensureFinalPredictionEnabled())) {
-    return NextResponse.json(
-      { error: "최종 환산 예측 기능은 준비 중입니다. 관리자 오픈 후 이용 가능합니다." },
-      { status: 403 }
-    );
-  }
+  let viewer;
+  try {
+    viewer = await getVerifiedSessionUser(session);
+  } catch (error) {
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
 
-  const userId = parsePositiveInt(session.user.id);
-  if (!userId) {
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
-  const isAdmin = session.user.role === "ADMIN";
+  if (!(await ensureFinalPredictionEnabled())) {
+    return NextResponse.json({ error: "최종 예측 기능이 아직 열리지 않았습니다." }, { status: 403 });
+  }
+
+  const userId = viewer.id;
+  const isAdmin = isVerifiedAdmin(viewer);
 
   let body: FinalPredictionRequestBody;
   try {
     body = (await request.json()) as FinalPredictionRequestBody;
   } catch {
-    return NextResponse.json({ error: "요청 본문(JSON) 형식이 올바르지 않습니다." }, { status: 400 });
+    return NextResponse.json({ error: "요청 본문(JSON)이 올바르지 않습니다." }, { status: 400 });
   }
 
   const submissionId = parsePositiveInt(body.submissionId);
@@ -323,12 +337,12 @@ export async function POST(request: NextRequest) {
 
   const fitnessPassed = parseBoolean(body.fitnessPassed);
   if (fitnessPassed === null) {
-    return NextResponse.json({ error: "체력 통과 여부(fitnessPassed)를 true/false로 전달해 주세요." }, { status: 400 });
+    return NextResponse.json({ error: "fitnessPassed는 true 또는 false여야 합니다." }, { status: 400 });
   }
 
   const martialDanLevel = parseDanLevel(body.martialDanLevel);
   if (martialDanLevel === null) {
-    return NextResponse.json({ error: "무도 단수는 0~20 사이의 정수여야 합니다." }, { status: 400 });
+    return NextResponse.json({ error: "무도 단수는 0부터 20 사이의 정수여야 합니다." }, { status: 400 });
   }
 
   const submission = await prisma.submission.findFirst({
@@ -361,7 +375,7 @@ export async function POST(request: NextRequest) {
     update: {
       userId: submission.userId,
       fitnessScore: calculated.martialBonusPoint,
-      interviewScore: martialDanLevel, // 무도 단수 저장 (용도 변경)
+      interviewScore: martialDanLevel,
       interviewGrade: fitnessPassed ? "PASS" : "FAIL",
       finalScore: calculated.score75,
     },
@@ -369,24 +383,10 @@ export async function POST(request: NextRequest) {
       submissionId: submission.id,
       userId: submission.userId,
       fitnessScore: calculated.martialBonusPoint,
-      interviewScore: martialDanLevel, // 무도 단수 저장 (용도 변경)
+      interviewScore: martialDanLevel,
       interviewGrade: fitnessPassed ? "PASS" : "FAIL",
       finalScore: calculated.score75,
     },
-  });
-
-  const rankInfo = fitnessPassed
-    ? await calculateKnownFinalRank({
-        examId: submission.examId,
-        regionId: submission.regionId,
-        examType: submission.examType,
-        submissionId: submission.id,
-      })
-    : { finalRank: null as number | null, totalParticipants: 0 };
-
-  await prisma.finalPrediction.update({
-    where: { submissionId: submission.id },
-    data: { finalRank: rankInfo.finalRank },
   });
 
   const ranking = fitnessPassed
@@ -397,6 +397,16 @@ export async function POST(request: NextRequest) {
         submissionId: submission.id,
       })
     : null;
+
+  const rankInfo = {
+    finalRank: ranking?.finalRank ?? null,
+    totalParticipants: ranking?.totalParticipants ?? 0,
+  };
+
+  await prisma.finalPrediction.update({
+    where: { submissionId: submission.id },
+    data: { finalRank: rankInfo.finalRank },
+  });
 
   return NextResponse.json({
     success: true,

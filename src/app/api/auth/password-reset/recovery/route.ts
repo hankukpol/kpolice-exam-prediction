@@ -20,9 +20,15 @@ export async function POST(request: Request) {
             ? body.recoveryCode
             : "",
       password: typeof body.password === "string" ? body.password : "",
-    });
+    }, request);
 
-    return NextResponse.json(result.body, { status: result.status });
+    return NextResponse.json(result.body, {
+      status: result.status,
+      headers:
+        result.status === 429 && result.body.retryAfterSec
+          ? { "Retry-After": String(result.body.retryAfterSec) }
+          : undefined,
+    });
   } catch {
     return NextResponse.json({ error: MSG.error }, { status: 500 });
   }

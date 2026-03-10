@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { hasAdminIpAllowlist, isAdminIpAllowed } from "@/lib/admin-ip";
 
 const publicAuthPaths = new Set([
   "/login",
@@ -36,7 +37,12 @@ function isProtectedPath(pathname: string): boolean {
 }
 
 function isAdminPath(pathname: string): boolean {
-  return pathname.startsWith("/admin") || pathname.startsWith("/api/admin") || pathname.startsWith("/exam/admin");
+  return (
+    pathname.startsWith("/admin") ||
+    pathname === "/admin-login" ||
+    pathname.startsWith("/api/admin") ||
+    pathname.startsWith("/exam/admin")
+  );
 }
 
 function isMaintenanceBypassPath(pathname: string): boolean {
@@ -71,6 +77,14 @@ async function getMaintenanceMode(request: NextRequest): Promise<boolean> {
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+
+  if (isAdminPath(pathname) && hasAdminIpAllowlist() && !isAdminIpAllowed(request)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "허용되지 않은 관리자 접근 IP입니다." }, { status: 403 });
+    }
+
+    return new NextResponse("Not Found", { status: 404 });
+  }
 
   if (pathname === "/admin/login") {
     return NextResponse.rewrite(new URL("/admin-login", request.url));

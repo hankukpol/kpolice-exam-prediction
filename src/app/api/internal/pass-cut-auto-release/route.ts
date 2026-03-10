@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { runAutoPassCutRelease } from "@/lib/pass-cut-auto-release";
 
@@ -35,7 +36,15 @@ function isAuthorized(request: NextRequest): boolean {
   const receivedSecret = customHeaderSecret ?? bearerSecret;
   if (!expectedSecret) return false;
   if (!receivedSecret) return false;
-  return receivedSecret === expectedSecret;
+  // timingSafeEqual로 타이밍 공격 방지 (단순 === 비교는 길이 정보가 노출될 수 있음)
+  try {
+    const a = Buffer.from(expectedSecret, "utf8");
+    const b = Buffer.from(receivedSecret, "utf8");
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 async function runCronTrigger(request: NextRequest, body: Record<string, unknown>) {

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { calculatePrediction } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
+import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 
 export const runtime = "nodejs";
 
@@ -44,16 +45,20 @@ function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
 
-  const userId = Number(session.user.id);
-  const isAdmin = ((session.user.role as Role | undefined) ?? Role.USER) === Role.ADMIN;
-  if (!Number.isInteger(userId) || userId <= 0) {
+  let viewer;
+  try {
+    viewer = await getVerifiedSessionUser(session);
+  } catch (error) {
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
+  const userId = viewer.id;
+  const isAdmin = isVerifiedAdmin(viewer);
   const { searchParams } = new URL(request.url);
   const submissionId = parsePositiveInt(searchParams.get("submissionId"));
 

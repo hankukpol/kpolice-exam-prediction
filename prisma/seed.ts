@@ -137,8 +137,19 @@ const faqSamples = [
 ];
 
 async function main() {
-  const adminPhone = process.env.ADMIN_PHONE ?? "010-0000-0000";
-  const adminPassword = process.env.ADMIN_PASSWORD ?? "admin1234!";
+  const adminPhone = process.env.ADMIN_PHONE;
+  const adminPassword = process.env.ADMIN_PASSWORD;
+
+  if (!adminPhone || !adminPassword) {
+    throw new Error(
+      "[seed] ADMIN_PHONE 또는 ADMIN_PASSWORD 환경변수가 설정되지 않았습니다. .env.local을 확인하세요."
+    );
+  }
+
+  if (adminPassword.length < 10) {
+    throw new Error("[seed] ADMIN_PASSWORD는 10자 이상이어야 합니다.");
+  }
+
   const hashedPassword = await bcrypt.hash(adminPassword, 12);
 
   await prisma.user.upsert({

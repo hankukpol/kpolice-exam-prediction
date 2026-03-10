@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { calculatePrediction, maskKoreanName, PredictionError } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
+import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 
 export const runtime = "nodejs";
 
@@ -19,12 +20,15 @@ function toSafeNumber(value: number): number {
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
 
-  const userId = Number(session.user.id);
-  if (!Number.isInteger(userId) || userId < 1) {
+  let viewer;
+  try {
+    viewer = await getVerifiedSessionUser(session);
+  } catch (error) {
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
@@ -34,10 +38,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "조회할 제출 ID가 필요합니다." }, { status: 400 });
   }
 
-  const requesterRole = session.user.role === "ADMIN" ? Role.ADMIN : Role.USER;
+  const requesterRole = isVerifiedAdmin(viewer) ? Role.ADMIN : Role.USER;
 
   try {
-    const prediction = await calculatePrediction(userId, {}, requesterRole);
+    const prediction = await calculatePrediction(viewer.id, {}, requesterRole);
 
     const populationWhere = {
       examId: prediction.summary.examId,
@@ -84,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     if (!target) {
       return NextResponse.json(
-        { error: "동일 지역/유형 경쟁자 데이터만 조회할 수 있습니다." },
+        { error: "동일 지역/유형의 경쟁자 데이터만 조회할 수 있습니다." },
         { status: 404 }
       );
     }
@@ -105,7 +109,7 @@ export async function GET(request: NextRequest) {
       competitor: {
         submissionId: target.id,
         rank: higherCount + 1,
-        maskedName: isMine ? "★ 나" : maskKoreanName(target.user.name),
+        maskedName: isMine ? "본인" : maskKoreanName(target.user.name),
         score,
         isMine,
         totalParticipants: prediction.summary.totalParticipants,
@@ -132,6 +136,6 @@ export async function GET(request: NextRequest) {
     }
 
     console.error("GET /api/prediction/competitor error", error);
-    return NextResponse.json({ error: "세부 성적 조회에 실패했습니다." }, { status: 500 });
+    return NextResponse.json({ error: "경쟁자 성적 조회에 실패했습니다." }, { status: 500 });
   }
 }

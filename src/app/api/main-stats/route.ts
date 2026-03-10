@@ -1,5 +1,6 @@
 import { ExamType, Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
+import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { getDifficultyStats } from "@/lib/difficulty";
@@ -90,6 +91,40 @@ interface MainSectionVisibility {
   difficulty: boolean;
   competitive: boolean;
   scoreDistribution: boolean;
+}
+
+type MainStatsDifficulty = Awaited<ReturnType<typeof getDifficultyStats>>;
+
+interface MainStatsAggregateSnapshot {
+  totalParticipants: number;
+  examTypeStats: Array<{ examType: ExamType; count: number }>;
+  recentParticipants: number;
+  latestSubmissionAt: string | null;
+  difficulty: MainStatsDifficulty;
+  quotas: QuotaRow[];
+  participantStats: Array<{
+    regionId: number;
+    examType: ExamType;
+    participantCount: number;
+    averageFinalScore: number | null;
+  }>;
+  scoreBandStats: ScoreBandRow[];
+  totalScoreDistributionRaw: Array<{
+    examType: ExamType;
+    totalScore: number;
+    count: number;
+  }>;
+  subjectScoreDistributionRaw: Array<{
+    subjectId: number;
+    rawScore: number;
+    count: number;
+  }>;
+  subjects: Array<{
+    id: number;
+    name: string;
+    examType: ExamType;
+    maxScore: number;
+  }>;
 }
 
 function toSafePositiveInt(value: unknown, fallbackValue: number): number {
@@ -405,6 +440,177 @@ async function getQuotasForExam(examId: number): Promise<QuotaRow[]> {
   }
 }
 
+const getCachedMainStatsAggregate = unstable_cache(
+  async (examId: number): Promise<MainStatsAggregateSnapshot> => {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const populationWhere: Prisma.SubmissionWhereInput = {
+      examId,
+      isSuspicious: false,
+      subjectScores: {
+        some: {},
+        none: {
+          isFailed: true,
+        },
+      },
+    };
+    const allParticipantCountWhere: Prisma.SubmissionWhereInput = {
+      examId,
+      isSuspicious: false,
+      subjectScores: { some: {} },
+    };
+
+    const [
+      totalParticipants,
+      examTypeStats,
+      recentParticipants,
+      latestSubmission,
+      difficulty,
+      quotas,
+      participantStats,
+      allParticipantCountStats,
+      scoreBandStats,
+      totalScoreDistributionRaw,
+      subjectScoreDistributionRaw,
+      subjects,
+    ] = await Promise.all([
+      prisma.submission.count({
+        where: { examId },
+      }),
+      prisma.submission.groupBy({
+        by: ["examType"],
+        where: { examId },
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.submission.count({
+        where: {
+          examId,
+          createdAt: { gte: oneHourAgo },
+        },
+      }),
+      prisma.submission.findFirst({
+        where: { examId },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true },
+      }),
+      getDifficultyStats(examId),
+      getQuotasForExam(examId),
+      prisma.submission.groupBy({
+        by: ["regionId", "examType"],
+        where: populationWhere,
+        _count: {
+          _all: true,
+        },
+        _avg: {
+          finalScore: true,
+        },
+      }),
+      prisma.submission.groupBy({
+        by: ["regionId", "examType"],
+        where: allParticipantCountWhere,
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.submission.groupBy({
+        by: ["regionId", "examType", "finalScore"],
+        where: populationWhere,
+        _count: {
+          _all: true,
+        },
+        orderBy: [{ regionId: "asc" }, { examType: "asc" }, { finalScore: "desc" }],
+      }),
+      prisma.submission.groupBy({
+        by: ["examType", "totalScore"],
+        where: {
+          examId,
+          isSuspicious: false,
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.subjectScore.groupBy({
+        by: ["subjectId", "rawScore"],
+        where: {
+          submission: {
+            examId,
+            isSuspicious: false,
+          },
+        },
+        _count: {
+          _all: true,
+        },
+      }),
+      prisma.subject.findMany({
+        select: {
+          id: true,
+          name: true,
+          examType: true,
+          maxScore: true,
+        },
+      }),
+    ]);
+
+    const avgScoreMap = new Map(
+      participantStats.map((item) => [
+        `${item.regionId}-${item.examType}`,
+        item._avg.finalScore === null ? null : roundNumber(Number(item._avg.finalScore)),
+      ])
+    );
+
+    return {
+      totalParticipants,
+      examTypeStats: examTypeStats.map((item) => ({
+        examType: item.examType,
+        count: item._count._all,
+      })),
+      recentParticipants,
+      latestSubmissionAt: latestSubmission?.createdAt?.toISOString() ?? null,
+      difficulty,
+      quotas,
+      participantStats: allParticipantCountStats.map((item) => {
+        const key = `${item.regionId}-${item.examType}`;
+        return {
+          regionId: item.regionId,
+          examType: item.examType,
+          participantCount: item._count._all,
+          averageFinalScore: avgScoreMap.get(key) ?? null,
+        };
+      }),
+      scoreBandStats: scoreBandStats.map((row) => ({
+        regionId: row.regionId,
+        examType: row.examType,
+        finalScore: Number(row.finalScore),
+        _count: {
+          _all: row._count._all,
+        },
+      })),
+      totalScoreDistributionRaw: totalScoreDistributionRaw.map((row) => ({
+        examType: row.examType,
+        totalScore: Number(row.totalScore),
+        count: row._count._all,
+      })),
+      subjectScoreDistributionRaw: subjectScoreDistributionRaw.map((row) => ({
+        subjectId: row.subjectId,
+        rawScore: Number(row.rawScore),
+        count: row._count._all,
+      })),
+      subjects: subjects.map((subject) => ({
+        id: subject.id,
+        name: subject.name,
+        examType: subject.examType,
+        maxScore: Number(subject.maxScore),
+      })),
+    };
+  },
+  ["main-stats-aggregate"],
+  {
+    revalidate: 20,
+  }
+);
+
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
@@ -460,77 +666,53 @@ export async function GET() {
       });
     }
 
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-
-    const [totalParticipants, examTypeStats, recentParticipants, latestSubmission, difficulty, quotas, mySubmissions] =
-      await Promise.all([
-        prisma.submission.count({
-          where: { examId: activeExam.id },
-        }),
-        prisma.submission.groupBy({
-          by: ["examType"],
-          where: { examId: activeExam.id },
-          _count: {
-            _all: true,
-          },
-        }),
-        prisma.submission.count({
-          where: {
-            examId: activeExam.id,
-            createdAt: { gte: oneHourAgo },
-          },
-        }),
-        prisma.submission.findFirst({
-          where: { examId: activeExam.id },
-          orderBy: { createdAt: "desc" },
-          select: { createdAt: true },
-        }),
-        getDifficultyStats(activeExam.id),
-        getQuotasForExam(activeExam.id),
-        Number.isInteger(userId) && userId > 0
-          ? prisma.submission.findMany({
-              where: {
-                examId: activeExam.id,
-                userId,
-              },
-              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-              select: {
-                examType: true,
-                totalScore: true,
-                subjectScores: {
-                  select: {
-                    isFailed: true,
-                    rawScore: true,
-                    subject: {
-                      select: {
-                        name: true,
-                      },
+    const [aggregate, mySubmissions] = await Promise.all([
+      getCachedMainStatsAggregate(activeExam.id),
+      Number.isInteger(userId) && userId > 0
+        ? prisma.submission.findMany({
+            where: {
+              examId: activeExam.id,
+              userId,
+            },
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            select: {
+              examType: true,
+              totalScore: true,
+              subjectScores: {
+                select: {
+                  isFailed: true,
+                  rawScore: true,
+                  subject: {
+                    select: {
+                      name: true,
                     },
                   },
                 },
               },
-            })
-          : Promise.resolve([]),
-      ]);
+            },
+          })
+        : Promise.resolve([]),
+    ]);
 
     const publicParticipants =
-      examTypeStats.find((item) => item.examType === ExamType.PUBLIC)?._count._all ?? 0;
+      aggregate.examTypeStats.find((item) => item.examType === ExamType.PUBLIC)?.count ?? 0;
     const careerParticipants = careerExamEnabled
-      ? examTypeStats.find((item) => item.examType === ExamType.CAREER)?._count._all ?? 0
+      ? aggregate.examTypeStats.find((item) => item.examType === ExamType.CAREER)?.count ?? 0
       : 0;
 
     const liveStats = {
       examName: activeExam.name,
       examYear: activeExam.year,
       examRound: activeExam.round,
-      totalParticipants,
+      totalParticipants: aggregate.totalParticipants,
       publicParticipants,
       careerParticipants,
-      recentParticipants,
-      updatedAt: latestSubmission?.createdAt?.toISOString() ?? null,
+      recentParticipants: aggregate.recentParticipants,
+      updatedAt: aggregate.latestSubmissionAt,
     };
 
     // 평균점수 산출용: 과락자 제외
+    /*
     const populationWhere: Prisma.SubmissionWhereInput = {
       examId: activeExam.id,
       isSuspicious: false,
@@ -647,9 +829,29 @@ export async function GET() {
       scoreBandMap.set(key, current);
     }
 
+    */
+
+    const participantMap = new Map(
+      aggregate.participantStats.map((item) => [
+        `${item.regionId}-${item.examType}`,
+        {
+          participantCount: item.participantCount,
+          averageFinalScore: item.averageFinalScore,
+        },
+      ])
+    );
+
+    const scoreBandMap = new Map<string, ScoreBandRow[]>();
+    for (const row of aggregate.scoreBandStats) {
+      const key = `${row.regionId}-${row.examType}`;
+      const current = scoreBandMap.get(key) ?? [];
+      current.push(row);
+      scoreBandMap.set(key, current);
+    }
+
     const rows: MainStatsRow[] = [];
 
-    for (const quota of quotas) {
+    for (const quota of aggregate.quotas) {
       for (const examType of enabledExamTypes) {
         const recruitCount = getQuotaRecruitCount(quota, examType);
         if (recruitCount < 1) {
@@ -728,22 +930,9 @@ export async function GET() {
 
     const scoreDistributions = buildScoreDistributions({
       enabledExamTypes,
-      subjects: subjects.map((subject) => ({
-        id: subject.id,
-        name: subject.name,
-        examType: subject.examType,
-        maxScore: Number(subject.maxScore),
-      })),
-      totalScoreRows: totalScoreDistributionRaw.map((row) => ({
-        examType: row.examType,
-        totalScore: Number(row.totalScore),
-        count: row._count._all,
-      })),
-      subjectScoreRows: subjectScoreDistributionRaw.map((row) => ({
-        subjectId: row.subjectId,
-        rawScore: Number(row.rawScore),
-        count: row._count._all,
-      })),
+      subjects: aggregate.subjects,
+      totalScoreRows: aggregate.totalScoreDistributionRaw,
+      subjectScoreRows: aggregate.subjectScoreDistributionRaw,
       myScoresByExamType,
     });
 
@@ -780,7 +969,7 @@ export async function GET() {
         liveStats,
         sectionVisibility,
         notices,
-        difficulty,
+        difficulty: aggregate.difficulty,
         rows,
         topCompetitive,
         leastCompetitive,

@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import { authOptions } from "@/lib/auth";
+import { getVerifiedSessionUser, isVerifiedAdmin } from "@/lib/session-user";
 
 export default async function AdminLayout({
   children,
@@ -14,7 +15,8 @@ export default async function AdminLayout({
     redirect("/admin/login?callbackUrl=/admin");
   }
 
-  if (session.user.role !== "ADMIN") {
+  const verifiedUser = await getVerifiedSessionUser(session).catch(() => null);
+  if (!verifiedUser || !isVerifiedAdmin(verifiedUser)) {
     redirect("/admin/login?error=admin_only&callbackUrl=/admin");
   }
 

@@ -3,12 +3,13 @@ import type { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import type { NextAuthOptions, User } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { prisma } from "@/lib/prisma";
+import { isAdminMfaEnabled, verifyAdminTotp } from "@/lib/admin-mfa";
 import {
-  consumeFixedWindowRateLimit,
-  getFixedWindowRateLimitState,
-  resetFixedWindowRateLimit,
-} from "@/lib/rate-limit";
+  consumePersistentFixedWindowRateLimit,
+  getPersistentFixedWindowRateLimitState,
+  resetPersistentFixedWindowRateLimit,
+} from "@/lib/persistent-rate-limit";
+import { prisma } from "@/lib/prisma";
 import { getClientIp } from "@/lib/request-ip";
 import { normalizeUsername } from "@/lib/validations";
 
@@ -16,14 +17,26 @@ const INSECURE_SECRETS = new Set([
   "change-this-to-a-long-random-string",
   "secret",
   "nextauth-secret",
+  "nextauth_secret",
+  "dev-secret",
+  "admin",
+  "password",
   "",
 ]);
+
+// 짧거나 예측 가능한 패턴의 시크릿 감지
+function isInsecretSecret(value: string): boolean {
+  if (INSECURE_SECRETS.has(value)) return true;
+  // 32바이트(256bit) 미만은 보안 취약
+  if (value.length < 32) return true;
+  return false;
+}
 
 const nextAuthSecret = process.env.NEXTAUTH_SECRET ?? "";
 const isProduction = process.env.NODE_ENV === "production";
 const isNextBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
-if (!nextAuthSecret || INSECURE_SECRETS.has(nextAuthSecret)) {
+if (!nextAuthSecret || isInsecretSecret(nextAuthSecret)) {
   if (isProduction && !isNextBuildPhase) {
     throw new Error(
       "[auth] NEXTAUTH_SECRET\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uAC70\uB098 \uAE30\uBCF8\uAC12\uC785\uB2C8\uB2E4. \uD504\uB85C\uB355\uC158\uC5D0\uC11C\uB294 \uBC18\uB4DC\uC2DC \uC548\uC804\uD55C \uAC12\uC73C\uB85C \uBCC0\uACBD\uD574\uC57C \uD569\uB2C8\uB2E4."
@@ -40,6 +53,10 @@ const LOGIN_FAILURE_LIMIT = 5;
 const LOGIN_IP_WINDOW_MS = 60 * 1000;
 const LOGIN_IP_LIMIT = 20;
 
+// 관리자 로그인 전용 — 일반 로그인보다 4배 엄격 (관리자 계정 무차별 대입 방지)
+const ADMIN_LOGIN_IP_WINDOW_MS = 60 * 1000;
+const ADMIN_LOGIN_IP_LIMIT = 5;
+
 const LOGIN_USERNAME_FAILURE_NAMESPACE = "auth-login-username-failure";
 const LOGIN_USERNAME_LOCK_NAMESPACE = "auth-login-username-lock";
 
@@ -49,7 +66,7 @@ type AppUser = User & {
 };
 
 function getUsernameRateLimitState(username: string) {
-  return getFixedWindowRateLimitState({
+  return getPersistentFixedWindowRateLimitState({
     namespace: LOGIN_USERNAME_LOCK_NAMESPACE,
     key: username,
     limit: 1,
@@ -57,8 +74,8 @@ function getUsernameRateLimitState(username: string) {
   });
 }
 
-function recordLoginFailure(username: string) {
-  const failureState = consumeFixedWindowRateLimit({
+async function recordLoginFailure(username: string) {
+  const failureState = await consumePersistentFixedWindowRateLimit({
     namespace: LOGIN_USERNAME_FAILURE_NAMESPACE,
     key: username,
     limit: LOGIN_FAILURE_LIMIT,
@@ -66,7 +83,7 @@ function recordLoginFailure(username: string) {
   });
 
   if (!failureState.allowed || failureState.remaining === 0) {
-    consumeFixedWindowRateLimit({
+    await consumePersistentFixedWindowRateLimit({
       namespace: LOGIN_USERNAME_LOCK_NAMESPACE,
       key: username,
       limit: 1,
@@ -75,15 +92,32 @@ function recordLoginFailure(username: string) {
   }
 }
 
-function clearLoginFailures(username: string) {
-  resetFixedWindowRateLimit({ namespace: LOGIN_USERNAME_FAILURE_NAMESPACE, key: username });
-  resetFixedWindowRateLimit({ namespace: LOGIN_USERNAME_LOCK_NAMESPACE, key: username });
+async function clearLoginFailures(username: string) {
+  await Promise.all([
+    resetPersistentFixedWindowRateLimit({ namespace: LOGIN_USERNAME_FAILURE_NAMESPACE, key: username }),
+    resetPersistentFixedWindowRateLimit({ namespace: LOGIN_USERNAME_LOCK_NAMESPACE, key: username }),
+  ]);
 }
 
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
     maxAge: 60 * 60 * 24,
+  },
+  // 세션 쿠키 보안 명시 설정 (NextAuth 기본값에 의존하지 않고 명시적으로 강제)
+  cookies: {
+    sessionToken: {
+      // 운영 환경: __Secure- 접두사(HTTPS 전용 강제), 개발: 일반 이름
+      name: isProduction
+        ? "__Secure-next-auth.session-token"
+        : "next-auth.session-token",
+      options: {
+        httpOnly: true,    // JS에서 쿠키 접근 차단 (XSS 방어)
+        sameSite: "lax",   // CSRF 방어
+        path: "/",
+        secure: isProduction, // 운영에서만 HTTPS 전용
+      },
+    },
   },
   pages: {
     signIn: "/login",
@@ -105,14 +139,19 @@ export const authOptions: NextAuthOptions = {
           label: "\uAD00\uB9AC\uC790 \uC804\uC6A9",
           type: "text",
         },
+        adminOtp: {
+          label: "\uAD00\uB9AC\uC790 2\uCC28 \uC778\uC99D",
+          type: "text",
+        },
       },
       async authorize(credentials, request) {
         const username = normalizeUsername(credentials?.username ?? "");
         const password = credentials?.password?.trim() ?? "";
         const adminOnly = credentials?.adminOnly === "true";
+        const adminOtp = credentials?.adminOtp?.trim() ?? "";
         const clientIp = getClientIp(request);
 
-        const ipRateLimit = consumeFixedWindowRateLimit({
+        const ipRateLimit = await consumePersistentFixedWindowRateLimit({
           namespace: "auth-login-ip",
           key: clientIp,
           limit: LOGIN_IP_LIMIT,
@@ -122,33 +161,51 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
+        // 관리자 로그인 시도는 별도 엄격한 IP 레이트리밋 적용
+        if (adminOnly) {
+          const adminIpRateLimit = await consumePersistentFixedWindowRateLimit({
+            namespace: "auth-admin-login-ip",
+            key: clientIp,
+            limit: ADMIN_LOGIN_IP_LIMIT,
+            windowMs: ADMIN_LOGIN_IP_WINDOW_MS,
+          });
+          if (!adminIpRateLimit.allowed) {
+            return null;
+          }
+        }
+
         if (!username || !password) {
           return null;
         }
 
-        const usernameRateLimit = getUsernameRateLimitState(username);
+        const usernameRateLimit = await getUsernameRateLimitState(username);
         if (!usernameRateLimit.allowed) {
           return null;
         }
 
         const user = await prisma.user.findUnique({ where: { phone: username } });
         if (!user) {
-          recordLoginFailure(username);
+          await recordLoginFailure(username);
           return null;
         }
 
         if (adminOnly && user.role !== "ADMIN") {
-          recordLoginFailure(username);
+          await recordLoginFailure(username);
           return null;
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
-          recordLoginFailure(username);
+          await recordLoginFailure(username);
           return null;
         }
 
-        clearLoginFailures(username);
+        if (user.role === "ADMIN" && isAdminMfaEnabled() && !verifyAdminTotp(adminOtp)) {
+          await recordLoginFailure(username);
+          return null;
+        }
+
+        await clearLoginFailures(username);
 
         return {
           id: String(user.id),

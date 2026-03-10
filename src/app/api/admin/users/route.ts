@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
@@ -45,9 +46,40 @@ function parseResetPasswordFlag(value: unknown): boolean | null {
   return null;
 }
 
-function buildTempPassword(username: string): string {
-  const suffix = username.replace(/[^A-Za-z0-9]/g, "").slice(-4).padStart(4, "0");
-  return `Temp!${suffix}a`;
+function pickFrom(charset: string, length: number): string {
+  const bytes = randomBytes(length);
+  let out = "";
+  for (const byte of bytes) {
+    out += charset[byte % charset.length];
+  }
+  return out;
+}
+
+function shuffle(value: string): string {
+  const items = value.split("");
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const next = randomBytes(1)[0] % (i + 1);
+    [items[i], items[next]] = [items[next], items[i]];
+  }
+  return items.join("");
+}
+
+function buildTempPassword(): string {
+  const lower = "abcdefghjkmnpqrstuvwxyz";
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const special = "!@#$%^&*";
+  const all = `${lower}${upper}${digits}${special}`;
+
+  const raw = [
+    pickFrom(lower, 3),
+    pickFrom(upper, 3),
+    pickFrom(digits, 3),
+    pickFrom(special, 3),
+    pickFrom(all, 4),
+  ].join("");
+
+  return shuffle(raw);
 }
 
 export async function GET(request: NextRequest) {
@@ -175,7 +207,7 @@ export async function PUT(request: NextRequest) {
     }
 
     if (resetPassword) {
-      tempPassword = buildTempPassword(user.phone);
+      tempPassword = buildTempPassword();
       updateData.password = await bcrypt.hash(tempPassword, 12);
     }
 

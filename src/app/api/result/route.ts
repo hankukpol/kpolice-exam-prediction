@@ -1,4 +1,4 @@
-import { ExamType, Prisma, Role } from "@prisma/client";
+import { ExamType, Prisma } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
@@ -6,6 +6,7 @@ import { getCorrectRateRows } from "@/lib/correct-rate";
 import { parsePositiveInt } from "@/lib/exam-utils";
 import { SUBJECT_CUTOFF_RATE } from "@/lib/policy";
 import { prisma } from "@/lib/prisma";
+import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 
 export const runtime = "nodejs";
@@ -107,23 +108,26 @@ function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-  }
 
-  const userId = Number(session.user.id);
-  const isAdmin = ((session.user.role as Role | undefined) ?? Role.USER) === Role.ADMIN;
-  if (!Number.isInteger(userId) || userId <= 0) {
+  let viewer;
+  try {
+    viewer = await getVerifiedSessionUser(session);
+  } catch (error) {
+    if (error instanceof SessionUserError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
   }
 
+  const userId = viewer.id;
+  const isAdmin = isVerifiedAdmin(viewer);
   const { searchParams } = new URL(request.url);
   const submissionId = parsePositiveInt(searchParams.get("submissionId"));
   if (searchParams.get("submissionId") && !submissionId) {
     return NextResponse.json({ error: "submissionId가 올바르지 않습니다." }, { status: 400 });
   }
 
-  // 1차: submissionId 지정 시 해당 제출, 아니면 본인 제출 조회
   const submissionWhere: Prisma.SubmissionWhereInput = submissionId
     ? {
         id: submissionId,
@@ -194,33 +198,74 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // 2차: 관리자이고 본인 제출이 없으면, 활성 시험의 아무 제출로 대시보드 미리보기
   if (!submission && !submissionId && isAdmin) {
     const activeExam = await prisma.exam.findFirst({
       where: { isActive: true },
       orderBy: [{ examDate: "desc" }, { id: "desc" }],
       select: { id: true },
     });
+
     if (activeExam) {
       submission = await prisma.submission.findFirst({
         where: { examId: activeExam.id },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         select: {
-          id: true, userId: true, examId: true, examType: true, regionId: true,
-          gender: true, examNumber: true, totalScore: true, finalScore: true,
-          bonusType: true, bonusRate: true, createdAt: true, editCount: true,
-          exam: { select: { id: true, name: true, year: true, round: true } },
-          region: { select: { id: true, name: true } },
+          id: true,
+          userId: true,
+          examId: true,
+          examType: true,
+          regionId: true,
+          gender: true,
+          examNumber: true,
+          totalScore: true,
+          finalScore: true,
+          bonusType: true,
+          bonusRate: true,
+          createdAt: true,
+          editCount: true,
+          exam: {
+            select: {
+              id: true,
+              name: true,
+              year: true,
+              round: true,
+            },
+          },
+          region: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
           subjectScores: {
             select: {
-              subjectId: true, rawScore: true, isFailed: true,
-              subject: { select: { name: true, questionCount: true, maxScore: true, pointPerQuestion: true } },
+              subjectId: true,
+              rawScore: true,
+              isFailed: true,
+              subject: {
+                select: {
+                  name: true,
+                  questionCount: true,
+                  maxScore: true,
+                  pointPerQuestion: true,
+                },
+              },
             },
           },
           userAnswers: {
-            select: { subjectId: true, questionNumber: true, selectedAnswer: true, isCorrect: true },
+            select: {
+              subjectId: true,
+              questionNumber: true,
+              selectedAnswer: true,
+              isCorrect: true,
+            },
           },
-          difficultyRatings: { select: { subjectId: true, rating: true } },
+          difficultyRatings: {
+            select: {
+              subjectId: true,
+              rating: true,
+            },
+          },
         },
       });
     }
@@ -238,6 +283,7 @@ export async function GET(request: NextRequest) {
     where: { examId: submission.examId },
     select: { subjectId: true, questionNumber: true, correctAnswer: true },
   });
+
   const correctRateRows = await getCorrectRateRows(submission.examId, submission.examType);
   const correctRateByKey = new Map(
     correctRateRows.map((row) => [
@@ -287,7 +333,6 @@ export async function GET(request: NextRequest) {
     return a.subjectId - b.subjectId;
   });
 
-  // 과목별 순위/백분위를 단일 GROUP BY 쿼리로 일괄 조회 (N+1 방지)
   type SubjectCountRow = {
     subjectId: number;
     totalCount: bigint | number | null;
@@ -295,10 +340,9 @@ export async function GET(request: NextRequest) {
     lowerCount: bigint | number | null;
   };
 
-  const subjectIds = orderedSubjectScores.map((s) => s.subjectId);
-
+  const subjectIds = orderedSubjectScores.map((score) => score.subjectId);
   const scoreConditions = orderedSubjectScores.map(
-    (s) => Prisma.sql`WHEN ss."subjectId" = ${s.subjectId} THEN ${Number(s.rawScore)}`
+    (score) => Prisma.sql`WHEN ss."subjectId" = ${score.subjectId} THEN ${Number(score.rawScore)}`
   );
   const myScoreSql = Prisma.sql`CASE ${Prisma.join(scoreConditions, " ")} ELSE 0 END`;
 
@@ -407,36 +451,34 @@ export async function GET(request: NextRequest) {
   `);
 
   const answerKeyMap = new Map<string, number>();
-  for (const k of answerKeys) {
-    answerKeyMap.set(toAnswerKey(k.subjectId, k.questionNumber), k.correctAnswer);
+  for (const answerKey of answerKeys) {
+    answerKeyMap.set(toAnswerKey(answerKey.subjectId, answerKey.questionNumber), answerKey.correctAnswer);
   }
 
-  const scores = orderedSubjectScores.map((mySubjectScore) => {
-    const rawScore = Number(mySubjectScore.rawScore);
-    const maxScore = Number(mySubjectScore.subject.maxScore);
-    const pointPerQuestion = Number(mySubjectScore.subject.pointPerQuestion);
-    const bonusScore = mySubjectScore.isFailed ? 0 : roundNumber(maxScore * Number(submission.bonusRate));
+  const scores = orderedSubjectScores.map((subjectScore) => {
+    const rawScore = Number(subjectScore.rawScore);
+    const maxScore = Number(subjectScore.subject.maxScore);
+    const pointPerQuestion = Number(subjectScore.subject.pointPerQuestion);
+    const bonusScore = subjectScore.isFailed ? 0 : roundNumber(maxScore * Number(submission.bonusRate));
     const finalScore = roundNumber(rawScore + bonusScore);
 
-    const stats = subjectStatsMap.get(mySubjectScore.subjectId);
+    const stats = subjectStatsMap.get(subjectScore.subjectId);
     const subjectParticipants = stats?.totalCount ?? 0;
     const subjectHigher = stats?.higherCount ?? 0;
     const subjectLower = stats?.lowerCount ?? 0;
 
     const difficulty =
-      submission.difficultyRatings.find(
-        (rating) => rating.subjectId === mySubjectScore.subjectId
-      )?.rating ?? null;
+      submission.difficultyRatings.find((rating) => rating.subjectId === subjectScore.subjectId)?.rating ?? null;
 
     const userAnswers = submission.userAnswers
-      .filter((ua) => ua.subjectId === mySubjectScore.subjectId)
-      .map((ua) => {
-        const correctRateInfo = correctRateByKey.get(toAnswerKey(ua.subjectId, ua.questionNumber));
+      .filter((answer) => answer.subjectId === subjectScore.subjectId)
+      .map((answer) => {
+        const correctRateInfo = correctRateByKey.get(toAnswerKey(answer.subjectId, answer.questionNumber));
         return {
-          questionNumber: ua.questionNumber,
-          selectedAnswer: ua.selectedAnswer,
-          isCorrect: ua.isCorrect,
-          correctAnswer: answerKeyMap.get(toAnswerKey(ua.subjectId, ua.questionNumber)) ?? null,
+          questionNumber: answer.questionNumber,
+          selectedAnswer: answer.selectedAnswer,
+          isCorrect: answer.isCorrect,
+          correctAnswer: answerKeyMap.get(toAnswerKey(answer.subjectId, answer.questionNumber)) ?? null,
           correctRate: correctRateInfo?.correctRate ?? 0,
           difficultyLevel: correctRateInfo?.difficultyLevel ?? "NORMAL",
         };
@@ -444,16 +486,16 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => a.questionNumber - b.questionNumber);
 
     return {
-      subjectId: mySubjectScore.subjectId,
-      subjectName: mySubjectScore.subject.name,
-      questionCount: mySubjectScore.subject.questionCount,
+      subjectId: subjectScore.subjectId,
+      subjectName: subjectScore.subject.name,
+      questionCount: subjectScore.subject.questionCount,
       pointPerQuestion,
       correctCount: Math.round(rawScore / pointPerQuestion),
       rawScore,
       maxScore,
       bonusScore,
       finalScore,
-      isCutoff: mySubjectScore.isFailed,
+      isCutoff: subjectScore.isFailed,
       cutoffScore: roundNumber(maxScore * SUBJECT_CUTOFF_RATE),
       rank: calculateRankByHigher(subjectHigher),
       topPercent: calculateTopPercentByHigher(subjectHigher, subjectParticipants),
@@ -562,8 +604,8 @@ export async function GET(request: NextRequest) {
       maxScore: totalMaxScore,
       myRank: totalRank,
       totalParticipants,
-      correctCount: scores.reduce((sum, s) => sum + s.correctCount, 0),
-      questionCount: scores.reduce((sum, s) => sum + s.questionCount, 0),
+      correctCount: scores.reduce((sum, score) => sum + score.correctCount, 0),
+      questionCount: scores.reduce((sum, score) => sum + score.questionCount, 0),
       topPercent: totalTopPercent,
       percentile: totalPercentile,
       averageScore: totalAggregate.averageScore,
@@ -614,7 +656,7 @@ export async function GET(request: NextRequest) {
       totalParticipants,
       totalRank,
       topPercent: totalTopPercent,
-      totalPercentile,
+      totalPercentile: totalPercentile,
       hasCutoff,
       rankingBasis,
       cutoffSubjects,

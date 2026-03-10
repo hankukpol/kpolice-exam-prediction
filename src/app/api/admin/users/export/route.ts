@@ -2,6 +2,7 @@ import type { Role } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
 import { prisma } from "@/lib/prisma";
+import { getClientIp } from "@/lib/request-ip";
 
 export const runtime = "nodejs";
 
@@ -68,6 +69,12 @@ export async function GET(request: NextRequest) {
 
     const csv = "\uFEFF" + [header, ...rows].join("\n");
     const filename = `회원목록_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    // 감사 로그: 개인정보 포함 CSV 다운로드 기록
+    const clientIp = getClientIp(request);
+    console.log(
+      `[감사] 회원목록 CSV 내보내기 — 관리자ID=${guard.session.user.id}, IP=${clientIp}, 건수=${users.length}, 시간=${new Date().toISOString()}`
+    );
 
     return new NextResponse(csv, {
       status: 200,
