@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
@@ -204,6 +205,64 @@ function getRegionDisplayOrder(regionName: string): number {
   return index === -1 ? Number.MAX_SAFE_INTEGER : index;
 }
 
+const FOCUS_REGION_KEYWORDS = ["\uB300\uAD6C", "\uACBD\uBD81"] as const;
+
+function getFocusRegionOrder(regionName: string): number {
+  const index = FOCUS_REGION_KEYWORDS.findIndex((keyword) => regionName.includes(keyword));
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+function getSampleTone(participantCount: number, recruitCount: number): {
+  label: string;
+  badgeClass: string;
+  description: string;
+} {
+  if (participantCount < 10) {
+    return {
+      label: "초기 표본 수집 단계",
+      badgeClass: "border-amber-200 bg-amber-50 text-amber-800",
+      description: "표본이 아직 작아 합격선이 빠르게 움직일 수 있습니다.",
+    };
+  }
+
+  if (participantCount < recruitCount) {
+    return {
+      label: "표본 확장 단계",
+      badgeClass: "border-sky-200 bg-sky-50 text-sky-800",
+      description: "참여 데이터가 쌓이는 중입니다. 조금 더 지나면 예측이 더 안정됩니다.",
+    };
+  }
+
+  return {
+    label: "예측 안정 단계",
+    badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    description: "지역 표본이 충분히 쌓여 실전 참고용으로 볼 수 있는 단계입니다.",
+  };
+}
+
+function HighlightCard({
+  label,
+  value,
+  emphasized = false,
+}: {
+  label: string;
+  value: string;
+  emphasized?: boolean;
+}) {
+  return (
+    <article
+      className={`rounded-md border p-4 ${
+        emphasized ? "border-police-200 bg-police-50" : "border-slate-200 bg-white"
+      }`}
+    >
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
+      <p className={`mt-2 text-lg font-black ${emphasized ? "text-police-700" : "text-slate-900"}`}>
+        {value}
+      </p>
+    </article>
+  );
+}
+
 function CompetitiveChart({
   title,
   data,
@@ -334,12 +393,20 @@ export default function ExamMainOverviewPanel() {
     return Array.from(map.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => {
+        const focusA = getFocusRegionOrder(a.name);
+        const focusB = getFocusRegionOrder(b.name);
+        if (focusA !== focusB) return focusA - focusB;
         const orderA = getRegionDisplayOrder(a.name);
         const orderB = getRegionDisplayOrder(b.name);
         if (orderA !== orderB) return orderA - orderB;
         return a.name.localeCompare(b.name, "ko-KR");
       });
   }, [rowsByExamType]);
+
+  const focusRegionOptions = useMemo(
+    () => regionOptions.filter((region) => getFocusRegionOrder(region.name) !== Number.MAX_SAFE_INTEGER),
+    [regionOptions]
+  );
 
   useEffect(() => {
     if (regionOptions.length < 1) {
@@ -348,9 +415,9 @@ export default function ExamMainOverviewPanel() {
     }
     const exists = regionOptions.some((item) => item.id === selectedRegionId);
     if (!exists) {
-      setSelectedRegionId(regionOptions[0].id);
+      setSelectedRegionId((focusRegionOptions[0] ?? regionOptions[0]).id);
     }
-  }, [regionOptions, selectedRegionId]);
+  }, [focusRegionOptions, regionOptions, selectedRegionId]);
 
   const selectedRow = useMemo(
     () => rowsByExamType.find((row) => row.regionId === selectedRegionId) ?? null,
@@ -367,6 +434,18 @@ export default function ExamMainOverviewPanel() {
       ? "응시인원(미입력)"
       : "응시인원"
     : "응시인원";
+
+  const sampleTone = selectedRow
+    ? getSampleTone(selectedRow.participantCount, selectedRow.recruitCount)
+    : null;
+  const sureMinHighlight =
+    selectedRow === null || isCollecting || selectedRow.sureMinScore === null
+      ? "데이터 수집 중"
+      : `${selectedRow.sureMinScore.toFixed(2)}점 이상`;
+  const oneMultipleHighlight =
+    selectedRow === null || isCollecting || isLowSample || selectedRow.oneMultipleCutScore === null
+      ? "데이터 수집 중"
+      : formatScore(selectedRow.oneMultipleCutScore);
 
   const difficultySubjects = useMemo(() => {
     const original = data?.difficulty?.subjects ?? [];
@@ -547,6 +626,35 @@ export default function ExamMainOverviewPanel() {
         </div>
         <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">직렬별 실시간 합격예측 분석</h2>
 
+        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="rounded-md border border-police-200 bg-police-50 px-4 py-3">
+            <p className="text-sm font-bold text-police-800">대구·경북 집중 운영</p>
+            <p className="mt-1 text-sm text-police-700">
+              대구와 경북 응시생이 자기 지역의 합격예측을 빠르게 확인할 수 있도록 메인을 정리했습니다.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href="/exam/input"
+                className="inline-flex items-center rounded-md bg-police-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-police-800"
+              >
+                OMR 입력하기
+              </Link>
+              <Link
+                href="/exam/prediction"
+                className="inline-flex items-center rounded-md border border-police-200 bg-white px-4 py-2 text-sm font-semibold text-police-700 transition hover:bg-police-100"
+              >
+                합격예측 보기
+              </Link>
+            </div>
+          </div>
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-xs font-semibold tracking-wide text-slate-500">운영 단계</p>
+            <p className="mt-1 text-sm font-bold text-slate-900">
+              {sampleTone?.label ?? "실시간 예측 운영 중"}
+            </p>
+          </div>
+        </div>
+
         <div className="mt-6 inline-flex gap-1 rounded-md bg-slate-100 p-1">
           {availableExamTypes.map((examType) => {
             const active = selectedExamType === examType;
@@ -568,6 +676,27 @@ export default function ExamMainOverviewPanel() {
 
         <div className="mt-6 rounded-md border border-slate-200 bg-slate-50 p-5">
           <p className="text-sm font-bold text-slate-800">지역 선택</p>
+          {focusRegionOptions.length > 0 ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {focusRegionOptions.map((region) => {
+                const active = region.id === selectedRegionId;
+                return (
+                  <button
+                    key={`focus-${region.id}`}
+                    type="button"
+                    className={`rounded-md border px-4 py-3 text-sm font-bold transition ${
+                      active
+                        ? "border-police-700 bg-police-700 text-white"
+                        : "border-police-200 bg-white text-police-700 hover:border-police-300 hover:bg-police-50"
+                    }`}
+                    onClick={() => setSelectedRegionId(region.id)}
+                  >
+                    {region.name}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
             {regionOptions.map((region) => {
               const active = region.id === selectedRegionId;
@@ -591,6 +720,27 @@ export default function ExamMainOverviewPanel() {
         <p className="mt-6 text-sm font-bold text-police-600">
           {selectedRow ? `${getExamTypeLabel(selectedExamType)} : ${selectedRow.regionName}` : "지역을 선택해 주세요."}
         </p>
+
+        {selectedRow && sampleTone ? (
+          <>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${sampleTone.badgeClass}`}>
+                {sampleTone.label}
+              </span>
+              <span className="text-sm text-slate-600">{sampleTone.description}</span>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <HighlightCard
+                label="선발 / 실시간 참여"
+                value={`${selectedRow.recruitCount.toLocaleString("ko-KR")}명 / ${selectedRow.participantCount.toLocaleString("ko-KR")}명`}
+              />
+              <HighlightCard label="실시간 평균" value={formatScore(selectedRow.averageFinalScore)} />
+              <HighlightCard label="합격확실권" value={sureMinHighlight} emphasized={true} />
+              <HighlightCard label="1배수 컷" value={oneMultipleHighlight} />
+            </div>
+          </>
+        ) : null}
 
         <div className="mt-3 grid gap-4 xl:grid-cols-2 xl:items-stretch">
           <div className="h-full overflow-hidden rounded-md border border-slate-200 bg-white">
@@ -637,6 +787,7 @@ export default function ExamMainOverviewPanel() {
                 <tr className="divide-x divide-slate-200">
                   <th className="w-[140px] bg-slate-50 px-4 py-3.5 text-left font-bold text-slate-700 sm:w-[170px]">
                     실시간 평균점수
+                    <span className="ml-1 text-xs font-normal text-slate-400">(과락 제외)</span>
                   </th>
                   <td className="px-4 py-3.5 font-bold text-police-700">
                     {selectedRow ? <>{formatScore(selectedRow.averageFinalScore)}</> : "-"}

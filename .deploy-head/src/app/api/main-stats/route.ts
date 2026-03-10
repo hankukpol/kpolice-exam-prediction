@@ -530,6 +530,7 @@ export async function GET() {
       updatedAt: latestSubmission?.createdAt?.toISOString() ?? null,
     };
 
+    // 평균점수 산출용: 과락자 제외
     const populationWhere: Prisma.SubmissionWhereInput = {
       examId: activeExam.id,
       isSuspicious: false,
@@ -541,8 +542,16 @@ export async function GET() {
       },
     };
 
-    const [participantStats, scoreBandStats, totalScoreDistributionRaw, subjectScoreDistributionRaw, subjects] =
+    // 과락 포함 참여인원 집계용 where (subjectScores 과락 필터 제외)
+    const allParticipantCountWhere: Prisma.SubmissionWhereInput = {
+      examId: activeExam.id,
+      isSuspicious: false,
+      subjectScores: { some: {} },
+    };
+
+    const [participantStats, allParticipantCountStats, scoreBandStats, totalScoreDistributionRaw, subjectScoreDistributionRaw, subjects] =
       await Promise.all([
+      // 과락 제외 집계: averageFinalScore 산출용
       prisma.submission.groupBy({
         by: ["regionId", "examType"],
         where: populationWhere,
@@ -551,6 +560,14 @@ export async function GET() {
         },
         _avg: {
           finalScore: true,
+        },
+      }),
+      // 과락 포함 집계: participantCount 산출용
+      prisma.submission.groupBy({
+        by: ["regionId", "examType"],
+        where: allParticipantCountWhere,
+        _count: {
+          _all: true,
         },
       }),
       prisma.submission.groupBy({
@@ -593,14 +610,26 @@ export async function GET() {
       }),
     ]);
 
-    const participantMap = new Map(
+    // 과락 제외 평균점수 맵 구성
+    const avgScoreMap = new Map(
       participantStats.map((item) => [
         `${item.regionId}-${item.examType}`,
-        {
-          participantCount: item._count._all,
-          averageFinalScore: item._avg.finalScore === null ? null : roundNumber(Number(item._avg.finalScore)),
-        },
+        item._avg.finalScore === null ? null : roundNumber(Number(item._avg.finalScore)),
       ])
+    );
+
+    // 과락 포함 참여인원 기준으로 participantMap 구성 (평균점수는 과락 제외)
+    const participantMap = new Map(
+      allParticipantCountStats.map((item) => {
+        const key = `${item.regionId}-${item.examType}`;
+        return [
+          key,
+          {
+            participantCount: item._count._all,
+            averageFinalScore: avgScoreMap.get(key) ?? null,
+          },
+        ];
+      })
     );
 
     const scoreBandMap = new Map<string, ScoreBandRow[]>();

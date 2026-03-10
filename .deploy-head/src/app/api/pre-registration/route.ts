@@ -66,6 +66,20 @@ function parseOptionalExamId(rawValue: unknown, sourceLabel: string): number | n
   return parsed;
 }
 
+async function ensureExistingUser(userId: number) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+
+  if (!user) {
+    throw new PreRegistrationRouteError(
+      "세션이 만료되었거나 사용자 정보를 찾을 수 없습니다. 다시 로그인해 주세요.",
+      401
+    );
+  }
+}
+
 async function resolveTargetExam(examId: number | null) {
   if (examId) {
     return prisma.exam.findUnique({
@@ -92,6 +106,8 @@ export async function GET(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
     }
+
+    await ensureExistingUser(userId);
 
     const { searchParams } = new URL(request.url);
     const requestedExamId = parseOptionalExamId(searchParams.get("examId"), "examId");
@@ -149,6 +165,8 @@ export async function POST(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
     }
+
+    await ensureExistingUser(userId);
 
     const requestedExamId = parseOptionalExamId(body.examId, "examId");
     const exam = await resolveTargetExam(requestedExamId);
@@ -311,6 +329,8 @@ export async function DELETE(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
     }
+
+    await ensureExistingUser(userId);
 
     const { searchParams } = new URL(request.url);
     const requestedExamId = parseOptionalExamId(searchParams.get("examId"), "examId");

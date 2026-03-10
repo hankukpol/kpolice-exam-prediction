@@ -63,10 +63,9 @@ interface FinalPredictionSeedRow {
   bonusType: BonusType;
   writtenScore: number;
   fitnessPassed: boolean;
+  martialDanLevel: number;
   martialBonusPoint: number;
-  additionalBonusPoint: number;
-  knownBonusPoint: number;
-  knownFinalScore: number | null;
+  score75: number | null;
 }
 
 export interface GenerateMockDataOptions {
@@ -170,16 +169,9 @@ function martialBonusPointByDanLevel(danLevel: number): number {
   return 0;
 }
 
-function pickAdditionalBonusPoint(): number {
-  const roll = Math.random();
-  if (roll < 0.72) return 0;
-  if (roll < 0.92) return roundTwo(0.5 + Math.random() * 1.5); // 0.5 ~ 2.0
-  return roundTwo(2 + Math.random()); // 2.0 ~ 3.0
-}
-
 function compareFinalPredictionSeedRow(left: FinalPredictionSeedRow, right: FinalPredictionSeedRow): number {
-  const leftScore = left.knownFinalScore ?? -1;
-  const rightScore = right.knownFinalScore ?? -1;
+  const leftScore = left.score75 ?? -1;
+  const rightScore = right.score75 ?? -1;
   if (rightScore !== leftScore) {
     return rightScore - leftScore;
   }
@@ -193,15 +185,15 @@ function compareFinalPredictionSeedRow(left: FinalPredictionSeedRow, right: Fina
     return right.writtenScore - left.writtenScore;
   }
 
-  if (right.knownBonusPoint !== left.knownBonusPoint) {
-    return right.knownBonusPoint - left.knownBonusPoint;
+  if (right.martialBonusPoint !== left.martialBonusPoint) {
+    return right.martialBonusPoint - left.martialBonusPoint;
   }
 
   return left.submissionId - right.submissionId;
 }
 
 function buildFinalPredictionRankMap(rows: FinalPredictionSeedRow[]): Map<number, number> {
-  const passRows = rows.filter((row) => row.fitnessPassed && row.knownFinalScore !== null);
+  const passRows = rows.filter((row) => row.fitnessPassed && row.score75 !== null);
   const grouped = new Map<string, FinalPredictionSeedRow[]>();
 
   for (const row of passRows) {
@@ -219,7 +211,18 @@ function buildFinalPredictionRankMap(rows: FinalPredictionSeedRow[]): Map<number
   for (const groupRows of grouped.values()) {
     const sorted = [...groupRows].sort(compareFinalPredictionSeedRow);
     for (let index = 0; index < sorted.length; index += 1) {
-      rankMap.set(sorted[index].submissionId, index + 1);
+      // Competition ranking: 동점자 공동등수, 다음 등수 건너뛰기
+      if (index === 0) {
+        rankMap.set(sorted[index].submissionId, 1);
+      } else {
+        const prevScore = sorted[index - 1].score75;
+        const currScore = sorted[index].score75;
+        if (currScore === prevScore) {
+          rankMap.set(sorted[index].submissionId, rankMap.get(sorted[index - 1].submissionId)!);
+        } else {
+          rankMap.set(sorted[index].submissionId, index + 1);
+        }
+      }
     }
   }
 
@@ -281,17 +284,18 @@ function buildFinalPredictionSeedRow(params: {
       bonusType: params.draft.bonusType,
       writtenScore: params.draft.finalScore,
       fitnessPassed: false,
+      martialDanLevel: 0,
       martialBonusPoint: 0,
-      additionalBonusPoint: 0,
-      knownBonusPoint: 0,
-      knownFinalScore: null,
+      score75: null,
     };
   }
 
   const martialDanLevel = pickMartialDanLevel();
   const martialBonusPoint = martialBonusPointByDanLevel(martialDanLevel);
-  const additionalBonusPoint = pickAdditionalBonusPoint();
-  const knownBonusPoint = roundTwo(martialBonusPoint + additionalBonusPoint);
+  const written50 = roundTwo((params.draft.finalScore / 250) * 100 * 0.5);
+  const fitnessTotal = 48 + martialBonusPoint;
+  const fitness25 = roundTwo(fitnessTotal * 0.5);
+  const score75 = roundTwo(written50 + fitness25);
 
   return {
     submissionId: params.submissionId,
@@ -301,10 +305,9 @@ function buildFinalPredictionSeedRow(params: {
     bonusType: params.draft.bonusType,
     writtenScore: params.draft.finalScore,
     fitnessPassed: true,
+    martialDanLevel,
     martialBonusPoint,
-    additionalBonusPoint,
-    knownBonusPoint,
-    knownFinalScore: roundTwo(params.draft.finalScore + knownBonusPoint),
+    score75,
   };
 }
 
@@ -701,11 +704,11 @@ export async function generateMockData(
         submissionId: row.submissionId,
         userId: row.userId,
         fitnessScore: row.martialBonusPoint,
-        interviewScore: row.additionalBonusPoint,
+        interviewScore: row.martialDanLevel, // 무도 단수 저장 (용도 변경)
         interviewGrade: row.fitnessPassed ? "PASS" : "FAIL",
-        finalScore: row.knownFinalScore,
+        finalScore: row.score75,
         finalRank:
-          row.fitnessPassed && row.knownFinalScore !== null
+          row.fitnessPassed && row.score75 !== null
             ? (rankMap.get(row.submissionId) ?? null)
             : null,
       }));

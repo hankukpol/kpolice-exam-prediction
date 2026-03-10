@@ -3,6 +3,7 @@ import Footer from "@/components/layout/Footer";
 import Header from "@/components/layout/Header";
 import AuthSessionProvider from "@/components/providers/AuthSessionProvider";
 import ToastProvider from "@/components/providers/ToastProvider";
+import VisitorTracker from "@/components/VisitorTracker";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,6 +21,7 @@ export default function RootLayout({
       <body className="bg-slate-100 text-slate-100 antialiased">
         <AuthSessionProvider>
           <ToastProvider>
+            <VisitorTracker />
             <div className="flex min-h-screen flex-col">
               <Header />
               <div className="flex-1 text-slate-900">{children}</div>

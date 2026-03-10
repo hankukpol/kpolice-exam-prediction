@@ -1,5 +1,8 @@
 ﻿import bcrypt from "bcryptjs";
 import { ExamType, PrismaClient, Role } from "@prisma/client";
+import { loadEnvConfig } from "@next/env";
+
+loadEnvConfig(process.cwd());
 
 const prisma = new PrismaClient();
 
@@ -281,7 +284,7 @@ async function main() {
 
   console.log("기본 데이터 시딩이 완료되었습니다.");
   console.log(`관리자 연락처: ${adminPhone}`);
-  console.log("관리자 비밀번호는 .env의 ADMIN_PASSWORD 값을 사용합니다.");
+  console.log("관리자 비밀번호는 환경변수 ADMIN_PASSWORD 값을 사용합니다.");
 }
 
 main()

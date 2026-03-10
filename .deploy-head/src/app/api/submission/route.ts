@@ -69,6 +69,20 @@ class SubmissionRouteError extends Error {
   }
 }
 
+async function ensureExistingUser(userId: number) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true },
+  });
+
+  if (!user) {
+    throw new SubmissionRouteError(
+      "세션이 만료되었거나 사용자 정보를 찾을 수 없습니다. 다시 로그인해 주세요.",
+      401
+    );
+  }
+}
+
 type DifficultyRatingValue = "VERY_EASY" | "EASY" | "NORMAL" | "HARD" | "VERY_HARD";
 type DifficultyInput = ReturnType<typeof parseDifficulty>[number];
 
@@ -542,6 +556,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
     }
 
+    await ensureExistingUser(userId);
+
     const examType = parseExamType(body.examType);
     if (!examType) {
       return NextResponse.json({ error: "채용유형은 PUBLIC 또는 CAREER만 가능합니다." }, { status: 400 });
@@ -852,6 +868,8 @@ export async function PUT(request: Request) {
     if (!userId) {
       return NextResponse.json({ error: "사용자 정보를 확인할 수 없습니다." }, { status: 401 });
     }
+
+    await ensureExistingUser(userId);
 
     const existingSubmission = await prisma.submission.findUnique({
       where: { id: submissionId },

@@ -45,10 +45,9 @@ function parseResetPasswordFlag(value: unknown): boolean | null {
   return null;
 }
 
-function buildTempPassword(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  const suffix = digits.length >= 4 ? digits.slice(-4) : "0000";
-  return `${suffix}!@#$`;
+function buildTempPassword(username: string): string {
+  const suffix = username.replace(/[^A-Za-z0-9]/g, "").slice(-4).padStart(4, "0");
+  return `Temp!${suffix}a`;
 }
 
 export async function GET(request: NextRequest) {
@@ -115,7 +114,7 @@ export async function GET(request: NextRequest) {
       users: users.map((user) => ({
         id: user.id,
         name: user.name,
-        phone: user.phone,
+        username: user.phone,
         role: user.role,
         createdAt: user.createdAt,
         submissionCount: user._count.submissions,

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(npx next:*)",
+      "WebSearch",
+      "WebFetch(domain:fullservice.conects.com)",
+      "WebFetch(domain:fullservice.hackers.com)",
+      "WebFetch(domain:brand.eduwill.net)",
+      "WebFetch(domain:gongsta.com)",
+      "WebFetch(domain:www.gosiweek.com)"
+    ]
+  }
+}

@@ -11,11 +11,11 @@ export default async function AdminLayout({
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
-    redirect("/login?callbackUrl=/admin");
+    redirect("/admin/login?callbackUrl=/admin");
   }
 
   if (session.user.role !== "ADMIN") {
-    redirect("/");
+    redirect("/admin/login?error=admin_only&callbackUrl=/admin");
   }
 
   return (
