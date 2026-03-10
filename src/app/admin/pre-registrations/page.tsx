@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ConfirmModal from "@/components/admin/ConfirmModal";
+import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -75,6 +77,14 @@ interface DrawResponse {
   winners: DrawWinner[];
 }
 
+interface PreRegistrationEditDraft {
+  examId: number;
+  regionId: number;
+  examType: ExamTypeValue;
+  gender: GenderValue;
+  examNumber: string;
+}
+
 type NoticeState = {
   type: "success" | "error";
   message: string;
@@ -99,7 +109,7 @@ function formatExamLabel(row: { examYear: number; examRound: number; examName: s
 }
 
 function formatExamType(examType: ExamTypeValue): string {
-  return examType === "PUBLIC" ? "공채" : "경행경채";
+  return examType === "PUBLIC" ? "공채" : "경채";
 }
 
 function formatGender(gender: GenderValue): string {
@@ -131,6 +141,13 @@ export default function AdminPreRegistrationsPage() {
   const [drawResult, setDrawResult] = useState<DrawResponse | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isCopyingWinners, setIsCopyingWinners] = useState(false);
+
+  const [editingRowId, setEditingRowId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<PreRegistrationEditDraft | null>(null);
+  const [savingRowId, setSavingRowId] = useState<number | null>(null);
+  const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
+
+  const { confirm, modalProps } = useConfirmModal();
 
   const canGoPrev = page > 1;
   const canGoNext = page < totalPages;
@@ -189,6 +206,23 @@ export default function AdminPreRegistrationsPage() {
     setCareerCount(data.summary?.careerCount ?? 0);
   }, [queryString]);
 
+  function beginEdit(row: PreRegistrationRow) {
+    setEditingRowId(row.id);
+    setEditDraft({
+      examId: row.examId,
+      regionId: row.regionId,
+      examType: row.examType,
+      gender: row.gender,
+      examNumber: row.examNumber,
+    });
+    setNotice(null);
+  }
+
+  function cancelEdit() {
+    setEditingRowId(null);
+    setEditDraft(null);
+  }
+
   useEffect(() => {
     void (async () => {
       try {
@@ -196,7 +230,7 @@ export default function AdminPreRegistrationsPage() {
       } catch (error) {
         setNotice({
           type: "error",
-          message: error instanceof Error ? error.message : "필터 데이터 로딩에 실패했습니다.",
+          message: error instanceof Error ? error.message : "필터 데이터를 불러오지 못했습니다.",
         });
       }
     })();
@@ -229,6 +263,92 @@ export default function AdminPreRegistrationsPage() {
     })();
   }, [loadRows]);
 
+  useEffect(() => {
+    if (editingRowId === null) return;
+    if (rows.some((row) => row.id === editingRowId)) return;
+    cancelEdit();
+  }, [editingRowId, rows]);
+
+  async function handleSaveEdit(row: PreRegistrationRow) {
+    if (!editDraft || editingRowId !== row.id) {
+      setNotice({ type: "error", message: "수정할 데이터가 없습니다." });
+      return;
+    }
+
+    setSavingRowId(row.id);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/admin/pre-registrations?id=${row.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          examId: editDraft.examId,
+          regionId: editDraft.regionId,
+          examType: editDraft.examType,
+          gender: editDraft.gender,
+          examNumber: editDraft.examNumber.trim(),
+        }),
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? "사전등록 수정에 실패했습니다.");
+      }
+
+      setNotice({
+        type: "success",
+        message: `${row.userName}님의 사전등록을 수정했습니다.`,
+      });
+      cancelEdit();
+      await loadRows();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "사전등록 수정에 실패했습니다.",
+      });
+    } finally {
+      setSavingRowId(null);
+    }
+  }
+
+  async function handleDeleteRow(row: PreRegistrationRow) {
+    const ok = await confirm({
+      title: "사전등록 삭제",
+      description: `${row.userName}님의 사전등록을 삭제하시겠습니까?`,
+      variant: "danger",
+      confirmLabel: "삭제",
+    });
+    if (!ok) return;
+
+    setDeletingRowId(row.id);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/admin/pre-registrations?id=${row.id}&confirm=true`, {
+        method: "DELETE",
+      });
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !data.success) {
+        throw new Error(data.error ?? "사전등록 삭제에 실패했습니다.");
+      }
+
+      if (editingRowId === row.id) {
+        cancelEdit();
+      }
+
+      setNotice({
+        type: "success",
+        message: `${row.userName}님의 사전등록을 삭제했습니다.`,
+      });
+      await loadRows();
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "사전등록 삭제에 실패했습니다.",
+      });
+    } finally {
+      setDeletingRowId(null);
+    }
+  }
+
   async function handleDownloadCsv() {
     setIsDownloading(true);
     setNotice(null);
@@ -240,7 +360,9 @@ export default function AdminPreRegistrationsPage() {
       if (searchKeyword) params.set("search", searchKeyword);
 
       const response = await fetch(`/api/admin/pre-registrations/export?${params.toString()}`);
-      if (!response.ok) throw new Error("CSV 다운로드에 실패했습니다.");
+      if (!response.ok) {
+        throw new Error("CSV 다운로드에 실패했습니다.");
+      }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -323,7 +445,7 @@ export default function AdminPreRegistrationsPage() {
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-bold text-slate-900">사전등록 관리</h1>
         <p className="text-sm text-slate-600">
-          현재 남아 있는 사전등록 목록을 조회하고, 조건별 이벤트 추첨과 CSV 내보내기를 진행할 수 있습니다.
+          사전등록 목록 조회, CSV 다운로드, 이벤트 추첨, 관리자 직접 수정/삭제를 할 수 있습니다.
         </p>
       </header>
 
@@ -341,7 +463,7 @@ export default function AdminPreRegistrationsPage() {
 
       <section className="grid gap-4 lg:grid-cols-3">
         <article className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-sm font-semibold text-slate-500">현재 사전등록자</p>
+          <p className="text-sm font-semibold text-slate-500">전체 사전등록</p>
           <p className="mt-2 text-3xl font-black text-slate-900">{totalCount.toLocaleString("ko-KR")}명</p>
         </article>
         <article className="rounded-xl border border-slate-200 bg-white p-5">
@@ -349,7 +471,7 @@ export default function AdminPreRegistrationsPage() {
           <p className="mt-2 text-3xl font-black text-police-700">{publicCount.toLocaleString("ko-KR")}명</p>
         </article>
         <article className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-sm font-semibold text-slate-500">경행경채</p>
+          <p className="text-sm font-semibold text-slate-500">경채</p>
           <p className="mt-2 text-3xl font-black text-cyan-700">{careerCount.toLocaleString("ko-KR")}명</p>
         </article>
       </section>
@@ -403,7 +525,7 @@ export default function AdminPreRegistrationsPage() {
           >
             <option value="">전체 채용유형</option>
             <option value="PUBLIC">공채</option>
-            {careerExamEnabled ? <option value="CAREER">경행경채</option> : null}
+            {careerExamEnabled ? <option value="CAREER">경채</option> : null}
           </select>
         </div>
 
@@ -427,6 +549,7 @@ export default function AdminPreRegistrationsPage() {
               setSelectedExamType("");
               setPage(1);
               setDrawResult(null);
+              cancelEdit();
             }}
           >
             필터 초기화
@@ -470,7 +593,7 @@ export default function AdminPreRegistrationsPage() {
           <div className="mt-4 rounded-lg border border-white/70 bg-white/80 p-4">
             <p className="text-sm text-slate-700">
               대상자 {drawResult.eligibleCount.toLocaleString("ko-KR")}명 중 {drawResult.drawnWinnerCount.toLocaleString("ko-KR")}명 추첨
-              · {formatDateTimeText(drawResult.drawnAt)}
+              완료 {formatDateTimeText(drawResult.drawnAt)}
             </p>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -507,16 +630,16 @@ export default function AdminPreRegistrationsPage() {
           <div>
             <h2 className="text-lg font-bold text-slate-900">사전등록 목록</h2>
             <p className="text-sm text-slate-500">
-              사전등록은 정식 OMR 제출 전 임시 저장 단계입니다. 정식 제출이 완료되면 이 목록에서는 빠집니다.
+              정식 OMR 제출 전 임시로 저장된 사전등록 정보입니다. 관리자에서 직접 수정하거나 삭제할 수 있습니다.
             </p>
           </div>
           <p className="text-sm text-slate-500">
-            총 {totalCount.toLocaleString("ko-KR")}건 · {page}/{totalPages} 페이지
+            총 {totalCount.toLocaleString("ko-KR")}건, {page}/{totalPages} 페이지
           </p>
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[1080px] border-collapse text-sm">
+          <table className="w-full min-w-[1280px] border-collapse text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-700">
                 <th className="border border-slate-200 px-3 py-2 text-left">이름</th>
@@ -526,37 +649,200 @@ export default function AdminPreRegistrationsPage() {
                 <th className="border border-slate-200 px-3 py-2 text-left">채용</th>
                 <th className="border border-slate-200 px-3 py-2 text-left">성별</th>
                 <th className="border border-slate-200 px-3 py-2 text-left">응시번호</th>
-                <th className="border border-slate-200 px-3 py-2 text-left">최초저장</th>
-                <th className="border border-slate-200 px-3 py-2 text-left">마지막저장</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">최초 등록</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">최종 수정</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">관리</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={9} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
                     사전등록 목록을 불러오는 중입니다...
                   </td>
                 </tr>
               ) : rows.length < 1 ? (
                 <tr>
-                  <td colSpan={9} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
+                  <td colSpan={10} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
                     조건에 맞는 사전등록이 없습니다.
                   </td>
                 </tr>
               ) : (
-                rows.map((row) => (
-                  <tr key={row.id} className="bg-white">
-                    <td className="border border-slate-200 px-3 py-2 font-medium text-slate-900">{row.userName}</td>
-                    <td className="border border-slate-200 px-3 py-2 font-mono text-xs text-slate-700">{row.userPhone}</td>
-                    <td className="border border-slate-200 px-3 py-2">{formatExamLabel(row)}</td>
-                    <td className="border border-slate-200 px-3 py-2">{row.regionName}</td>
-                    <td className="border border-slate-200 px-3 py-2">{formatExamType(row.examType)}</td>
-                    <td className="border border-slate-200 px-3 py-2">{formatGender(row.gender)}</td>
-                    <td className="border border-slate-200 px-3 py-2 font-mono text-xs">{row.examNumber}</td>
-                    <td className="border border-slate-200 px-3 py-2">{formatDateTimeText(row.createdAt)}</td>
-                    <td className="border border-slate-200 px-3 py-2">{formatDateTimeText(row.updatedAt)}</td>
-                  </tr>
-                ))
+                rows.map((row) => {
+                  const isEditing = editingRowId === row.id && editDraft !== null;
+                  const isSaving = savingRowId === row.id;
+                  const isDeleting = deletingRowId === row.id;
+                  const isBusy = isSaving || isDeleting;
+
+                  return (
+                    <tr key={row.id} className="bg-white">
+                      <td className="border border-slate-200 px-3 py-2 font-medium text-slate-900">{row.userName}</td>
+                      <td className="border border-slate-200 px-3 py-2 font-mono text-xs text-slate-700">{row.userPhone}</td>
+                      <td className="border border-slate-200 px-3 py-2">
+                        {isEditing ? (
+                          <select
+                            value={editDraft.examId}
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      examId: Number(event.target.value),
+                                    }
+                                  : current
+                              )
+                            }
+                            className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
+                            disabled={isBusy}
+                          >
+                            {examOptions.map((exam) => (
+                              <option key={exam.id} value={exam.id}>
+                                {exam.year}-{exam.round} {exam.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          formatExamLabel(row)
+                        )}
+                      </td>
+                      <td className="border border-slate-200 px-3 py-2">
+                        {isEditing ? (
+                          <select
+                            value={editDraft.regionId}
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      regionId: Number(event.target.value),
+                                    }
+                                  : current
+                              )
+                            }
+                            className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
+                            disabled={isBusy}
+                          >
+                            {regionOptions.map((region) => (
+                              <option key={region.id} value={region.id}>
+                                {region.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          row.regionName
+                        )}
+                      </td>
+                      <td className="border border-slate-200 px-3 py-2">
+                        {isEditing ? (
+                          <select
+                            value={editDraft.examType}
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      examType: event.target.value as ExamTypeValue,
+                                    }
+                                  : current
+                              )
+                            }
+                            className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
+                            disabled={isBusy}
+                          >
+                            <option value="PUBLIC">공채</option>
+                            <option value="CAREER" disabled={!careerExamEnabled}>
+                              경채
+                            </option>
+                          </select>
+                        ) : (
+                          formatExamType(row.examType)
+                        )}
+                      </td>
+                      <td className="border border-slate-200 px-3 py-2">
+                        {isEditing ? (
+                          <select
+                            value={editDraft.gender}
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      gender: event.target.value as GenderValue,
+                                    }
+                                  : current
+                              )
+                            }
+                            className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm"
+                            disabled={isBusy}
+                          >
+                            <option value="MALE">남</option>
+                            <option value="FEMALE">여</option>
+                          </select>
+                        ) : (
+                          formatGender(row.gender)
+                        )}
+                      </td>
+                      <td className="border border-slate-200 px-3 py-2 font-mono text-xs">
+                        {isEditing ? (
+                          <Input
+                            value={editDraft.examNumber}
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      examNumber: event.target.value,
+                                    }
+                                  : current
+                              )
+                            }
+                            className="h-9 min-w-[120px]"
+                            disabled={isBusy}
+                          />
+                        ) : (
+                          row.examNumber
+                        )}
+                      </td>
+                      <td className="border border-slate-200 px-3 py-2">{formatDateTimeText(row.createdAt)}</td>
+                      <td className="border border-slate-200 px-3 py-2">{formatDateTimeText(row.updatedAt)}</td>
+                      <td className="border border-slate-200 px-3 py-2">
+                        <div className="flex flex-wrap gap-2">
+                          {isEditing ? (
+                            <>
+                              <Button type="button" size="sm" onClick={() => void handleSaveEdit(row)} disabled={isSaving}>
+                                {isSaving ? "저장 중..." : "저장"}
+                              </Button>
+                              <Button type="button" size="sm" variant="outline" onClick={() => cancelEdit()} disabled={isSaving}>
+                                취소
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => beginEdit(row)}
+                                disabled={savingRowId !== null || deletingRowId !== null}
+                              >
+                                수정
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => void handleDeleteRow(row)}
+                                disabled={isDeleting || savingRowId !== null}
+                              >
+                                {isDeleting ? "삭제 중..." : "삭제"}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -576,14 +862,16 @@ export default function AdminPreRegistrationsPage() {
       </section>
 
       <section className="rounded-xl border border-amber-200 bg-amber-50 p-5">
-        <h2 className="text-lg font-bold text-amber-900">운영 흐름 안내</h2>
+        <h2 className="text-lg font-bold text-amber-900">운영 안내</h2>
         <div className="mt-3 space-y-2 text-sm text-amber-900">
-          <p>1. 사전등록 단계에서는 지역, 채용유형, 성별, 응시번호만 먼저 저장됩니다.</p>
-          <p>2. 정식 OMR 입력이 열리면 사전등록 사용자는 저장해 둔 정보가 자동으로 불러와져 입력 부담이 줄어듭니다.</p>
-          <p>3. 사전등록을 하지 않은 사용자도 OMR 입력 오픈 후 바로 정식 제출이 가능합니다.</p>
-          <p>4. 정식 제출이 완료되면 사전등록 데이터는 삭제되고, 이후부터는 제출 현황/성적 분석/합격예측 데이터로 집계됩니다.</p>
+          <p>1. 사전등록 단계에서는 시험, 지역, 채용유형, 성별, 응시번호만 먼저 저장됩니다.</p>
+          <p>2. 정식 OMR 입력이 열리면 저장된 사전등록 정보가 자동으로 불러와집니다.</p>
+          <p>3. 관리자 수정도 동일한 중복/응시번호 검증을 통과해야 저장됩니다.</p>
+          <p>4. 정식 제출이 완료되면 해당 사전등록은 별도로 유지되지 않을 수 있습니다.</p>
         </div>
       </section>
+
+      <ConfirmModal {...modalProps} />
     </div>
   );
 }

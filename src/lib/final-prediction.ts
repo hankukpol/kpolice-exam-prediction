@@ -79,14 +79,21 @@ export function getMartialBonusPoint(danLevel: number): number {
 }
 
 /**
- * 2026년 경찰 최종 환산 공식 (면접 제외)
+ * 2026년 경찰 최종 환산 공식 (면접 비공개로 면접 제외, 75점 만점)
  *
- * Written50 = (필기점수 / 250) × 100 × 0.5    → 필기 환산 (50점 만점)
- * 체력평가  = 48 + 무도가산(0~2)               → 체력 평가 (50점 만점)
- * Fitness25 = 체력평가 × 0.5                   → 체력 환산 (25점 만점)
- * Score75   = Written50 + Fitness25            → 면접 제외 환산 (75점 만점)
+ * [필기 환산 - 50점 만점]
+ *   Written50 = (필기점수 / 250) × 50
+ *   ※ 필기점수는 submission.finalScore (원점수 + 취업지원/의사상자 가산점 포함)
  *
- * ※ 필기점수는 submission.finalScore (원점수 + 취업지원/의사상자 가산점 포함)
+ * [체력 환산 - 25점 만점]
+ *   체력평가점수 = 48 (합격 시 고정) + 무도가산(2·3단=1점, 4단이상=2점)  → 48~50점
+ *   취업지원/의사상자 가산 = 체력단계 만점(50점) × 가산률
+ *   Fitness25 = (체력평가점수 + 50 × 가산률) × 0.5
+ *             = 체력평가점수 × 0.5 + 25 × 가산률
+ *
+ * [최종 환산]
+ *   Score75 = Written50 + Fitness25  → 필기(50%) + 체력(25%) 합산
+ *   ※ 면접(25%)은 점수 비공개이므로 예측에서 제외
  */
 export function calculateKnownFinalScore(params: {
   writtenScore: number;

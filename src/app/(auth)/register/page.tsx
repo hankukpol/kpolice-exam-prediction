@@ -178,23 +178,25 @@ export default function RegisterPage() {
               <Label htmlFor="passwordConfirm">{TEXT.passwordConfirm}</Label>
               <Input id="passwordConfirm" type="password" value={passwordConfirm} onChange={(event) => setPasswordConfirm(event.target.value)} placeholder={TEXT.passwordConfirmPlaceholder} required />
             </div>
-            <div className="space-y-3 rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
-              <label className="flex items-start gap-3">
-                <input type="checkbox" className="mt-0.5 h-4 w-4" checked={agreeToTerms} onChange={(event) => setAgreeToTerms(event.target.checked)} />
-                <span>
+            <div className="space-y-4 rounded-lg border bg-slate-50 p-4 text-sm text-slate-700">
+              <div className="space-y-2">
+                <label className="flex items-start gap-3">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4" checked={agreeToTerms} onChange={(event) => setAgreeToTerms(event.target.checked)} />
                   <span className="font-medium">{TEXT.termsTitle}</span>
-                  <br />
+                </label>
+                <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-6 text-slate-600">
                   <span className="whitespace-pre-wrap">{termsBody}</span>
-                </span>
-              </label>
-              <label className="flex items-start gap-3">
-                <input type="checkbox" className="mt-0.5 h-4 w-4" checked={agreeToPrivacy} onChange={(event) => setAgreeToPrivacy(event.target.checked)} />
-                <span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="flex items-start gap-3">
+                  <input type="checkbox" className="mt-0.5 h-4 w-4" checked={agreeToPrivacy} onChange={(event) => setAgreeToPrivacy(event.target.checked)} />
                   <span className="font-medium">{TEXT.privacyTitle}</span>
-                  <br />
+                </label>
+                <div className="max-h-40 overflow-y-auto rounded-md border border-slate-200 bg-white px-3 py-2 text-xs leading-6 text-slate-600">
                   <span className="whitespace-pre-wrap">{privacyBody}</span>
-                </span>
-              </label>
+                </div>
+              </div>
             </div>
             {errorMessage ? <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600">{errorMessage}</p> : null}
             <Button type="submit" className="w-full" disabled={isSubmitting}>{isSubmitting ? TEXT.submitBusy : TEXT.submitIdle}</Button>

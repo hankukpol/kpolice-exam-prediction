@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
@@ -626,27 +625,7 @@ export default function ExamMainOverviewPanel() {
         </div>
         <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">직렬별 실시간 합격예측 분석</h2>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-          <div className="rounded-md border border-police-200 bg-police-50 px-4 py-3">
-            <p className="text-sm font-bold text-police-800">대구·경북 집중 운영</p>
-            <p className="mt-1 text-sm text-police-700">
-              대구와 경북 응시생이 자기 지역의 합격예측을 빠르게 확인할 수 있도록 메인을 정리했습니다.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Link
-                href="/exam/input"
-                className="inline-flex items-center rounded-md bg-police-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-police-800"
-              >
-                OMR 입력하기
-              </Link>
-              <Link
-                href="/exam/prediction"
-                className="inline-flex items-center rounded-md border border-police-200 bg-white px-4 py-2 text-sm font-semibold text-police-700 transition hover:bg-police-100"
-              >
-                합격예측 보기
-              </Link>
-            </div>
-          </div>
+        <div className="mt-4 flex justify-end">
           <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-xs font-semibold tracking-wide text-slate-500">운영 단계</p>
             <p className="mt-1 text-sm font-bold text-slate-900">
@@ -698,7 +677,7 @@ export default function ExamMainOverviewPanel() {
             </div>
           ) : null}
           <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-            {regionOptions.map((region) => {
+            {regionOptions.filter((region) => getFocusRegionOrder(region.name) === Number.MAX_SAFE_INTEGER).map((region) => {
               const active = region.id === selectedRegionId;
               return (
                 <button
