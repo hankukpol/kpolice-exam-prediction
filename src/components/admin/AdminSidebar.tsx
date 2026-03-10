@@ -4,8 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-/* ────────────────────────────── 타입 ────────────────────────────── */
-
 interface NavItem {
   href: string;
   label: string;
@@ -25,11 +23,8 @@ function isGroup(entry: SidebarEntry): entry is NavGroup {
   return "items" in entry;
 }
 
-/* ──────────────────────── 메뉴 구조 (그룹화) ──────────────────────── */
-
 const sidebarEntries: SidebarEntry[] = [
   { href: "/admin", label: "대시보드", icon: "grid" },
-
   {
     key: "exam-ops",
     label: "시험 운영",
@@ -41,19 +36,19 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/admin/pass-cut", label: "합격컷 발표", icon: "flag" },
     ],
   },
-
   {
     key: "participants",
     label: "참여자 관리",
     icon: "users",
     items: [
+      { href: "/admin/pre-registrations", label: "사전등록 관리", icon: "users" },
       { href: "/admin/submissions", label: "제출 현황", icon: "list" },
       { href: "/admin/stats", label: "참여 통계", icon: "chart" },
+      { href: "/admin/visitors", label: "방문자 통계", icon: "chart" },
       { href: "/admin/users", label: "사용자 관리", icon: "users" },
       { href: "/admin/comments", label: "댓글 관리", icon: "message" },
     ],
   },
-
   {
     key: "content",
     label: "콘텐츠 관리",
@@ -65,19 +60,16 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/admin/faqs", label: "FAQ 관리", icon: "list" },
     ],
   },
-
   {
     key: "system",
     label: "시스템",
     icon: "settings",
     items: [
-      { href: "/admin/site", label: "사이트 설정", icon: "settings" },
+      { href: "/admin/site/basic", label: "사이트 설정", icon: "settings" },
       { href: "/admin/mock-data", label: "목업 데이터", icon: "database" },
     ],
   },
 ];
-
-/* ──────────────────────── 아이콘 맵 ──────────────────────── */
 
 const iconMap: Record<string, React.ReactNode> = {
   grid: (
@@ -173,8 +165,6 @@ const ChevronIcon = ({ expanded }: { expanded: boolean }) => (
   </svg>
 );
 
-/* ──────────────────────── 컴포넌트 ──────────────────────── */
-
 export default function AdminSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -185,7 +175,6 @@ export default function AdminSidebar() {
     return pathname.startsWith(href);
   }
 
-  // 현재 경로가 속한 그룹 자동 펼침
   useEffect(() => {
     for (const entry of sidebarEntries) {
       if (isGroup(entry) && entry.items.some((child) => isActive(child.href))) {
@@ -222,7 +211,6 @@ export default function AdminSidebar() {
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-2">
         {sidebarEntries.map((entry) => {
           if (!isGroup(entry)) {
-            // 단일 메뉴 아이템 (대시보드)
             const active = isActive(entry.href);
             return (
               <Link
@@ -239,30 +227,23 @@ export default function AdminSidebar() {
             );
           }
 
-          // 그룹 메뉴
           const expanded = expandedGroups.has(entry.key);
           const hasActiveChild = entry.items.some((child) => isActive(child.href));
 
           return (
             <div key={entry.key} className="mt-3 first:mt-0">
-              {/* 그룹 헤더 */}
               <button
                 type="button"
                 onClick={() => toggleGroup(entry.key)}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-bold uppercase tracking-wider transition-all ${
-                  hasActiveChild
-                    ? "text-white"
-                    : "text-police-400 hover:text-police-200"
+                  hasActiveChild ? "text-white" : "text-police-400 hover:text-police-200"
                 }`}
               >
-                <span className={hasActiveChild ? "text-police-300" : "text-police-500"}>
-                  {iconMap[entry.icon]}
-                </span>
+                <span className={hasActiveChild ? "text-police-300" : "text-police-500"}>{iconMap[entry.icon]}</span>
                 <span className="flex-1 text-left">{entry.label}</span>
                 <ChevronIcon expanded={expanded} />
               </button>
 
-              {/* 하위 메뉴 */}
               {expanded ? (
                 <div className="mt-0.5 space-y-0.5 pl-3">
                   {entry.items.map((child) => {
@@ -278,9 +259,7 @@ export default function AdminSidebar() {
                             : "text-police-200 hover:bg-white/10 hover:text-white"
                         }`}
                       >
-                        <span className={active ? "text-police-300" : "text-police-400"}>
-                          {iconMap[child.icon]}
-                        </span>
+                        <span className={active ? "text-police-300" : "text-police-400"}>{iconMap[child.icon]}</span>
                         {child.label}
                       </Link>
                     );
@@ -316,9 +295,7 @@ export default function AdminSidebar() {
         </svg>
       </button>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setMobileOpen(false)} />
-      ) : null}
+      {mobileOpen ? <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setMobileOpen(false)} /> : null}
 
       <aside
         className={`fixed left-0 top-0 z-50 flex h-full w-60 flex-col bg-police-600 transition-transform duration-300 md:hidden ${
@@ -338,9 +315,7 @@ export default function AdminSidebar() {
         {navContent}
       </aside>
 
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-white/5 bg-police-700 md:flex">
-        {navContent}
-      </aside>
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-white/5 bg-police-700 md:flex">{navContent}</aside>
     </>
   );
 }
