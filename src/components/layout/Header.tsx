@@ -14,7 +14,7 @@ interface SiteSettingsResponse {
 
 export default function Header() {
   const { data: session, status } = useSession();
-  const [siteTitle, setSiteTitle] = useState("한국경찰학원 합격 예측 서비스");
+  const [siteTitle, setSiteTitle] = useState("경찰 필기 합격예측 서비스");
 
   useEffect(() => {
     (async () => {
@@ -26,7 +26,7 @@ export default function Header() {
           setSiteTitle(title);
         }
       } catch {
-        // 헤더는 기본값으로 안전하게 표시
+        // Keep the default title if site settings are unavailable.
       }
     })();
   }, []);
@@ -44,7 +44,7 @@ export default function Header() {
           <div className="flex items-center gap-2 sm:gap-3">
             <div className="hidden text-right text-sm leading-tight text-white/80 sm:block">
               <p className="font-medium">{session.user.name}</p>
-              <p>{session.user.phone}</p>
+              <p>아이디 {session.user.username}</p>
             </div>
             <NotificationBell />
             {session.user.role === "ADMIN" ? (
