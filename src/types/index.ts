@@ -21,12 +21,27 @@ export interface SubjectDefinition {
 
 export interface RegisterFormData {
   name: string;
-  phone: string;
+  username: string;
+  email: string;
   password: string;
+  agreeToTerms: boolean;
+  agreeToPrivacy: boolean;
 }
 
 export interface LoginFormData {
-  phone: string;
+  username: string;
+  password: string;
+}
+
+export interface PasswordResetRequestFormData {
+  username: string;
+  email: string;
+}
+
+export interface ResetPasswordFormData {
+  username: string;
+  email: string;
+  resetCode: string;
   password: string;
 }
 

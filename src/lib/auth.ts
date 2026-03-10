@@ -1,12 +1,16 @@
-import "server-only";
+﻿import "server-only";
 import type { Role } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import type { NextAuthOptions } from "next-auth";
+import type { NextAuthOptions, User } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
-import { consumeFixedWindowRateLimit } from "@/lib/rate-limit";
+import {
+  consumeFixedWindowRateLimit,
+  getFixedWindowRateLimitState,
+  resetFixedWindowRateLimit,
+} from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/request-ip";
-import { normalizePhone } from "@/lib/validations";
+import { normalizeUsername } from "@/lib/validations";
 
 const INSECURE_SECRETS = new Set([
   "change-this-to-a-long-random-string",
@@ -18,15 +22,16 @@ const INSECURE_SECRETS = new Set([
 const nextAuthSecret = process.env.NEXTAUTH_SECRET ?? "";
 const isProduction = process.env.NODE_ENV === "production";
 const isNextBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
+
 if (!nextAuthSecret || INSECURE_SECRETS.has(nextAuthSecret)) {
   if (isProduction && !isNextBuildPhase) {
     throw new Error(
-      "[auth] NEXTAUTH_SECRET이 설정되지 않았거나 기본값입니다. " +
-        "프로덕션 환경에서는 반드시 안전한 랜덤 문자열로 변경해 주세요."
+      "[auth] NEXTAUTH_SECRET\uAC00 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uAC70\uB098 \uAE30\uBCF8\uAC12\uC785\uB2C8\uB2E4. \uD504\uB85C\uB355\uC158\uC5D0\uC11C\uB294 \uBC18\uB4DC\uC2DC \uC548\uC804\uD55C \uAC12\uC73C\uB85C \uBCC0\uACBD\uD574\uC57C \uD569\uB2C8\uB2E4."
     );
   }
+
   console.warn(
-    "[auth] 경고: NEXTAUTH_SECRET이 기본값입니다. 프로덕션 배포 전 반드시 변경하세요."
+    "[auth] \uACBD\uACE0: NEXTAUTH_SECRET\uAC00 \uAE30\uBCF8\uAC12\uC785\uB2C8\uB2E4. \uD504\uB85C\uB355\uC158 \uBC30\uD3EC \uC804 \uBC18\uB4DC\uC2DC \uBCC0\uACBD\uD574\uC57C \uD569\uB2C8\uB2E4."
   );
 }
 
@@ -35,75 +40,44 @@ const LOGIN_FAILURE_LIMIT = 5;
 const LOGIN_IP_WINDOW_MS = 60 * 1000;
 const LOGIN_IP_LIMIT = 20;
 
-type LoginFailureRecord = {
-  failedCount: number;
-  firstFailedAt: number;
-  lockedUntil: number;
+const LOGIN_USERNAME_FAILURE_NAMESPACE = "auth-login-username-failure";
+const LOGIN_USERNAME_LOCK_NAMESPACE = "auth-login-username-lock";
+
+type AppUser = User & {
+  role: Role;
+  username: string;
 };
 
-const loginFailuresByPhone = new Map<string, LoginFailureRecord>();
-
-function cleanupExpiredLoginFailures(now: number) {
-  for (const [phone, record] of loginFailuresByPhone.entries()) {
-    const isWindowExpired = now - record.firstFailedAt > LOGIN_FAILURE_WINDOW_MS;
-    const isLockExpired = record.lockedUntil > 0 && record.lockedUntil <= now;
-
-    if (isWindowExpired || isLockExpired) {
-      loginFailuresByPhone.delete(phone);
-    }
-  }
+function getUsernameRateLimitState(username: string) {
+  return getFixedWindowRateLimitState({
+    namespace: LOGIN_USERNAME_LOCK_NAMESPACE,
+    key: username,
+    limit: 1,
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+  });
 }
 
-function getPhoneLockSeconds(phone: string): number {
-  const now = Date.now();
-  cleanupExpiredLoginFailures(now);
+function recordLoginFailure(username: string) {
+  const failureState = consumeFixedWindowRateLimit({
+    namespace: LOGIN_USERNAME_FAILURE_NAMESPACE,
+    key: username,
+    limit: LOGIN_FAILURE_LIMIT,
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+  });
 
-  const record = loginFailuresByPhone.get(phone);
-  if (!record || record.lockedUntil <= now) {
-    return 0;
-  }
-
-  return Math.max(1, Math.ceil((record.lockedUntil - now) / 1000));
-}
-
-function recordLoginFailure(phone: string) {
-  const now = Date.now();
-  cleanupExpiredLoginFailures(now);
-
-  const current = loginFailuresByPhone.get(phone);
-  if (!current) {
-    loginFailuresByPhone.set(phone, {
-      failedCount: 1,
-      firstFailedAt: now,
-      lockedUntil: 0,
+  if (!failureState.allowed || failureState.remaining === 0) {
+    consumeFixedWindowRateLimit({
+      namespace: LOGIN_USERNAME_LOCK_NAMESPACE,
+      key: username,
+      limit: 1,
+      windowMs: LOGIN_FAILURE_WINDOW_MS,
     });
-    return;
   }
-
-  if (current.lockedUntil > now) {
-    return;
-  }
-
-  if (now - current.firstFailedAt > LOGIN_FAILURE_WINDOW_MS) {
-    current.failedCount = 1;
-    current.firstFailedAt = now;
-    current.lockedUntil = 0;
-    loginFailuresByPhone.set(phone, current);
-    return;
-  }
-
-  current.failedCount += 1;
-  if (current.failedCount >= LOGIN_FAILURE_LIMIT) {
-    current.lockedUntil = now + LOGIN_FAILURE_WINDOW_MS;
-    current.failedCount = 0;
-    current.firstFailedAt = now;
-  }
-
-  loginFailuresByPhone.set(phone, current);
 }
 
-function clearLoginFailures(phone: string) {
-  loginFailuresByPhone.delete(phone);
+function clearLoginFailures(username: string) {
+  resetFixedWindowRateLimit({ namespace: LOGIN_USERNAME_FAILURE_NAMESPACE, key: username });
+  resetFixedWindowRateLimit({ namespace: LOGIN_USERNAME_LOCK_NAMESPACE, key: username });
 }
 
 export const authOptions: NextAuthOptions = {
@@ -116,18 +90,26 @@ export const authOptions: NextAuthOptions = {
   },
   providers: [
     CredentialsProvider({
-      name: "연락처 로그인",
+      name: "\uC544\uC774\uB514 \uB85C\uADF8\uC778",
       credentials: {
-        phone: {
-          label: "연락처",
+        username: {
+          label: "\uC544\uC774\uB514",
           type: "text",
-          placeholder: "010-1234-5678",
+          placeholder: "\uC544\uC774\uB514\uB97C \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
         },
-        password: { label: "비밀번호", type: "password" },
+        password: {
+          label: "\uBE44\uBC00\uBC88\uD638",
+          type: "password",
+        },
+        adminOnly: {
+          label: "\uAD00\uB9AC\uC790 \uC804\uC6A9",
+          type: "text",
+        },
       },
       async authorize(credentials, request) {
-        const phone = normalizePhone(credentials?.phone ?? "");
-        const password = credentials?.password?.trim();
+        const username = normalizeUsername(credentials?.username ?? "");
+        const password = credentials?.password?.trim() ?? "";
+        const adminOnly = credentials?.adminOnly === "true";
         const clientIp = getClientIp(request);
 
         const ipRateLimit = consumeFixedWindowRateLimit({
@@ -140,56 +122,61 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
-        if (!phone || !password) {
+        if (!username || !password) {
           return null;
         }
 
-        const lockSeconds = getPhoneLockSeconds(phone);
-        if (lockSeconds > 0) {
+        const usernameRateLimit = getUsernameRateLimitState(username);
+        if (!usernameRateLimit.allowed) {
           return null;
         }
 
-        const user = await prisma.user.findUnique({
-          where: { phone },
-        });
-
+        const user = await prisma.user.findUnique({ where: { phone: username } });
         if (!user) {
-          recordLoginFailure(phone);
+          recordLoginFailure(username);
+          return null;
+        }
+
+        if (adminOnly && user.role !== "ADMIN") {
+          recordLoginFailure(username);
           return null;
         }
 
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
-          recordLoginFailure(phone);
+          recordLoginFailure(username);
           return null;
         }
 
-        clearLoginFailures(phone);
+        clearLoginFailures(username);
 
         return {
           id: String(user.id),
           name: user.name,
-          phone: user.phone,
           role: user.role,
-        };
+          username: user.phone,
+        } satisfies AppUser;
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
-        token.role = (user as { role: Role }).role;
-        token.phone = (user as { phone: string }).phone;
+        const authUser = user as AppUser;
+        token.id = authUser.id;
+        token.role = authUser.role;
+        token.username = authUser.username;
       }
+
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
         session.user.id = typeof token.id === "string" ? token.id : "";
         session.user.role = (token.role as Role | undefined) ?? "USER";
-        session.user.phone = typeof token.phone === "string" ? token.phone : "";
+        session.user.username = typeof token.username === "string" ? token.username : "";
       }
+
       return session;
     },
   },

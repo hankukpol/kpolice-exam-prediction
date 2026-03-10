@@ -51,9 +51,12 @@ model User {
   id          Int          @id @default(autoincrement())
   name        String
   phone       String       @unique
+  email       String?      @unique
   password    String
-  role        Role         @default(USER)
-  createdAt   DateTime     @default(now())
+  role            Role         @default(USER)
+  createdAt       DateTime     @default(now())
+  termsAgreedAt   DateTime?    // 서비스 이용약관 동의 일시
+  privacyAgreedAt DateTime?    // 개인정보 수집·이용 동의 일시
   submissions Submission[]
   comments    Comment[]
   answerKeyLogs AnswerKeyLog[]
@@ -62,6 +65,10 @@ model User {
   rescoreDetails RescoreDetail[]
   finalPredictions FinalPrediction[]
   submissionLogs SubmissionLog[]
+  preRegistrations PreRegistration[]
+  passwordResetTokens PasswordResetToken[]
+  recoveryCodes       RecoveryCode[]
+  visitorLogs  VisitorLog[]
 }
 
 model Exam {
@@ -79,6 +86,7 @@ model Exam {
   rescoreEvents RescoreEvent[]
   passCutReleases PassCutRelease[]
   quotas  ExamRegionQuota[]
+  preRegistrations PreRegistration[]
 
   @@unique([year, round])
 }
@@ -88,6 +96,7 @@ model Region {
   name             String             @unique
   isActive         Boolean            @default(true)
   submissions      Submission[]
+  preRegistrations PreRegistration[]
   passCutSnapshots PassCutSnapshot[]
   quotas           ExamRegionQuota[]
 }
@@ -191,6 +200,25 @@ model Submission {
   @@index([examId, regionId, examType])
   @@index([examId, examType, finalScore])
   @@index([examId, regionId, examType, isSuspicious])
+}
+
+model PreRegistration {
+  id         Int       @id @default(autoincrement())
+  examId     Int
+  userId     Int
+  regionId   Int
+  examType   ExamType
+  gender     Gender
+  examNumber String
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @default(now()) @updatedAt
+  exam       Exam      @relation(fields: [examId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region     Region    @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, examId])
+  @@unique([examId, regionId, examNumber])
+  @@index([examId, regionId, examType])
 }
 
 model UserAnswer {
@@ -421,4 +449,45 @@ model SubmissionLog {
 
   @@index([submissionId])
   @@index([userId, createdAt])
+}
+
+model PasswordResetToken {
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  tokenHash        String   @unique
+  expiresAt        DateTime
+  usedAt           DateTime?
+  requestedIp      String?
+  requestedAgent   String?
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model RecoveryCode {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([codeHash])
+}
+
+model VisitorLog {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date          // 방문 날짜 (시간 제외)
+  userId      Int?                       // 로그인 사용자 ID (비회원은 null)
+  anonymousId String?  @db.VarChar(36)  // 비회원 UUID (로그인 사용자는 null)
+  createdAt   DateTime @default(now())
+  user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([date, userId])        // 로그인 사용자: 하루 1회
+  @@unique([date, anonymousId])   // 비회원: 하루 1회
+  @@index([date])
+  @@map("visitor_logs")
 }
