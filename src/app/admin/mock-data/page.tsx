@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label";
 
 const ADMIN_EXAM_API = "/api/admin/exam";
 const MOCK_DATA_API = "/api/admin/mock-data";
+const OPEN_RESET_API = "/api/admin/open-reset";
+const OPEN_RESET_CONFIRM_TEXT = "OPEN RESET";
 
 interface ExamItem {
   id: number;
@@ -54,6 +56,23 @@ interface MockActionSummary {
   };
 }
 
+interface OpenResetSummary {
+  deleted: {
+    preRegistrations: number;
+    submissions: number;
+    users: number;
+    comments: number;
+    answerKeys: number;
+    answerKeyLogs: number;
+    rescoreEvents: number;
+    passCutReleases: number;
+    visitorLogs: number;
+  };
+  preserved: {
+    adminUsers: number;
+  };
+}
+
 export default function AdminMockDataPage() {
   const [exams, setExams] = useState<ExamItem[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<number | null>(null);
@@ -69,8 +88,11 @@ export default function AdminMockDataPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isResettingExam, setIsResettingExam] = useState(false);
   const [isResettingAll, setIsResettingAll] = useState(false);
+  const [isOpenResetting, setIsOpenResetting] = useState(false);
   const [notice, setNotice] = useState<NoticeState>(null);
   const [latestSummary, setLatestSummary] = useState<MockActionSummary | null>(null);
+  const [openResetSummary, setOpenResetSummary] = useState<OpenResetSummary | null>(null);
+  const [openResetConfirmInput, setOpenResetConfirmInput] = useState("");
 
   const selectedExamLabel = useMemo(() => {
     if (!selectedExamId) return "활성 시험 없음";
@@ -252,6 +274,69 @@ export default function AdminMockDataPage() {
     }
   }
 
+  async function handleOpenReset() {
+    if (openResetConfirmInput.trim() !== OPEN_RESET_CONFIRM_TEXT) {
+      setNotice({
+        type: "error",
+        message: `확인 문구를 정확히 입력해 주세요. (${OPEN_RESET_CONFIRM_TEXT})`,
+      });
+      return;
+    }
+
+    const ok = await confirm({
+      title: "오픈 전 전체 초기화",
+      description: [
+        "아래 데이터가 전체 삭제됩니다.",
+        "- 일반 사용자 계정",
+        "- 사전등록 / 제출 / 댓글 / 방문 로그",
+        "- 정답 / 정답 변경 이력",
+        "- 재채점 / 합격컷 발표 이력",
+        "",
+        "시험, 지역, 사이트 설정, 관리자 계정은 유지됩니다.",
+        "",
+        "정말 전체 초기화하시겠습니까?",
+      ].join("\n"),
+      variant: "danger",
+      confirmLabel: "전체 초기화",
+    });
+    if (!ok) return;
+
+    setIsOpenResetting(true);
+    setNotice(null);
+    try {
+      const response = await fetch(OPEN_RESET_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          confirmText: openResetConfirmInput.trim(),
+        }),
+      });
+      const data = await readResponseJson<{
+        success?: boolean;
+        error?: string;
+        result?: OpenResetSummary;
+      }>(response);
+      if (!response.ok || !data?.success || !data.result) {
+        throw new Error(data?.error ?? `오픈 전 전체 초기화에 실패했습니다. (${response.status})`);
+      }
+
+      setOpenResetSummary(data.result);
+      setOpenResetConfirmInput("");
+      setLatestSummary(null);
+      setNotice({
+        type: "success",
+        message: "오픈 전 전체 초기화가 완료되었습니다.",
+      });
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "오픈 전 전체 초기화에 실패했습니다.",
+      });
+    } finally {
+      setIsOpenResetting(false);
+    }
+  }
+
   if (isLoading) {
     return <p className="text-sm text-slate-600">목업 데이터 관리 페이지를 불러오는 중입니다...</p>;
   }
@@ -346,7 +431,7 @@ export default function AdminMockDataPage() {
           <Button
             type="button"
             onClick={handleGenerateMockData}
-            disabled={isGenerating || isResettingExam || isResettingAll || !selectedExamId}
+            disabled={isGenerating || isResettingExam || isResettingAll || isOpenResetting || !selectedExamId}
           >
             {isGenerating ? "목업 생성 중..." : "목업 데이터 생성"}
           </Button>
@@ -354,7 +439,7 @@ export default function AdminMockDataPage() {
             type="button"
             variant="outline"
             onClick={handleResetExamMockData}
-            disabled={isGenerating || isResettingExam || isResettingAll || !selectedExamId}
+            disabled={isGenerating || isResettingExam || isResettingAll || isOpenResetting || !selectedExamId}
           >
             {isResettingExam ? "선택 시험 초기화 중..." : "선택 시험 목업 초기화"}
           </Button>
@@ -363,9 +448,59 @@ export default function AdminMockDataPage() {
             variant="outline"
             className="border-rose-300 text-rose-700 hover:bg-rose-50"
             onClick={handleResetAllMockData}
-            disabled={isGenerating || isResettingExam || isResettingAll}
+            disabled={isGenerating || isResettingExam || isResettingAll || isOpenResetting}
           >
             {isResettingAll ? "전체 초기화 중..." : "전체 MOCK 완전 삭제"}
+          </Button>
+        </div>
+      </section>
+
+      <section className="space-y-4 rounded-xl border border-rose-200 bg-rose-50 p-6">
+        <div>
+          <h2 className="text-base font-semibold text-rose-900">오픈 전 전체 초기화</h2>
+          <p className="mt-1 text-sm text-rose-800">
+            실제 오픈 직전 한 번만 사용하는 위험 작업입니다. 시험/지역/사이트 설정/관리자 계정은 유지하고,
+            일반 사용자와 테스트 누적 데이터를 모두 정리합니다.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-rose-200 bg-white/80 p-4 text-sm text-rose-900">
+          <p>삭제 범위</p>
+          <p>- 일반 사용자 계정 전체</p>
+          <p>- 사전등록, 제출, 댓글, 방문 로그</p>
+          <p>- 정답, 정답 변경 이력</p>
+          <p>- 재채점 이력, 합격컷 발표 이력</p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="open-reset-confirm">확인 문구 입력</Label>
+          <Input
+            id="open-reset-confirm"
+            value={openResetConfirmInput}
+            onChange={(event) => setOpenResetConfirmInput(event.target.value)}
+            placeholder={OPEN_RESET_CONFIRM_TEXT}
+            className="max-w-sm bg-white"
+          />
+          <p className="text-xs text-rose-700">
+            버튼 활성화를 위해 <code>{OPEN_RESET_CONFIRM_TEXT}</code> 를 정확히 입력하세요.
+          </p>
+        </div>
+
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            className="border-rose-400 text-rose-700 hover:bg-rose-100"
+            onClick={handleOpenReset}
+            disabled={
+              isGenerating ||
+              isResettingExam ||
+              isResettingAll ||
+              isOpenResetting ||
+              openResetConfirmInput.trim() !== OPEN_RESET_CONFIRM_TEXT
+            }
+          >
+            {isOpenResetting ? "전체 초기화 중..." : "오픈 전 전체 초기화 실행"}
           </Button>
         </div>
       </section>
@@ -397,6 +532,24 @@ export default function AdminMockDataPage() {
                 {latestSummary.deleted.users}명
               </p>
             ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {openResetSummary ? (
+        <section className="rounded-xl border border-rose-200 bg-rose-50 p-5">
+          <h2 className="text-base font-semibold text-rose-900">오픈 전 초기화 결과</h2>
+          <div className="mt-3 grid gap-2 text-sm text-rose-900">
+            <p>삭제 사용자: {openResetSummary.deleted.users}명</p>
+            <p>삭제 사전등록: {openResetSummary.deleted.preRegistrations}건</p>
+            <p>삭제 제출: {openResetSummary.deleted.submissions}건</p>
+            <p>삭제 댓글: {openResetSummary.deleted.comments}건</p>
+            <p>삭제 방문 로그: {openResetSummary.deleted.visitorLogs}건</p>
+            <p>삭제 정답: {openResetSummary.deleted.answerKeys}건</p>
+            <p>삭제 정답 변경 이력: {openResetSummary.deleted.answerKeyLogs}건</p>
+            <p>삭제 재채점 이력: {openResetSummary.deleted.rescoreEvents}건</p>
+            <p>삭제 합격컷 발표 이력: {openResetSummary.deleted.passCutReleases}건</p>
+            <p>유지 관리자 계정: {openResetSummary.preserved.adminUsers}명</p>
           </div>
         </section>
       ) : null}

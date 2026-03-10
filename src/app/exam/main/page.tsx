@@ -36,6 +36,14 @@ export default async function ExamMainPage() {
   const settings = await getSiteSettingsUncached();
   const finalPredictionEnabled = Boolean(settings["site.finalPredictionEnabled"] ?? false);
   const commentsEnabled = Boolean(settings["site.commentsEnabled"] ?? true);
+  const tabEnabled = {
+    main: Boolean(settings["site.tabMainEnabled"] ?? true),
+    input: Boolean(settings["site.tabInputEnabled"] ?? true),
+    result: Boolean(settings["site.tabResultEnabled"] ?? true),
+    prediction: Boolean(settings["site.tabPredictionEnabled"] ?? true),
+    notices: Boolean(settings["site.tabNoticesEnabled"] ?? true),
+    faq: Boolean(settings["site.tabFaqEnabled"] ?? true),
+  };
 
   return (
     <ExamFunctionArea
@@ -44,6 +52,7 @@ export default async function ExamMainPage() {
       isAdmin={isAdmin}
       finalPredictionEnabled={finalPredictionEnabled}
       commentsEnabled={commentsEnabled}
+      tabEnabled={tabEnabled}
     />
   );
 }

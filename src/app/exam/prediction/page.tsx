@@ -182,35 +182,57 @@ function getConfidenceLevel(rate: number): {
   };
 }
 
-/** 등급별 비율 바 색상 */
-function levelBarColor(key: PredictionPageResponse["pyramid"]["levels"][number]["key"]): string {
-  if (key === "sure") return "bg-blue-600";
-  if (key === "likely") return "bg-blue-400";
-  if (key === "possible") return "bg-cyan-400";
-  if (key === "challenge") return "bg-slate-400";
-  return "bg-slate-300";
-}
-
-function levelColor(
-  key: PredictionPageResponse["pyramid"]["levels"][number]["key"],
-  current: boolean
-): string {
-  if (key === "sure") return current ? "bg-blue-900" : "bg-blue-800";
-  if (key === "likely") return current ? "bg-blue-700" : "bg-blue-600";
-  if (key === "possible") return current ? "bg-cyan-600" : "bg-cyan-500";
-  if (key === "challenge") return current ? "bg-slate-500" : "bg-slate-400";
-  return current ? "bg-slate-300" : "bg-slate-200";
-}
-
-function levelTextColor(key: PredictionPageResponse["pyramid"]["levels"][number]["key"]): string {
-  return key === "belowChallenge" ? "text-slate-700" : "text-white";
-}
-
 function buildPageNumbers(page: number, totalPages: number): number[] {
   const pages = new Set<number>([1, totalPages, page, page - 1, page + 1]);
   return Array.from(pages)
     .filter((p) => p >= 1 && p <= totalPages)
     .sort((a, b) => a - b);
+}
+
+function getSnapshotStageMeta(snapshot: PassCutSnapshot): {
+  label: string;
+  description: string;
+  badgeClass: string;
+} {
+  switch (snapshot.status) {
+    case "READY":
+      return {
+        label: "실시간 예측 안정 단계",
+        description: "표본과 컷 값이 안정적으로 쌓여 현재 예측을 실전 참고값으로 볼 수 있는 구간입니다.",
+        badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-800",
+      };
+    case "COLLECTING_MISSING_APPLICANT_COUNT":
+      return {
+        label: "응시인원 정보 대기 중",
+        description: "공식 응시인원 정보가 아직 확정되지 않아 컷 해석 폭이 조금 넓을 수 있습니다.",
+        badgeClass: "border-sky-200 bg-sky-50 text-sky-800",
+      };
+    case "COLLECTING_LOW_PARTICIPATION":
+    case "COLLECTING_INSUFFICIENT_SAMPLE":
+      return {
+        label: "표본 수집 중",
+        description: "초기 표본 단계라 참여가 더 늘어날수록 컷 값이 눈에 띄게 움직일 수 있습니다.",
+        badgeClass: "border-amber-200 bg-amber-50 text-amber-800",
+      };
+    default:
+      return {
+        label: "표본 보강 필요",
+        description: "표본이 더 쌓이면 지역 컷이 현재보다 다른 위치로 이동할 수 있습니다.",
+        badgeClass: "border-sky-200 bg-sky-50 text-sky-800",
+      };
+  }
+}
+
+function formatStageDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(parsed);
 }
 
 export default function ExamPredictionPage({ embedded = false }: ExamPredictionPageProps = {}) {
@@ -220,7 +242,6 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
   const [page, setPage] = useState(1);
   const [prediction, setPrediction] = useState<PredictionPageResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   const [passCutHistory, setPassCutHistory] = useState<PassCutHistoryResponse | null>(null);
@@ -235,9 +256,7 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
 
   const fetchPrediction = useCallback(
     async (targetPage: number, silent = false) => {
-      if (silent) {
-        setIsRefreshing(true);
-      } else {
+      if (!silent) {
         setIsLoading(true);
       }
 
@@ -285,8 +304,9 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
         setErrorMessage(message);
         showErrorToast(message);
       } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
+        if (!silent) {
+          setIsLoading(false);
+        }
       }
     },
     [embedded, router, showErrorToast]
@@ -425,25 +445,85 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
     );
   }
 
-  const { summary, pyramid, competitors } = prediction;
+  const { summary, competitors } = prediction;
   const participationRate = getParticipationRate(
     summary.totalParticipants,
     summary.applicantCount ?? 0
   );
   const confidence = getConfidenceLevel(participationRate);
-
-  // 트랙용 역순 (좌→우: 도전이하 → 확실권)
-  const trackLevels = pyramid.levels.slice().reverse();
-  // 내 위치 마커 (rank 1 = 우측 100%, 최하위 = 좌측 0%)
-  const markerPercent = summary.totalParticipants <= 1
-    ? 50
-    : ((summary.totalParticipants - summary.myRank) / (summary.totalParticipants - 1)) * 100;
-  // 내 등급 라벨
-  const myLevelLabel = pyramid.levels.find((l) => l.isCurrent)?.label ?? "";
+  const currentStageMeta = passCutHistory ? getSnapshotStageMeta(passCutHistory.current) : null;
+  const stageCards = passCutHistory
+    ? [
+        {
+          key: "live",
+          title: "실시간 예측",
+          subtitle: currentStageMeta?.label ?? "표본 수집 중",
+          detail:
+            currentStageMeta?.description ??
+            "표본이 더 쌓이는 동안 지역 컷이 계속 움직일 수 있습니다.",
+        },
+        ...passCutHistory.releases.map((release) => ({
+          key: `release-${release.releaseNumber}`,
+          title: `${release.releaseNumber}차 컷 발표`,
+          subtitle: release.snapshot ? formatStageDate(release.releasedAt) : "데이터 없음",
+          detail: release.snapshot
+            ? `참여 ${release.snapshot.participantCount.toLocaleString("ko-KR")}명 기준 · 1배수 ${formatScore(
+                release.snapshot.oneMultipleCutScore
+              )}`
+            : "발표 데이터가 없습니다.",
+        })),
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
       <PredictionLiveDashboard prediction={prediction} />
+
+      <section className={`rounded-xl border p-5 text-sm ${confidence.badgeClass}`}>
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold tracking-wide">예측 신호</p>
+            <p className="mt-1 text-base font-bold">{confidence.label}</p>
+            <p className="mt-2">{confidence.message}</p>
+          </div>
+          <div className="rounded-lg bg-white/70 px-4 py-3 text-slate-700">
+            <p>
+              표본 {summary.totalParticipants.toLocaleString("ko-KR")}명 · 응시인원 기준{" "}
+              {participationRate.toFixed(1)}%
+            </p>
+            <p className="mt-1">
+              1배수 컷 {formatScore(summary.oneMultipleCutScore)} · 합격확실권 {formatScore(summary.passLineScore)}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {stageCards.length > 0 ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">컷 공개 단계</h2>
+              <p className="text-sm text-slate-500">
+                실시간 예측과 컷 발표 이력을 한 흐름에서 확인할 수 있습니다.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-4">
+            {stageCards.map((card, index) => (
+              <article
+                key={card.key}
+                className={`rounded-lg border p-4 ${
+                  index === 0 ? "border-police-200 bg-police-50" : "border-slate-200 bg-slate-50"
+                }`}
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{card.title}</p>
+                <p className="mt-2 text-sm font-bold text-slate-900">{card.subtitle}</p>
+                <p className="mt-2 text-sm text-slate-600">{card.detail}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {isPassCutLoading ? (
         <section className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">

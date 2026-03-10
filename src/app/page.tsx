@@ -121,6 +121,15 @@ export default async function HomePage() {
   const careerExamEnabled = Boolean(siteSettings["site.careerExamEnabled"] ?? true);
   const finalPredictionEnabled = Boolean(siteSettings["site.finalPredictionEnabled"] ?? false);
   const commentsEnabled = Boolean(siteSettings["site.commentsEnabled"] ?? true);
+  const mainCardLiveStatsEnabled = Boolean(siteSettings["site.mainCardLiveStatsEnabled"] ?? true);
+  const tabEnabled = {
+    main: Boolean(siteSettings["site.tabMainEnabled"] ?? true),
+    input: Boolean(siteSettings["site.tabInputEnabled"] ?? true),
+    result: Boolean(siteSettings["site.tabResultEnabled"] ?? true),
+    prediction: Boolean(siteSettings["site.tabPredictionEnabled"] ?? true),
+    notices: Boolean(siteSettings["site.tabNoticesEnabled"] ?? true),
+    faq: Boolean(siteSettings["site.tabFaqEnabled"] ?? true),
+  };
   const heroTitle = String(
     siteSettings["site.heroTitle"] ?? "OMR 입력부터 합격권 예측까지\n한 번에 확인하세요."
   );
@@ -161,7 +170,9 @@ export default async function HomePage() {
             </div>
           ) : null}
 
-          <LiveStatsCounter stats={liveStats} careerExamEnabled={careerExamEnabled} />
+          {mainCardLiveStatsEnabled ? (
+            <LiveStatsCounter stats={liveStats} careerExamEnabled={careerExamEnabled} />
+          ) : null}
           <NoticeBar notices={activeNotices} />
           <ExamFunctionArea
             isAuthenticated={isLoggedIn}
@@ -169,6 +180,7 @@ export default async function HomePage() {
             isAdmin={isAdmin}
             finalPredictionEnabled={finalPredictionEnabled}
             commentsEnabled={commentsEnabled}
+            tabEnabled={tabEnabled}
           />
         </div>
       </section>

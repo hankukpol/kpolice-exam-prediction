@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
 import { parsePositiveInt } from "@/lib/exam-utils";
-import { calculateKnownFinalRank, calculateKnownFinalScore } from "@/lib/final-prediction";
+import { calculateFinalRankingDetails, calculateKnownFinalRank, calculateKnownFinalScore, roundScore } from "@/lib/final-prediction";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 
@@ -14,7 +14,6 @@ interface FinalPredictionRequestBody {
   submissionId?: unknown;
   fitnessPassed?: unknown;
   martialDanLevel?: unknown;
-  additionalBonusPoint?: unknown;
 }
 
 interface AdminPreviewCandidate {
@@ -32,6 +31,7 @@ const submissionSelect = {
   examType: true,
   finalScore: true,
   examNumber: true,
+  bonusRate: true,
 } as const;
 
 function parseBoolean(value: unknown): boolean | null {
@@ -57,13 +57,6 @@ function parseFiniteNumber(value: unknown): number | null {
     }
   }
   return null;
-}
-
-function parseNumberInRange(value: unknown, minValue: number, maxValue: number): number | null {
-  const parsed = parseFiniteNumber(value);
-  if (parsed === null) return null;
-  if (parsed < minValue || parsed > maxValue) return null;
-  return parsed;
 }
 
 function parseDanLevel(value: unknown): number | null {
@@ -217,6 +210,7 @@ export async function GET(request: NextRequest) {
         submissionId: null,
         writtenScore: null,
         finalPrediction: null,
+        ranking: null,
       });
     }
 
@@ -243,6 +237,19 @@ export async function GET(request: NextRequest) {
   });
 
   const fitnessPassed = saved?.interviewGrade === "PASS";
+  const writtenScore = Number(submission.finalScore);
+
+  // interviewScore에 무도 단수가 저장됨 (용도 변경)
+  const martialDanLevel =
+    saved?.interviewScore === null || saved?.interviewScore === undefined ? 0 : Number(saved.interviewScore);
+
+  const calculated = calculateKnownFinalScore({
+    writtenScore,
+    fitnessPassed,
+    martialDanLevel,
+    bonusRate: Number(submission.bonusRate),
+  });
+
   const rankInfo =
     saved?.finalScore === null || saved?.finalScore === undefined || !fitnessPassed
       ? { finalRank: null as number | null, totalParticipants: 0 }
@@ -253,29 +260,32 @@ export async function GET(request: NextRequest) {
           submissionId: submission.id,
         });
 
-  const martialBonusPoint =
-    saved?.fitnessScore === null || saved?.fitnessScore === undefined ? 0 : Number(saved.fitnessScore);
-  const additionalBonusPoint =
-    saved?.interviewScore === null || saved?.interviewScore === undefined ? 0 : Number(saved.interviewScore);
-  const knownBonusPoint = martialBonusPoint + additionalBonusPoint;
+  const ranking =
+    saved?.finalScore !== null && saved?.finalScore !== undefined && fitnessPassed
+      ? await calculateFinalRankingDetails({
+          examId: submission.examId,
+          regionId: submission.regionId,
+          examType: submission.examType,
+          submissionId: submission.id,
+        })
+      : null;
 
   return NextResponse.json({
     isAdminPreview: isAdmin,
     ...(isAdmin ? { adminPreviewCandidates } : {}),
     submissionId: submission.id,
-    writtenScore: Number(submission.finalScore),
+    writtenScore: roundScore(writtenScore),
     finalPrediction: saved
       ? {
           fitnessPassed,
-          martialBonusPoint,
-          additionalBonusPoint,
-          knownBonusPoint,
-          knownFinalScore: saved.finalScore === null ? null : Number(saved.finalScore),
+          martialDanLevel,
+          ...calculated,
           finalRank: rankInfo.finalRank,
           totalParticipants: rankInfo.totalParticipants,
           updatedAt: saved.updatedAt.toISOString(),
         }
       : null,
+    ranking,
   });
 }
 
@@ -321,11 +331,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "무도 단수는 0~20 사이의 정수여야 합니다." }, { status: 400 });
   }
 
-  const additionalBonusPoint = parseNumberInRange(body.additionalBonusPoint, 0, 10);
-  if (additionalBonusPoint === null) {
-    return NextResponse.json({ error: "추가 가산점은 0 이상 10 이하 숫자여야 합니다." }, { status: 400 });
-  }
-
   const submission = await prisma.submission.findFirst({
     where: isAdmin
       ? {
@@ -348,7 +353,7 @@ export async function POST(request: NextRequest) {
     writtenScore,
     fitnessPassed,
     martialDanLevel,
-    additionalBonusPoint,
+    bonusRate: Number(submission.bonusRate),
   });
 
   await prisma.finalPrediction.upsert({
@@ -356,17 +361,17 @@ export async function POST(request: NextRequest) {
     update: {
       userId: submission.userId,
       fitnessScore: calculated.martialBonusPoint,
-      interviewScore: additionalBonusPoint,
+      interviewScore: martialDanLevel, // 무도 단수 저장 (용도 변경)
       interviewGrade: fitnessPassed ? "PASS" : "FAIL",
-      finalScore: calculated.knownFinalScore,
+      finalScore: calculated.score75,
     },
     create: {
       submissionId: submission.id,
       userId: submission.userId,
       fitnessScore: calculated.martialBonusPoint,
-      interviewScore: additionalBonusPoint,
+      interviewScore: martialDanLevel, // 무도 단수 저장 (용도 변경)
       interviewGrade: fitnessPassed ? "PASS" : "FAIL",
-      finalScore: calculated.knownFinalScore,
+      finalScore: calculated.score75,
     },
   });
 
@@ -384,18 +389,23 @@ export async function POST(request: NextRequest) {
     data: { finalRank: rankInfo.finalRank },
   });
 
+  const ranking = fitnessPassed
+    ? await calculateFinalRankingDetails({
+        examId: submission.examId,
+        regionId: submission.regionId,
+        examType: submission.examType,
+        submissionId: submission.id,
+      })
+    : null;
+
   return NextResponse.json({
     success: true,
     submissionId: submission.id,
-    writtenScore,
+    writtenScore: roundScore(writtenScore),
     fitnessPassed,
     martialDanLevel,
-    additionalBonusPoint,
-    calculation: {
-      martialBonusPoint: calculated.martialBonusPoint,
-      knownBonusPoint: calculated.knownBonusPoint,
-      knownFinalScore: calculated.knownFinalScore,
-    },
+    calculation: calculated,
     rank: rankInfo,
+    ranking,
   });
 }

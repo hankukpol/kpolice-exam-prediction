@@ -11,7 +11,7 @@ type UserRole = "USER" | "ADMIN";
 interface UserRow {
   id: number;
   name: string;
-  phone: string;
+  username: string;
   role: UserRole;
   createdAt: string;
   submissionCount: number;
@@ -31,6 +31,11 @@ interface UsersResponse {
 type NoticeState = {
   type: "success" | "error";
   message: string;
+} | null;
+
+type TempPasswordInfo = {
+  userName: string;
+  password: string;
 } | null;
 
 const PAGE_LIMIT = 20;
@@ -53,8 +58,11 @@ export default function AdminUsersPage() {
   const [notice, setNotice] = useState<NoticeState>(null);
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
-  const { confirm, modalProps } = useConfirmModal();
   const [draftRoles, setDraftRoles] = useState<Record<number, UserRole>>({});
+  const [tempPasswordInfo, setTempPasswordInfo] = useState<TempPasswordInfo>(null);
+  const [copied, setCopied] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const { confirm, modalProps } = useConfirmModal();
 
   const canGoPrev = page > 1;
   const canGoNext = page < totalPages;
@@ -106,11 +114,14 @@ export default function AdminUsersPage() {
   async function handleUpdateRole(user: UserRow) {
     const nextRole = draftRoles[user.id];
     if (!nextRole || nextRole === user.role) {
-      setNotice({ type: "error", message: "변경된 역할이 없습니다." });
+      setNotice({ type: "error", message: "변경된 권한이 없습니다." });
       return;
     }
 
-    const ok = await confirm({ title: "권한 변경", description: `${user.name}님의 권한을 ${nextRole === "ADMIN" ? "관리자" : "일반 사용자"}로 저장하시겠습니까?` });
+    const ok = await confirm({
+      title: "권한 변경",
+      description: `${user.name}님의 권한을 ${nextRole === "ADMIN" ? "관리자" : "일반 사용자"}로 변경하시겠습니까?`,
+    });
     if (!ok) return;
 
     setUpdatingUserId(user.id);
@@ -123,18 +134,18 @@ export default function AdminUsersPage() {
       });
       const data = (await response.json()) as { success?: boolean; error?: string };
       if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "사용자 역할 변경에 실패했습니다.");
+        throw new Error(data.error ?? "사용자 권한 변경에 실패했습니다.");
       }
 
       setNotice({
         type: "success",
-        message: `${user.name}님의 권한이 ${nextRole === "ADMIN" ? "관리자" : "일반 사용자"}로 변경되었습니다.`,
+        message: `${user.name}님의 권한을 ${nextRole === "ADMIN" ? "관리자" : "일반 사용자"}로 변경했습니다.`,
       });
       await loadUsers();
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "사용자 역할 변경에 실패했습니다.",
+        message: error instanceof Error ? error.message : "사용자 권한 변경에 실패했습니다.",
       });
     } finally {
       setUpdatingUserId(null);
@@ -142,7 +153,10 @@ export default function AdminUsersPage() {
   }
 
   async function handleResetPassword(user: UserRow) {
-    const ok = await confirm({ title: "비밀번호 초기화", description: `${user.name}님의 비밀번호를 초기화하시겠습니까?` });
+    const ok = await confirm({
+      title: "비밀번호 초기화",
+      description: `${user.name}님의 비밀번호를 초기화하시겠습니까?`,
+    });
     if (!ok) return;
 
     setUpdatingUserId(user.id);
@@ -163,10 +177,8 @@ export default function AdminUsersPage() {
       }
 
       const tempPassword = data.tempPassword ?? "";
-      setNotice({
-        type: "success",
-        message: `${user.name}님의 임시 비밀번호: ${tempPassword}`,
-      });
+      setTempPasswordInfo({ userName: user.name, password: tempPassword });
+      setCopied(false);
     } catch (error) {
       setNotice({
         type: "error",
@@ -177,8 +189,39 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function handleDownloadCsv() {
+    setIsDownloading(true);
+    try {
+      const params = new URLSearchParams();
+      if (searchKeyword) params.set("search", searchKeyword);
+      if (roleFilter) params.set("role", roleFilter);
+
+      const response = await fetch(`/api/admin/users/export?${params.toString()}`);
+      if (!response.ok) throw new Error("다운로드에 실패했습니다.");
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `회원목록_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message: error instanceof Error ? error.message : "CSV 다운로드에 실패했습니다.",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
   async function handleDeleteUser(user: UserRow) {
-    const ok = await confirm({ title: "사용자 삭제", description: `${user.name} 사용자를 삭제하시겠습니까? 삭제 시 제출/댓글 데이터도 함께 삭제됩니다.`, variant: "danger" });
+    const ok = await confirm({
+      title: "사용자 삭제",
+      description: `${user.name} 사용자를 삭제하시겠습니까? 삭제 시 제출 및 댓글 데이터도 함께 삭제됩니다.`,
+      variant: "danger",
+    });
     if (!ok) return;
 
     setDeletingUserId(user.id);
@@ -194,7 +237,7 @@ export default function AdminUsersPage() {
 
       setNotice({
         type: "success",
-        message: `${user.name} 사용자가 삭제되었습니다.`,
+        message: `${user.name} 사용자를 삭제했습니다.`,
       });
       await loadUsers();
     } catch (error) {
@@ -209,11 +252,22 @@ export default function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold text-slate-900">사용자 관리</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          사용자 검색, 권한 변경, 비밀번호 초기화, 계정 삭제를 관리합니다.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">사용자 관리</h1>
+          <p className="mt-1 text-sm text-slate-600">
+            사용자 검색, 권한 변경, 비밀번호 초기화, 계정 삭제를 관리합니다.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void handleDownloadCsv()}
+          disabled={isDownloading || isLoading}
+          className="shrink-0"
+        >
+          {isDownloading ? "다운로드 중..." : "CSV 다운로드"}
+        </Button>
       </header>
 
       <section className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
@@ -221,7 +275,7 @@ export default function AdminUsersPage() {
           <Input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
-            placeholder="이름 또는 연락처 검색"
+            placeholder="이름 또는 아이디 검색"
           />
           <select
             className="h-10 rounded-md border border-slate-300 bg-white px-3 text-sm"
@@ -268,7 +322,7 @@ export default function AdminUsersPage() {
               <tr>
                 <th className="px-4 py-3">ID</th>
                 <th className="px-4 py-3">이름</th>
-                <th className="px-4 py-3">연락처</th>
+                <th className="px-4 py-3">아이디</th>
                 <th className="px-4 py-3">가입일</th>
                 <th className="px-4 py-3">제출</th>
                 <th className="px-4 py-3">댓글</th>
@@ -291,7 +345,7 @@ export default function AdminUsersPage() {
                     <tr key={user.id} className="bg-white">
                       <td className="px-4 py-3 text-slate-700">{user.id}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{user.name}</td>
-                      <td className="px-4 py-3 text-slate-700">{user.phone}</td>
+                      <td className="px-4 py-3 text-slate-700">{user.username}</td>
                       <td className="px-4 py-3 text-slate-700">{formatDateText(user.createdAt)}</td>
                       <td className="px-4 py-3 text-slate-700">{user.submissionCount}</td>
                       <td className="px-4 py-3 text-slate-700">{user.commentCount}</td>
@@ -354,7 +408,7 @@ export default function AdminUsersPage() {
 
       <section className="flex items-center justify-between">
         <p className="text-sm text-slate-600">
-          총 {totalCount.toLocaleString("ko-KR")}명 · {page}/{totalPages} 페이지
+          총 {totalCount.toLocaleString("ko-KR")}명 중 {page}/{totalPages} 페이지
         </p>
         <div className="flex gap-2">
           <Button type="button" variant="outline" disabled={!canGoPrev} onClick={() => setPage((prev) => prev - 1)}>
@@ -367,6 +421,52 @@ export default function AdminUsersPage() {
       </section>
 
       <ConfirmModal {...modalProps} />
+
+      {tempPasswordInfo ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-slate-900">임시 비밀번호 발급 완료</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              <span className="font-medium">{tempPasswordInfo.userName}</span>님의 비밀번호가 초기화되었습니다.
+              아래 임시 비밀번호를 전달해 주세요.
+            </p>
+
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <p className="mb-1 text-xs font-medium text-amber-700">임시 비밀번호</p>
+              <p className="font-mono text-2xl font-bold tracking-widest text-amber-900">
+                {tempPasswordInfo.password}
+              </p>
+            </div>
+
+            <p className="mt-3 text-xs text-slate-500">
+              로그인 후 반드시 새 비밀번호로 변경하도록 안내해 주세요.
+            </p>
+
+            <div className="mt-5 flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  void navigator.clipboard.writeText(tempPasswordInfo.password).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  });
+                }}
+              >
+                {copied ? "복사됨" : "클립보드 복사"}
+              </Button>
+              <Button
+                type="button"
+                className="flex-1"
+                onClick={() => setTempPasswordInfo(null)}
+              >
+                확인
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
