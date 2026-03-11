@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 import { validateAnswerPattern } from "@/lib/answer-validation";
 import { getClientIp } from "@/lib/request-ip";
+import { consumeFixedWindowRateLimit } from "@/lib/rate-limit";
 import {
   calculateScore,
   getBonusPercent,
@@ -663,6 +664,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   }
 
+  // Rate limiting: 사용자당 60초에 5회
+  const postRateLimit = consumeFixedWindowRateLimit({
+    namespace: "submission-post-user",
+    key: String(session.user.id),
+    limit: 5,
+    windowMs: 60 * 1000,
+  });
+  if (!postRateLimit.allowed) {
+    return NextResponse.json(
+      { error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+      { status: 429, headers: { "Retry-After": String(postRateLimit.retryAfterSec) } }
+    );
+  }
+
   try {
     let body: SubmissionRequestBody;
     try {
@@ -969,6 +984,20 @@ export async function PUT(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
+  }
+
+  // Rate limiting: 사용자당 60초에 10회
+  const putRateLimit = consumeFixedWindowRateLimit({
+    namespace: "submission-put-user",
+    key: String(session.user.id),
+    limit: 10,
+    windowMs: 60 * 1000,
+  });
+  if (!putRateLimit.allowed) {
+    return NextResponse.json(
+      { error: "요청이 너무 많습니다. 잠시 후 다시 시도해주세요." },
+      { status: 429, headers: { "Retry-After": String(putRateLimit.retryAfterSec) } }
+    );
   }
 
   try {

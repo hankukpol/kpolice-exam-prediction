@@ -247,6 +247,7 @@ model SubjectScore {
   subject      Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict)
 
   @@unique([submissionId, subjectId])
+  @@index([submissionId, isFailed])
 }
 
 model Comment {

@@ -11,6 +11,35 @@ export const runtime = "nodejs";
 const STATS_REQUEST_WINDOW_MS = 60 * 1000;
 const STATS_REQUEST_LIMIT_PER_IP = 30;
 
+// 통계 결과 인메모리 캐시 (examId → 캐시 엔트리)
+const STATS_CACHE_TTL_MS = 30 * 1000; // 30초
+
+interface StatsCacheEntry {
+  data: unknown;
+  cachedAt: number;
+}
+
+const statsCache = new Map<number, StatsCacheEntry>();
+
+function getStatsCache(examId: number): unknown | null {
+  const entry = statsCache.get(examId);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > STATS_CACHE_TTL_MS) {
+    statsCache.delete(examId);
+    return null;
+  }
+  return entry.data;
+}
+
+function setStatsCache(examId: number, data: unknown): void {
+  statsCache.set(examId, { data, cachedAt: Date.now() });
+}
+
+// 외부에서 캐시 무효화 가능하도록 export (필요 시 사용)
+export function invalidateStatsCache(examId: number): void {
+  statsCache.delete(examId);
+}
+
 function parseExamId(value: string | null): number | null {
   if (!value) return null;
   const parsed = Number(value);
@@ -158,6 +187,12 @@ export async function GET(request: NextRequest) {
 
     if (!exam) {
       return NextResponse.json({ error: "통계를 조회할 시험이 없습니다." }, { status: 404 });
+    }
+
+    // 캐시 확인 (30초 TTL)
+    const cached = getStatsCache(exam.id);
+    if (cached) {
+      return NextResponse.json(cached);
     }
 
     const [
@@ -416,7 +451,7 @@ export async function GET(request: NextRequest) {
       return a.examType === ExamType.PUBLIC ? -1 : 1;
     });
 
-    return NextResponse.json({
+    const responseData = {
       exam: {
         id: exam.id,
         name: exam.name,
@@ -439,7 +474,10 @@ export async function GET(request: NextRequest) {
       submissionsByDate,
       scoreDistribution,
       difficulty,
-    });
+    };
+
+    setStatsCache(exam.id, responseData);
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error("참여 통계 조회 중 오류가 발생했습니다.", error);
     return NextResponse.json({ error: "참여 통계 조회 중 오류가 발생했습니다." }, { status: 500 });
