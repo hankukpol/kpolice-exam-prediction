@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
     const validation = validateRegisterInput({
       name: typeof body.name === "string" ? body.name : "",
       username: typeof body.username === "string" ? body.username : "",
+      contactPhone: typeof body.contactPhone === "string" ? body.contactPhone : "",
       email: typeof body.email === "string" ? body.email : "",
       password: typeof body.password === "string" ? body.password : "",
       agreeToTerms: body.agreeToTerms === true,
@@ -51,7 +52,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: validation.errors[0] ?? MSG.fallback }, { status: 400 });
     }
 
-    const { name, username, email, password } = validation.data;
+    const { name, username, contactPhone, email, password } = validation.data;
     const [existingUsername, existingEmail] = await Promise.all([
       prisma.user.findUnique({ where: { phone: username }, select: { id: true } }),
       prisma.user.findUnique({ where: { email }, select: { id: true } }),
@@ -72,6 +73,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         phone: username,
+        contactPhone,
         email,
         password: hashedPassword,
         termsAgreedAt: agreedAt,

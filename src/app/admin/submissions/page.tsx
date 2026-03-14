@@ -25,7 +25,8 @@ interface SubmissionRow {
   examId: number;
   userId: number;
   userName: string;
-  userPhone: string;
+  userPhone: string;        // 로그인 아이디
+  userContactPhone: string; // 연락처
   examName: string;
   examType: ExamTypeValue;
   regionId: number;
@@ -59,7 +60,8 @@ interface SubmissionDetailResponse {
     examYear: number;
     examRound: number;
     userName: string;
-    userPhone: string;
+    userPhone: string;        // 로그인 아이디
+    userContactPhone: string; // 연락처
     regionName: string;
     examType: ExamTypeValue;
     gender: "MALE" | "FEMALE";
@@ -394,6 +396,7 @@ export default function AdminSubmissionsPage() {
               <tr>
                 <th className="px-4 py-3">ID</th>
                 <th className="px-4 py-3">이름</th>
+                <th className="px-4 py-3">아이디</th>
                 <th className="px-4 py-3">연락처</th>
                 <th className="px-4 py-3">유형</th>
                 <th className="px-4 py-3">지역</th>
@@ -409,7 +412,7 @@ export default function AdminSubmissionsPage() {
             <tbody className="divide-y divide-slate-100">
               {submissions.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-4 text-slate-600" colSpan={12}>
+                  <td className="px-4 py-4 text-slate-600" colSpan={13}>
                     조회된 제출 데이터가 없습니다.
                   </td>
                 </tr>
@@ -418,7 +421,8 @@ export default function AdminSubmissionsPage() {
                   <tr key={submission.id} className="bg-white">
                     <td className="px-4 py-3 text-slate-700">{submission.id}</td>
                     <td className="px-4 py-3 font-medium text-slate-900">{submission.userName}</td>
-                    <td className="px-4 py-3 text-slate-700">{submission.userPhone}</td>
+                    <td className="px-4 py-3 text-slate-700 font-mono text-xs">{submission.userPhone}</td>
+                    <td className="px-4 py-3 text-slate-700">{submission.userContactPhone || <span className="text-slate-400">-</span>}</td>
                     <td className="px-4 py-3 text-slate-700">{formatExamType(submission.examType)}</td>
                     <td className="px-4 py-3 text-slate-700">{submission.regionName}</td>
                     <td className="px-4 py-3 text-slate-700 font-mono text-xs">{submission.examNumber}</td>
@@ -515,7 +519,8 @@ export default function AdminSubmissionsPage() {
 
             <section className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
               <p className="text-sm text-slate-700">이름: {detail.submission.userName}</p>
-              <p className="text-sm text-slate-700">연락처: {detail.submission.userPhone}</p>
+              <p className="text-sm text-slate-700">아이디: {detail.submission.userPhone}</p>
+              <p className="text-sm text-slate-700">연락처: {detail.submission.userContactPhone || "-"}</p>
               <p className="text-sm text-slate-700">유형: {formatExamType(detail.submission.examType)}</p>
               <p className="text-sm text-slate-700">지역: {detail.submission.regionName}</p>
               <p className="text-sm text-slate-700">응시번호: {detail.submission.examNumber ?? "-"}</p>

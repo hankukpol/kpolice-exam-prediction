@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { normalizeEmail, normalizeUsername, validateRegisterInput } from "@/lib/validations";
+import { normalizeContactPhone, normalizeEmail, normalizeUsername, validateRegisterInput } from "@/lib/validations";
 
 interface RegisterResponse {
   message?: string;
@@ -28,6 +28,8 @@ const TEXT = {
   namePlaceholder: "\uC774\uB984\uC744 \uC785\uB825\uD574 \uC8FC\uC138\uC694.",
   username: "\uC544\uC774\uB514",
   usernamePlaceholder: "\uC601\uBB38, \uC22B\uC790, _, - \uD3EC\uD568 4~20\uC790",
+  contactPhone: "연락처",
+  contactPhonePlaceholder: "010-1234-5678",
   email: "\uC774\uBA54\uC77C",
   emailPlaceholder: "\uBE44\uBC00\uBC88\uD638 \uCC3E\uAE30\uC5D0 \uC0AC\uC6A9\uD560 \uC774\uBA54\uC77C",
   password: "\uBE44\uBC00\uBC88\uD638",
@@ -54,6 +56,7 @@ export default function RegisterPage() {
   const { showErrorToast } = useToast();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -112,6 +115,7 @@ export default function RegisterPage() {
     const validation = validateRegisterInput({
       name,
       username,
+      contactPhone,
       email,
       password,
       agreeToTerms,
@@ -165,6 +169,10 @@ export default function RegisterPage() {
             <div className="space-y-2">
               <Label htmlFor="username">{TEXT.username}</Label>
               <Input id="username" type="text" value={username} onChange={(event) => setUsername(normalizeUsername(event.target.value))} placeholder={TEXT.usernamePlaceholder} autoCapitalize="none" autoCorrect="off" required />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contactPhone">{TEXT.contactPhone}</Label>
+              <Input id="contactPhone" type="tel" value={contactPhone} onChange={(event) => setContactPhone(normalizeContactPhone(event.target.value))} placeholder={TEXT.contactPhonePlaceholder} required />
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">{TEXT.email}</Label>

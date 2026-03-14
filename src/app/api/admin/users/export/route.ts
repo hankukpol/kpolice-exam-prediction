@@ -50,6 +50,7 @@ export async function GET(request: NextRequest) {
       select: {
         name: true,
         phone: true,
+        contactPhone: true,
         createdAt: true,
         _count: {
           select: { submissions: true },
@@ -57,11 +58,12 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const header = ["이름", "연락처", "가입일", "제출건수"].join(",");
+    const header = ["이름", "아이디", "연락처", "가입일", "제출건수"].join(",");
     const rows = users.map((user) =>
       [
         escapeCsvField(user.name),
-        escapeCsvField(user.phone ?? ""),
+        escapeCsvField(user.phone),
+        escapeCsvField(user.contactPhone),
         escapeCsvField(formatDate(user.createdAt)),
         String(user._count.submissions),
       ].join(",")

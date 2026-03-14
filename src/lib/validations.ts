@@ -25,11 +25,15 @@ const MSG = {
   agreePrivacy: "\uAC1C\uC778\uC815\uBCF4 \uC218\uC9D1 \uBC0F \uC774\uC6A9\uC5D0 \uB3D9\uC758\uD574 \uC8FC\uC138\uC694.",
   usernameCheck: "\uC544\uC774\uB514\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
   resetCodeCheck: "\uC778\uC99D\uCF54\uB4DC\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+  contactPhoneInvalid: "연락처는 올바른 휴대폰 번호 형식으로 입력해 주세요. (예: 010-1234-5678)",
+  contactPhoneRequired: "연락처를 입력해 주세요.",
 };
 
 const koreanNameRegex = /^[\uAC00-\uD7A3]+$/;
 const usernameRegex = /^[A-Za-z0-9][A-Za-z0-9_-]{3,19}$/;
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// 한국 휴대폰 번호: 010-1234-5678, 01012345678, 010 1234 5678 형식 허용
+const contactPhoneRegex = /^01[016789][- ]?\d{3,4}[- ]?\d{4}$/;
 const passwordHasLowercase = /[a-z]/;
 const passwordHasNumber = /\d/;
 const passwordHasSpecial = /[^A-Za-z0-9]/;
@@ -79,6 +83,11 @@ export function validatePasswordStrength(rawPassword: string): ValidationResult<
   return { isValid: true, errors: [], data: password };
 }
 
+export function normalizeContactPhone(raw: string): string {
+  // 숫자만 추출하여 하이픈 없는 형식으로 정규화 (010-1234-5678 → 01012345678)
+  return raw.replace(/[- ]/g, "").trim();
+}
+
 export function validateRegisterInput(
   input: Partial<RegisterFormData>
 ): ValidationResult<RegisterFormData> {
@@ -86,6 +95,7 @@ export function validateRegisterInput(
   const name = input.name?.trim() ?? "";
   const nameWithoutSpaces = name.replace(/\s+/g, "");
   const username = normalizeUsername(input.username ?? "");
+  const contactPhone = input.contactPhone?.trim() ?? "";
   const email = normalizeEmail(input.email ?? "");
   const password = input.password?.trim() ?? "";
   const agreeToTerms = input.agreeToTerms === true;
@@ -101,6 +111,12 @@ export function validateRegisterInput(
 
   if (!usernameRegex.test(username)) {
     errors.push(MSG.usernameInvalid);
+  }
+
+  if (!contactPhone) {
+    errors.push(MSG.contactPhoneRequired);
+  } else if (!contactPhoneRegex.test(contactPhone)) {
+    errors.push(MSG.contactPhoneInvalid);
   }
 
   if (!emailRegex.test(email)) {
@@ -127,6 +143,7 @@ export function validateRegisterInput(
     data: {
       name,
       username,
+      contactPhone: normalizeContactPhone(contactPhone),
       email,
       password,
       agreeToTerms,

@@ -22,6 +22,7 @@ export interface SubjectDefinition {
 export interface RegisterFormData {
   name: string;
   username: string;
+  contactPhone: string;
   email: string;
   password: string;
   agreeToTerms: boolean;

@@ -121,6 +121,7 @@ export async function GET(request: NextRequest) {
           id: true,
           name: true,
           phone: true,
+          contactPhone: true,
           role: true,
           createdAt: true,
           _count: {
@@ -147,6 +148,7 @@ export async function GET(request: NextRequest) {
         id: user.id,
         name: user.name,
         username: user.phone,
+        contactPhone: user.contactPhone,
         role: user.role,
         createdAt: user.createdAt,
         submissionCount: user._count.submissions,

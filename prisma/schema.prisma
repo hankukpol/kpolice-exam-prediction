@@ -51,6 +51,7 @@ model User {
   id                     Int                  @id @default(autoincrement())
   name                   String
   phone                  String               @unique
+  contactPhone           String               @default("") // 문자 수신용 연락처 전화번호 (필수)
   email                  String?              @unique
   password               String
   role                   Role                 @default(USER)

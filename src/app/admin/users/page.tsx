@@ -12,6 +12,7 @@ interface UserRow {
   id: number;
   name: string;
   username: string;
+  contactPhone: string;
   role: UserRole;
   createdAt: string;
   submissionCount: number;
@@ -323,6 +324,7 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3">ID</th>
                 <th className="px-4 py-3">이름</th>
                 <th className="px-4 py-3">아이디</th>
+                <th className="px-4 py-3">연락처</th>
                 <th className="px-4 py-3">가입일</th>
                 <th className="px-4 py-3">제출</th>
                 <th className="px-4 py-3">댓글</th>
@@ -333,7 +335,7 @@ export default function AdminUsersPage() {
             <tbody className="divide-y divide-slate-100">
               {users.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-4 text-slate-600" colSpan={8}>
+                  <td className="px-4 py-4 text-slate-600" colSpan={9}>
                     조회된 사용자가 없습니다.
                   </td>
                 </tr>
@@ -345,7 +347,8 @@ export default function AdminUsersPage() {
                     <tr key={user.id} className="bg-white">
                       <td className="px-4 py-3 text-slate-700">{user.id}</td>
                       <td className="px-4 py-3 font-medium text-slate-900">{user.name}</td>
-                      <td className="px-4 py-3 text-slate-700">{user.username}</td>
+                      <td className="px-4 py-3 text-slate-700 font-mono text-xs">{user.username}</td>
+                      <td className="px-4 py-3 text-slate-700">{user.contactPhone || <span className="text-slate-400">-</span>}</td>
                       <td className="px-4 py-3 text-slate-700">{formatDateText(user.createdAt)}</td>
                       <td className="px-4 py-3 text-slate-700">{user.submissionCount}</td>
                       <td className="px-4 py-3 text-slate-700">{user.commentCount}</td>

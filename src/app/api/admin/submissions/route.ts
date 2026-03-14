@@ -93,6 +93,7 @@ export async function GET(request: NextRequest) {
             select: {
               name: true,
               phone: true,
+              contactPhone: true,
             },
           },
           region: {
@@ -133,7 +134,8 @@ export async function GET(request: NextRequest) {
         examId: submission.examId,
         userId: submission.userId,
         userName: submission.user.name,
-        userPhone: submission.user.phone,
+        userPhone: submission.user.phone,         // 로그인 아이디
+        userContactPhone: submission.user.contactPhone, // 연락처
         examName: submission.exam.name,
         examType: submission.examType,
         regionId: submission.regionId,

@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
           select: {
             name: true,
             phone: true,
+            contactPhone: true,
           },
         },
         exam: {
@@ -121,7 +122,8 @@ export async function GET(request: NextRequest) {
         examRound: submission.exam.round,
         userId: submission.userId,
         userName: submission.user.name,
-        userPhone: maskPhone(submission.user.phone),
+        userPhone: submission.user.phone,
+        userContactPhone: submission.user.contactPhone,
         regionId: submission.regionId,
         regionName: submission.region.name,
         examType: submission.examType,
