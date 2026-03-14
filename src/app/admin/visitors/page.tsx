@@ -126,7 +126,7 @@ export default function AdminVisitorsPage() {
           <p className="py-10 text-center text-sm text-slate-500">불러오는 중...</p>
         ) : data && data.daily.length > 0 ? (
           <div className="h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <BarChart
                 data={data.daily.map((row) => ({ ...row, date: formatDate(row.date) }))}
                 margin={{ top: 8, right: 8, left: -16, bottom: 0 }}

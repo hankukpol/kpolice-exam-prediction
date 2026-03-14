@@ -90,10 +90,10 @@ goto :typecheck
 echo [1/5] No schema changes. Skipping DB migration.
 
 :typecheck
-echo [2/5] Type check...
-call npx tsc --noEmit
+echo [2/5] Production build check...
+call npm run build
 if errorlevel 1 (
-    echo [ERROR] Type check failed.
+    echo [ERROR] Production build failed.
     goto :fail
 )
 

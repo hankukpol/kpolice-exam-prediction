@@ -5,11 +5,13 @@
   "scripts": {
     "dev": "next dev -p 3100",
     "build": "prisma generate && next build",
+    "build:vercel": "prisma migrate deploy && prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "verify:calculations": "tsx scripts/verify-calculations.ts",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:push": "prisma db push",
     "prisma:seed": "prisma db seed"
   },

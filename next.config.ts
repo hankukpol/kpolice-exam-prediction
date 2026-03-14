@@ -11,19 +11,50 @@ const supabaseOrigin = (() => {
   }
 })();
 
-// TODO: Next.js App Router의 nonce 기반 CSP 지원이 안정화되면 unsafe-inline 제거
-// style-src unsafe-inline — Next.js/Tailwind 내부 인라인 스타일에 필요
-// script-src unsafe-inline — Next.js 하이드레이션 인라인 스크립트에 필요 (프로덕션 포함)
+const vercelToolbarOrigins = {
+  connect: ["https://vercel.live", "wss://ws-us3.pusher.com"],
+  font: ["https://vercel.live", "https://assets.vercel.com"],
+  frame: ["https://vercel.live"],
+  img: ["https://vercel.live", "https://vercel.com"],
+  script: ["https://vercel.live"],
+  style: ["https://vercel.live"],
+};
+
+const connectSrc = [
+  "'self'",
+  ...(isDev ? ["ws:", "wss:"] : []),
+  ...vercelToolbarOrigins.connect,
+  ...(supabaseOrigin ? [supabaseOrigin] : []),
+].join(" ");
+
+const fontSrc = ["'self'", "data:", ...vercelToolbarOrigins.font].join(" ");
+const frameSrc = vercelToolbarOrigins.frame.join(" ");
+const imgSrc = [
+  "'self'",
+  "data:",
+  "blob:",
+  ...vercelToolbarOrigins.img,
+  ...(supabaseOrigin ? [supabaseOrigin] : []),
+].join(" ");
+const scriptSrc = [
+  "'self'",
+  "'unsafe-inline'",
+  ...(isDev ? ["'unsafe-eval'"] : []),
+  ...vercelToolbarOrigins.script,
+].join(" ");
+const styleSrc = ["'self'", "'unsafe-inline'", ...vercelToolbarOrigins.style].join(" ");
+
 const cspDirectives = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
-  `img-src 'self' data: blob:${supabaseOrigin ? ` ${supabaseOrigin}` : ""}`,
-  "font-src 'self' data:",
-  "style-src 'self' 'unsafe-inline'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
-  `connect-src 'self'${isDev ? " ws: wss:" : ""}${supabaseOrigin ? ` ${supabaseOrigin}` : ""}`,
+  `frame-src ${frameSrc}`,
+  `img-src ${imgSrc}`,
+  `font-src ${fontSrc}`,
+  `style-src ${styleSrc}`,
+  `script-src ${scriptSrc}`,
+  `connect-src ${connectSrc}`,
   "form-action 'self'",
   "upgrade-insecure-requests",
 ];
