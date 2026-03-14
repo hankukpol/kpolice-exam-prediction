@@ -1,6 +1,6 @@
 import { BonusType, ExamType, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getPassMultiple, getRecruitCount, maskKoreanName } from "@/lib/prediction";
+import { getCompetitorDisplayName, getPassMultiple, getRecruitCount } from "@/lib/prediction";
 
 export interface KnownFinalScoreResult {
   writtenScore: number;
@@ -40,6 +40,8 @@ interface FinalRankingQueryRow {
   finalRank: number;
   sortOrder: number;
   userName: string;
+  username: string;
+  contactPhone: string;
 }
 
 export function roundScore(value: number): number {
@@ -107,6 +109,8 @@ function buildFinalRankingCte(params: {
         fp."submissionId"::integer AS "submissionId",
         fp."finalScore"::double precision AS "score75",
         u."name" AS "userName",
+        u."phone" AS "username",
+        u."contactPhone" AS "contactPhone",
         RANK() OVER (ORDER BY fp."finalScore" DESC)::integer AS "finalRank",
         ROW_NUMBER() OVER (
           ORDER BY
@@ -179,7 +183,9 @@ export async function calculateFinalRankingDetails(params: {
       "score75",
       "finalRank",
       "sortOrder",
-      "userName"
+      "userName",
+      "username",
+      "contactPhone"
     FROM ranked
     WHERE "submissionId" = ${params.submissionId}
     LIMIT 1
@@ -192,7 +198,9 @@ export async function calculateFinalRankingDetails(params: {
       "score75",
       "finalRank",
       "sortOrder",
-      "userName"
+      "userName",
+      "username",
+      "contactPhone"
     FROM ranked
     WHERE "sortOrder" <= 50
        OR "submissionId" = ${params.submissionId}
@@ -202,7 +210,11 @@ export async function calculateFinalRankingDetails(params: {
   const competitors = competitorRows.map((row) => ({
     rank: Number(row.finalRank),
     score: roundScore(Number(row.score75)),
-    maskedName: maskKoreanName(row.userName),
+    maskedName: getCompetitorDisplayName({
+      name: row.userName,
+      phone: row.username,
+      contactPhone: row.contactPhone,
+    }),
     isMine: row.submissionId === params.submissionId,
   }));
 

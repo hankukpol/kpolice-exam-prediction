@@ -549,7 +549,7 @@ export default function ExamPredictionPage({ embedded = false }: ExamPredictionP
             <thead>
               <tr className="bg-slate-100 text-slate-700">
                 <th className="border border-slate-200 px-3 py-2 text-left">석차</th>
-                <th className="border border-slate-200 px-3 py-2 text-left">이름</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">아이디</th>
                 <th className="border border-slate-200 px-3 py-2 text-right">점수</th>
                 <th className="border border-slate-200 px-3 py-2 text-center">세부성적보기</th>
               </tr>

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Police Prisma Deploy"
+  short_description: "Prisma 스키마, 마이그레이션, 배포 변경용 스킬"
+  default_prompt: "Use $police-prisma-deploy to update or review Prisma schema, migrations, or deployment wiring for this police exam repository."
+
+policy:
+  allow_implicit_invocation: true

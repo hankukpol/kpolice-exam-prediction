@@ -1,0 +1,7 @@
+interface:
+  display_name: "Police Scoring Prediction"
+  short_description: "점수 계산, 가산점, 컷라인, 합격예측 변경용 스킬"
+  default_prompt: "Use $police-scoring-prediction to update or review scoring, pass-cut, or prediction logic in this police exam repository."
+
+policy:
+  allow_implicit_invocation: true

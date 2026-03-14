@@ -2,7 +2,7 @@ import { Role } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth";
-import { calculatePrediction, maskKoreanName, PredictionError } from "@/lib/prediction";
+import { calculatePrediction, getCompetitorDisplayName, PredictionError } from "@/lib/prediction";
 import { prisma } from "@/lib/prisma";
 import { getVerifiedSessionUser, isVerifiedAdmin, SessionUserError } from "@/lib/session-user";
 
@@ -67,6 +67,8 @@ export async function GET(request: NextRequest) {
         user: {
           select: {
             name: true,
+            phone: true,
+            contactPhone: true,
           },
         },
         subjectScores: {
@@ -109,7 +111,7 @@ export async function GET(request: NextRequest) {
       competitor: {
         submissionId: target.id,
         rank: higherCount + 1,
-        maskedName: isMine ? "본인" : maskKoreanName(target.user.name),
+        maskedName: isMine ? "본인" : getCompetitorDisplayName(target.user),
         score,
         isMine,
         totalParticipants: prediction.summary.totalParticipants,

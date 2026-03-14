@@ -100,6 +100,12 @@ interface CalculatePredictionOptions {
   limit?: number;
 }
 
+interface CompetitorIdentitySource {
+  name: string;
+  phone?: string | null;
+  contactPhone?: string | null;
+}
+
 export class PredictionError extends Error {
   status: number;
 
@@ -128,6 +134,33 @@ export function maskKoreanName(name: string): string {
 
   const chars = Array.from(trimmed);
   return `${chars[0]}**`;
+}
+
+function normalizeCompetitorContactPhone(contactPhone?: string | null): string {
+  const digits = (contactPhone ?? "").replace(/\D/g, "");
+  if (digits.startsWith("010") && digits.length >= 10) {
+    return digits;
+  }
+
+  if (digits.startsWith("10") && digits.length >= 9) {
+    return `0${digits}`;
+  }
+
+  return "";
+}
+
+export function getCompetitorDisplayName(identity: CompetitorIdentitySource): string {
+  const username = identity.phone?.trim() ?? "";
+  if (username) {
+    return username;
+  }
+
+  const contactPhone = normalizeCompetitorContactPhone(identity.contactPhone);
+  if (contactPhone) {
+    return contactPhone;
+  }
+
+  return maskKoreanName(identity.name);
 }
 
 export function getPassMultiple(recruitCount: number): number {
@@ -341,6 +374,8 @@ export async function calculatePrediction(
     user: {
       select: {
         name: true,
+        phone: true,
+        contactPhone: true,
       },
     },
     subjectScores: {
@@ -560,6 +595,8 @@ export async function calculatePrediction(
       user: {
         select: {
           name: true,
+          phone: true,
+          contactPhone: true,
         },
       },
     },
@@ -577,7 +614,7 @@ export async function calculatePrediction(
       userId: item.userId,
       rank,
       score,
-      maskedName: maskKoreanName(item.user.name),
+      maskedName: getCompetitorDisplayName(item.user),
       isMine: item.id === submission.id,
     };
   });

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Police Admin Site Ops"
+  short_description: "관리자 운영 화면과 공지·배너·설정 변경용 스킬"
+  default_prompt: "Use $police-admin-site-ops to change or review admin operations, site settings, banners, notices, or events in this police exam repository."
+
+policy:
+  allow_implicit_invocation: true

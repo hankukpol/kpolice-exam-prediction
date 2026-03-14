@@ -532,7 +532,7 @@ export default function ExamFinalPage({ embedded = false }: ExamFinalPageProps =
                       <thead className="sticky top-0 bg-slate-50">
                         <tr className="text-left text-xs text-slate-500">
                           <th className="px-3 py-2 font-semibold">순위</th>
-                          <th className="px-3 py-2 font-semibold">이름</th>
+                          <th className="px-3 py-2 font-semibold">아이디</th>
                           <th className="px-3 py-2 text-right font-semibold">환산점수</th>
                           <th className="px-3 py-2 font-semibold">비고</th>
                         </tr>

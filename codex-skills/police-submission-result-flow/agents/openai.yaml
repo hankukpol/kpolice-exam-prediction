@@ -1,0 +1,7 @@
+interface:
+  display_name: "Police Submission Result Flow"
+  short_description: "OMR 입력부터 결과 화면까지의 사용자 흐름 스킬"
+  default_prompt: "Use $police-submission-result-flow to modify or review the OMR submission, validation, and result flow in this police exam repository."
+
+policy:
+  allow_implicit_invocation: true
