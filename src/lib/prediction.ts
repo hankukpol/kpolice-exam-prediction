@@ -136,21 +136,29 @@ export function maskKoreanName(name: string): string {
   return `${chars[0]}**`;
 }
 
+function maskCompetitorUsername(username?: string | null): string {
+  const trimmed = username?.trim() ?? "";
+  if (!trimmed) return "";
+
+  const chars = Array.from(trimmed);
+  return `${chars[0]}*****`;
+}
+
 function normalizeCompetitorContactPhone(contactPhone?: string | null): string {
   const digits = (contactPhone ?? "").replace(/\D/g, "");
   if (digits.startsWith("010") && digits.length >= 10) {
-    return digits;
+    return "010*****";
   }
 
   if (digits.startsWith("10") && digits.length >= 9) {
-    return `0${digits}`;
+    return "010*****";
   }
 
   return "";
 }
 
 export function getCompetitorDisplayName(identity: CompetitorIdentitySource): string {
-  const username = identity.phone?.trim() ?? "";
+  const username = maskCompetitorUsername(identity.phone);
   if (username) {
     return username;
   }
