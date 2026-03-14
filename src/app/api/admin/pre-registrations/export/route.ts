@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
           select: {
             name: true,
             phone: true,
+            contactPhone: true,
           },
         },
         exam: {
@@ -85,6 +86,7 @@ export async function GET(request: NextRequest) {
 
     const header = [
       "이름",
+      "아이디",
       "연락처",
       "시험",
       "지역",
@@ -99,6 +101,7 @@ export async function GET(request: NextRequest) {
       [
         escapeCsvField(row.user.name),
         escapeCsvField(row.user.phone),
+        escapeCsvField(row.user.contactPhone),
         escapeCsvField(`${row.exam.year}-${row.exam.round} ${row.exam.name}`),
         escapeCsvField(row.region.name),
         escapeCsvField(formatExamType(row.examType)),

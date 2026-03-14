@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
           select: {
             name: true,
             phone: true,
+            contactPhone: true,
           },
         },
         exam: {
@@ -108,7 +109,8 @@ export async function POST(request: NextRequest) {
         drawRank: index + 1,
         id: winner.id,
         userName: winner.user.name,
-        userPhone: winner.user.phone,
+        userPhone: winner.user.phone, // 로그인 아이디
+        userContactPhone: winner.user.contactPhone, // 연락처
         examName: winner.exam.name,
         examYear: winner.exam.year,
         examRound: winner.exam.round,

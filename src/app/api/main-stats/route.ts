@@ -443,6 +443,7 @@ async function getQuotasForExam(examId: number): Promise<QuotaRow[]> {
 const getCachedMainStatsAggregate = unstable_cache(
   async (examId: number): Promise<MainStatsAggregateSnapshot> => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    // 과락자 제외 모집단: 참여인원·평균점수·점수분포 모두 동일 기준 사용
     const populationWhere: Prisma.SubmissionWhereInput = {
       examId,
       isSuspicious: false,
@@ -453,11 +454,6 @@ const getCachedMainStatsAggregate = unstable_cache(
         },
       },
     };
-    const allParticipantCountWhere: Prisma.SubmissionWhereInput = {
-      examId,
-      isSuspicious: false,
-      subjectScores: { some: {} },
-    };
 
     const [
       totalParticipants,
@@ -467,7 +463,6 @@ const getCachedMainStatsAggregate = unstable_cache(
       difficulty,
       quotas,
       participantStats,
-      allParticipantCountStats,
       scoreBandStats,
       totalScoreDistributionRaw,
       subjectScoreDistributionRaw,
@@ -504,13 +499,6 @@ const getCachedMainStatsAggregate = unstable_cache(
         },
         _avg: {
           finalScore: true,
-        },
-      }),
-      prisma.submission.groupBy({
-        by: ["regionId", "examType"],
-        where: allParticipantCountWhere,
-        _count: {
-          _all: true,
         },
       }),
       prisma.submission.groupBy({
@@ -553,13 +541,6 @@ const getCachedMainStatsAggregate = unstable_cache(
       }),
     ]);
 
-    const avgScoreMap = new Map(
-      participantStats.map((item) => [
-        `${item.regionId}-${item.examType}`,
-        item._avg.finalScore === null ? null : roundNumber(Number(item._avg.finalScore)),
-      ])
-    );
-
     return {
       totalParticipants,
       examTypeStats: examTypeStats.map((item) => ({
@@ -570,15 +551,12 @@ const getCachedMainStatsAggregate = unstable_cache(
       latestSubmissionAt: latestSubmission?.createdAt?.toISOString() ?? null,
       difficulty,
       quotas,
-      participantStats: allParticipantCountStats.map((item) => {
-        const key = `${item.regionId}-${item.examType}`;
-        return {
-          regionId: item.regionId,
-          examType: item.examType,
-          participantCount: item._count._all,
-          averageFinalScore: avgScoreMap.get(key) ?? null,
-        };
-      }),
+      participantStats: participantStats.map((item) => ({
+        regionId: item.regionId,
+        examType: item.examType,
+        participantCount: item._count._all,
+        averageFinalScore: item._avg.finalScore === null ? null : roundNumber(Number(item._avg.finalScore)),
+      })),
       scoreBandStats: scoreBandStats.map((row) => ({
         regionId: row.regionId,
         examType: row.examType,

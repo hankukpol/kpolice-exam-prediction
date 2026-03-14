@@ -29,7 +29,8 @@ interface PreRegistrationRow {
   examRound: number;
   userId: number;
   userName: string;
-  userPhone: string;
+  userPhone: string; // 로그인 아이디
+  userContactPhone: string; // 연락처
   regionId: number;
   regionName: string;
   examType: ExamTypeValue;
@@ -58,7 +59,8 @@ interface DrawWinner {
   drawRank: number;
   id: number;
   userName: string;
-  userPhone: string;
+  userPhone: string; // 로그인 아이디
+  userContactPhone: string; // 연락처
   examName: string;
   examYear: number;
   examRound: number;
@@ -422,7 +424,7 @@ export default function AdminPreRegistrationsPage() {
     const text = drawResult.winners
       .map(
         (winner) =>
-          `${winner.drawRank}. ${winner.userName} / ${winner.userPhone} / ${winner.regionName} / ${formatExamType(
+          `${winner.drawRank}. ${winner.userName} / ${winner.userPhone} / ${winner.userContactPhone || "-"} / ${winner.regionName} / ${formatExamType(
             winner.examType
           )} / ${winner.examNumber}`
       )
@@ -601,6 +603,7 @@ export default function AdminPreRegistrationsPage() {
                   <tr className="bg-slate-100 text-slate-700">
                     <th className="border border-slate-200 px-3 py-2 text-left">순번</th>
                     <th className="border border-slate-200 px-3 py-2 text-left">이름</th>
+                    <th className="border border-slate-200 px-3 py-2 text-left">아이디</th>
                     <th className="border border-slate-200 px-3 py-2 text-left">연락처</th>
                     <th className="border border-slate-200 px-3 py-2 text-left">지역</th>
                     <th className="border border-slate-200 px-3 py-2 text-left">유형</th>
@@ -613,6 +616,7 @@ export default function AdminPreRegistrationsPage() {
                       <td className="border border-slate-200 px-3 py-2 font-semibold text-police-700">{winner.drawRank}</td>
                       <td className="border border-slate-200 px-3 py-2">{winner.userName}</td>
                       <td className="border border-slate-200 px-3 py-2 font-mono text-xs">{winner.userPhone}</td>
+                      <td className="border border-slate-200 px-3 py-2 font-mono text-xs">{winner.userContactPhone || <span className="text-slate-400">-</span>}</td>
                       <td className="border border-slate-200 px-3 py-2">{winner.regionName}</td>
                       <td className="border border-slate-200 px-3 py-2">{formatExamType(winner.examType)}</td>
                       <td className="border border-slate-200 px-3 py-2 font-mono text-xs">{winner.examNumber}</td>
@@ -639,10 +643,11 @@ export default function AdminPreRegistrationsPage() {
         </div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[1280px] border-collapse text-sm">
+          <table className="w-full min-w-[1400px] border-collapse text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-700">
                 <th className="border border-slate-200 px-3 py-2 text-left">이름</th>
+                <th className="border border-slate-200 px-3 py-2 text-left">아이디</th>
                 <th className="border border-slate-200 px-3 py-2 text-left">연락처</th>
                 <th className="border border-slate-200 px-3 py-2 text-left">시험</th>
                 <th className="border border-slate-200 px-3 py-2 text-left">지역</th>
@@ -657,13 +662,13 @@ export default function AdminPreRegistrationsPage() {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={10} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
+                  <td colSpan={11} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
                     사전등록 목록을 불러오는 중입니다...
                   </td>
                 </tr>
               ) : rows.length < 1 ? (
                 <tr>
-                  <td colSpan={10} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
+                  <td colSpan={11} className="border border-slate-200 px-4 py-8 text-center text-slate-500">
                     조건에 맞는 사전등록이 없습니다.
                   </td>
                 </tr>
@@ -678,6 +683,7 @@ export default function AdminPreRegistrationsPage() {
                     <tr key={row.id} className="bg-white">
                       <td className="border border-slate-200 px-3 py-2 font-medium text-slate-900">{row.userName}</td>
                       <td className="border border-slate-200 px-3 py-2 font-mono text-xs text-slate-700">{row.userPhone}</td>
+                      <td className="border border-slate-200 px-3 py-2 font-mono text-xs text-slate-700">{row.userContactPhone || <span className="text-slate-400">-</span>}</td>
                       <td className="border border-slate-200 px-3 py-2">
                         {isEditing ? (
                           <select
@@ -867,7 +873,7 @@ export default function AdminPreRegistrationsPage() {
           <p>1. 사전등록 단계에서는 시험, 지역, 채용유형, 성별, 응시번호만 먼저 저장됩니다.</p>
           <p>2. 정식 OMR 입력이 열리면 저장된 사전등록 정보가 자동으로 불러와집니다.</p>
           <p>3. 관리자 수정도 동일한 중복/응시번호 검증을 통과해야 저장됩니다.</p>
-          <p>4. 정식 제출이 완료되면 해당 사전등록은 별도로 유지되지 않을 수 있습니다.</p>
+          <p>4. 정식 제출이 완료되어도 사전등록 기록은 유지됩니다.</p>
         </div>
       </section>
 

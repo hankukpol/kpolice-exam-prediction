@@ -932,13 +932,6 @@ export async function POST(request: Request) {
         },
       });
 
-      await tx.preRegistration.deleteMany({
-        where: {
-          userId,
-          examId: exam.id,
-        },
-      });
-
       return savedSubmission;
     });
 

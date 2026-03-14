@@ -90,21 +90,16 @@ function calculatePercentileByLower(lowerCount: number, totalCount: number): num
   return roundNumber((lowerCount / totalCount) * 100);
 }
 
-function getPopulationConditionSql(submissionHasCutoff: boolean): Prisma.Sql {
-  if (submissionHasCutoff) {
-    return Prisma.sql`AND s."isSuspicious" = false`;
-  }
-
-  return Prisma.sql`
-    AND s."isSuspicious" = false
-    AND NOT EXISTS (
-      SELECT 1
-      FROM "SubjectScore" sf
-      WHERE sf."submissionId" = s.id
-        AND sf."isFailed" = true
-    )
-  `;
-}
+// 과락자는 항상 순위 모집단에서 제외 (일관성 유지)
+const NON_CUTOFF_POPULATION_SQL = Prisma.sql`
+  AND s."isSuspicious" = false
+  AND NOT EXISTS (
+    SELECT 1
+    FROM "SubjectScore" sf
+    WHERE sf."submissionId" = s.id
+      AND sf."isFailed" = true
+  )
+`;
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -296,8 +291,7 @@ export async function GET(request: NextRequest) {
   );
 
   const submissionHasCutoff = submission.subjectScores.some((score) => score.isFailed);
-  const rankingBasis = submissionHasCutoff ? "ALL_PARTICIPANTS" : "NON_CUTOFF_PARTICIPANTS";
-  const populationConditionSql = getPopulationConditionSql(submissionHasCutoff);
+  const populationConditionSql = NON_CUTOFF_POPULATION_SQL;
   const myFinalScore = Number(submission.finalScore);
 
   const [overallRow] = await prisma.$queryRaw<CountRow[]>(Prisma.sql`
@@ -658,7 +652,7 @@ export async function GET(request: NextRequest) {
       topPercent: totalTopPercent,
       totalPercentile: totalPercentile,
       hasCutoff,
-      rankingBasis,
+      rankingBasis: "NON_CUTOFF_PARTICIPANTS",
       cutoffSubjects,
       bonusScore: roundNumber(Number(submission.finalScore) - Number(submission.totalScore)),
     },

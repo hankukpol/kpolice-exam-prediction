@@ -176,6 +176,7 @@ export async function GET(request: NextRequest) {
             id: true,
             name: true,
             phone: true,
+            contactPhone: true,
           },
         },
         exam: {
@@ -218,7 +219,8 @@ export async function GET(request: NextRequest) {
         examRound: row.exam.round,
         userId: row.user.id,
         userName: row.user.name,
-        userPhone: row.user.phone,
+        userPhone: row.user.phone, // 로그인 아이디
+        userContactPhone: row.user.contactPhone, // 연락처
         regionId: row.regionId,
         regionName: row.region.name,
         examType: row.examType,
