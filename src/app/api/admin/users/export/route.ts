@@ -57,11 +57,11 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    const header = ["이름", "아이디", "가입일", "제출건수"].join(",");
+    const header = ["이름", "연락처", "가입일", "제출건수"].join(",");
     const rows = users.map((user) =>
       [
         escapeCsvField(user.name),
-        escapeCsvField(user.phone),
+        escapeCsvField(user.phone ?? ""),
         escapeCsvField(formatDate(user.createdAt)),
         String(user._count.submissions),
       ].join(",")
