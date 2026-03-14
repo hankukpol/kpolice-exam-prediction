@@ -1,5 +1,6 @@
 import { ExamType } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { toApiErrorMessage } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 
@@ -60,95 +61,102 @@ function sortSubjectsByRule(
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const activeOnly = searchParams.get("active") === "true";
+  try {
+    const { searchParams } = new URL(request.url);
+    const activeOnly = searchParams.get("active") === "true";
 
-  const exams = await prisma.exam.findMany({
-    where: activeOnly ? { isActive: true } : undefined,
-    orderBy: [{ isActive: "desc" }, { examDate: "desc" }, { id: "desc" }],
-    select: {
-      id: true,
-      name: true,
-      year: true,
-      round: true,
-      examDate: true,
-      isActive: true,
-    },
-  });
-
-  const activeExam = exams.find((exam) => exam.isActive) ?? null;
-
-  const [regionsRaw, publicSubjectsRaw, careerSubjectsRaw, settings] = await Promise.all([
-    prisma.region.findMany({
+    const exams = await prisma.exam.findMany({
       where: activeOnly ? { isActive: true } : undefined,
-      orderBy: { id: "asc" },
+      orderBy: [{ isActive: "desc" }, { examDate: "desc" }, { id: "desc" }],
       select: {
         id: true,
         name: true,
+        year: true,
+        round: true,
+        examDate: true,
         isActive: true,
       },
-    }),
-    prisma.subject.findMany({
-      where: { examType: ExamType.PUBLIC },
-      select: {
-        id: true,
-        name: true,
-        questionCount: true,
-        pointPerQuestion: true,
-        maxScore: true,
-      },
-    }),
-    prisma.subject.findMany({
-      where: { examType: ExamType.CAREER },
-      select: {
-        id: true,
-        name: true,
-        questionCount: true,
-        pointPerQuestion: true,
-        maxScore: true,
-      },
-    }),
-    getSiteSettingsUncached(),
-  ]);
-
-  // 활성 시험의 모집인원 조회
-  const quotas = activeExam
-    ? await prisma.examRegionQuota.findMany({
-        where: { examId: activeExam.id },
-        select: { regionId: true, recruitCount: true, recruitCountCareer: true },
-      })
-    : [];
-  const quotaByRegionId = new Map(quotas.map((q) => [q.regionId, q]));
-
-  const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
-  const regions = [...regionsRaw]
-    .sort((a, b) => {
-      const orderA = regionOrderOf(a.name);
-      const orderB = regionOrderOf(b.name);
-      if (orderA !== orderB) return orderA - orderB;
-      return a.name.localeCompare(b.name, "ko-KR");
-    })
-    .map((r) => {
-      const quota = quotaByRegionId.get(r.id);
-      return {
-        ...r,
-        recruitCount: quota?.recruitCount ?? 0,
-        recruitCountCareer: quota?.recruitCountCareer ?? 0,
-      };
     });
-  const publicSubjects = sortSubjectsByRule(ExamType.PUBLIC, publicSubjectsRaw);
-  const careerSubjects = careerExamEnabled
-    ? sortSubjectsByRule(ExamType.CAREER, careerSubjectsRaw)
-    : [];
 
-  return NextResponse.json({
-    exams,
-    activeExam,
-    careerExamEnabled,
-    regions,
-    subjectGroups: {
-      PUBLIC: publicSubjects,
-      CAREER: careerSubjects,
-    },
-  });
+    const activeExam = exams.find((exam) => exam.isActive) ?? null;
+
+    const [regionsRaw, publicSubjectsRaw, careerSubjectsRaw, settings] = await Promise.all([
+      prisma.region.findMany({
+        where: activeOnly ? { isActive: true } : undefined,
+        orderBy: { id: "asc" },
+        select: {
+          id: true,
+          name: true,
+          isActive: true,
+        },
+      }),
+      prisma.subject.findMany({
+        where: { examType: ExamType.PUBLIC },
+        select: {
+          id: true,
+          name: true,
+          questionCount: true,
+          pointPerQuestion: true,
+          maxScore: true,
+        },
+      }),
+      prisma.subject.findMany({
+        where: { examType: ExamType.CAREER },
+        select: {
+          id: true,
+          name: true,
+          questionCount: true,
+          pointPerQuestion: true,
+          maxScore: true,
+        },
+      }),
+      getSiteSettingsUncached(),
+    ]);
+
+    const quotas = activeExam
+      ? await prisma.examRegionQuota.findMany({
+          where: { examId: activeExam.id },
+          select: { regionId: true, recruitCount: true, recruitCountCareer: true },
+        })
+      : [];
+    const quotaByRegionId = new Map(quotas.map((q) => [q.regionId, q]));
+
+    const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
+    const regions = [...regionsRaw]
+      .sort((a, b) => {
+        const orderA = regionOrderOf(a.name);
+        const orderB = regionOrderOf(b.name);
+        if (orderA !== orderB) return orderA - orderB;
+        return a.name.localeCompare(b.name, "ko-KR");
+      })
+      .map((r) => {
+        const quota = quotaByRegionId.get(r.id);
+        return {
+          ...r,
+          recruitCount: quota?.recruitCount ?? 0,
+          recruitCountCareer: quota?.recruitCountCareer ?? 0,
+        };
+      });
+    const publicSubjects = sortSubjectsByRule(ExamType.PUBLIC, publicSubjectsRaw);
+    const careerSubjects = careerExamEnabled
+      ? sortSubjectsByRule(ExamType.CAREER, careerSubjectsRaw)
+      : [];
+
+    return NextResponse.json({
+      exams,
+      activeExam,
+      careerExamEnabled,
+      regions,
+      subjectGroups: {
+        PUBLIC: publicSubjects,
+        CAREER: careerSubjects,
+      },
+    });
+  } catch (error) {
+    console.error("GET /api/exams error", error);
+    return NextResponse.json(
+      { error: toApiErrorMessage(error, "Failed to load exam metadata.") },
+      { status: 500 }
+    );
+  }
 }

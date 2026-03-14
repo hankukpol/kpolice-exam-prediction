@@ -5,6 +5,7 @@ import ConfirmModal from "@/components/admin/ConfirmModal";
 import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getResponseErrorMessage, readResponseJson } from "@/lib/read-response-json";
 
 type ExamTypeValue = "PUBLIC" | "CAREER";
 
@@ -170,23 +171,23 @@ export default function AdminSubmissionsPage() {
       fetch("/api/exams", { method: "GET", cache: "no-store" }),
     ]);
 
-    const examData = (await examResponse.json()) as { exams?: ExamOption[]; error?: string };
+    const examData = await readResponseJson<{ exams?: ExamOption[]; error?: string }>(examResponse);
     if (!examResponse.ok) {
-      throw new Error(examData.error ?? "시험 목록 조회에 실패했습니다.");
+      throw new Error(getResponseErrorMessage(examResponse, "Failed to load exam options.", examData));
     }
 
-    const metaData = (await examsMetaResponse.json()) as {
+    const metaData = await readResponseJson<{
       regions?: RegionOption[];
       careerExamEnabled?: boolean;
       error?: string;
-    };
+    }>(examsMetaResponse);
     if (!examsMetaResponse.ok) {
-      throw new Error(metaData.error ?? "지역 목록 조회에 실패했습니다.");
+      throw new Error(getResponseErrorMessage(examsMetaResponse, "Failed to load exam metadata.", metaData));
     }
 
-    setExamOptions(examData.exams ?? []);
-    setRegionOptions(metaData.regions ?? []);
-    setCareerExamEnabled(metaData.careerExamEnabled ?? true);
+    setExamOptions(examData?.exams ?? []);
+    setRegionOptions(metaData?.regions ?? []);
+    setCareerExamEnabled(metaData?.careerExamEnabled ?? true);
   }, []);
 
   useEffect(() => {
@@ -200,16 +201,16 @@ export default function AdminSubmissionsPage() {
       method: "GET",
       cache: "no-store",
     });
-    const data = (await response.json()) as SubmissionsResponse & { error?: string };
+    const data = await readResponseJson<SubmissionsResponse & { error?: string }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "제출 목록을 불러오지 못했습니다.");
+      throw new Error(getResponseErrorMessage(response, "Failed to load submissions.", data));
     }
 
-    setSubmissions(data.submissions ?? []);
-    setRegionCounts(data.regionCounts ?? []);
-    setPage(data.pagination?.page ?? 1);
-    setTotalPages(data.pagination?.totalPages ?? 1);
-    setTotalCount(data.pagination?.totalCount ?? 0);
+    setSubmissions(data?.submissions ?? []);
+    setRegionCounts(data?.regionCounts ?? []);
+    setPage(data?.pagination?.page ?? 1);
+    setTotalPages(data?.pagination?.totalPages ?? 1);
+    setTotalCount(data?.pagination?.totalCount ?? 0);
   }, [queryString]);
 
   useEffect(() => {
@@ -250,16 +251,20 @@ export default function AdminSubmissionsPage() {
         method: "GET",
         cache: "no-store",
       });
-      const data = (await response.json()) as SubmissionDetailResponse & { error?: string };
+      const data = await readResponseJson<SubmissionDetailResponse & { error?: string }>(response);
       if (!response.ok) {
-        throw new Error(data.error ?? "제출 상세 조회에 실패했습니다.");
+        throw new Error(getResponseErrorMessage(response, "Failed to load submission detail.", data));
+      }
+
+      if (!data) {
+        throw new Error("Submission detail response was empty.");
       }
 
       setDetail(data);
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "제출 상세 조회에 실패했습니다.",
+        message: error instanceof Error ? error.message : "Failed to load submission detail.",
       });
     } finally {
       setIsDetailLoading(false);

@@ -36,11 +36,11 @@ function parseBoolean(value: unknown, fallbackValue: boolean): boolean {
 }
 
 function toUserErrorMessage(error: unknown, fallbackMessage: string): string {
-  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2022") {
-    return (
-      "데이터베이스 스키마가 최신 코드와 일치하지 않습니다. " +
-      "관리자에서 `npx prisma db push` 또는 마이그레이션 적용 후 다시 시도해 주세요."
-    );
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2021" || error.code === "P2022")
+  ) {
+    return "The database schema is behind the deployed code. Do not reset any data. Apply only the pending migrations with `prisma migrate deploy`.";
   }
 
   if (error instanceof Error) {

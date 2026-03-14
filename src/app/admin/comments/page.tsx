@@ -5,6 +5,7 @@ import ConfirmModal from "@/components/admin/ConfirmModal";
 import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getResponseErrorMessage, readResponseJson } from "@/lib/read-response-json";
 
 interface ExamOption {
   id: number;
@@ -81,11 +82,11 @@ export default function AdminCommentsPage() {
 
   const loadExamOptions = useCallback(async () => {
     const response = await fetch("/api/admin/exam", { method: "GET", cache: "no-store" });
-    const data = (await response.json()) as { exams?: ExamOption[]; error?: string };
+    const data = await readResponseJson<{ exams?: ExamOption[]; error?: string }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "시험 목록을 불러오지 못했습니다.");
+      throw new Error(getResponseErrorMessage(response, "Failed to load exam options.", data));
     }
-    setExamOptions(data.exams ?? []);
+    setExamOptions(data?.exams ?? []);
   }, []);
 
   const loadComments = useCallback(async () => {
@@ -93,15 +94,15 @@ export default function AdminCommentsPage() {
       method: "GET",
       cache: "no-store",
     });
-    const data = (await response.json()) as CommentsResponse & { error?: string };
+    const data = await readResponseJson<CommentsResponse & { error?: string }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "댓글 목록을 불러오지 못했습니다.");
+      throw new Error(getResponseErrorMessage(response, "Failed to load comments.", data));
     }
 
-    setComments(data.comments ?? []);
-    setPage(data.pagination?.page ?? 1);
-    setTotalPages(data.pagination?.totalPages ?? 1);
-    setTotalCount(data.pagination?.totalCount ?? 0);
+    setComments(data?.comments ?? []);
+    setPage(data?.pagination?.page ?? 1);
+    setTotalPages(data?.pagination?.totalPages ?? 1);
+    setTotalCount(data?.pagination?.totalCount ?? 0);
     setSelectedIds([]);
   }, [queryString]);
 

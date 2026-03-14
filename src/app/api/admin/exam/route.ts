@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
+import { toApiErrorMessage } from "@/lib/api-error";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettingsUncached } from "@/lib/site-settings";
 
@@ -72,22 +73,43 @@ function validateCreatePayload(payload: ExamPayload) {
 }
 
 export async function GET(request: NextRequest) {
-  const guard = await requireAdminRoute();
-  if ("error" in guard) return guard.error;
-  const settings = await getSiteSettingsUncached();
-  const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
+  try {
+    const guard = await requireAdminRoute();
+    if ("error" in guard) return guard.error;
 
-  const { searchParams } = new URL(request.url);
-  const examId = parseExamIdFromRequest(request);
-  const onlyActive = parseBoolean(searchParams.get("active"));
+    const settings = await getSiteSettingsUncached();
+    const careerExamEnabled = Boolean(settings["site.careerExamEnabled"] ?? true);
 
-  if (searchParams.get("id") && !examId) {
-    return NextResponse.json({ error: "유효한 시험 ID를 전달해 주세요." }, { status: 400 });
-  }
+    const { searchParams } = new URL(request.url);
+    const examId = parseExamIdFromRequest(request);
+    const onlyActive = parseBoolean(searchParams.get("active"));
 
-  if (examId) {
-    const exam = await prisma.exam.findUnique({
-      where: { id: examId },
+    if (searchParams.get("id") && !examId) {
+      return NextResponse.json({ error: "Invalid exam id." }, { status: 400 });
+    }
+
+    if (examId) {
+      const exam = await prisma.exam.findUnique({
+        where: { id: examId },
+        include: {
+          _count: {
+            select: {
+              answerKeys: true,
+              submissions: true,
+            },
+          },
+        },
+      });
+
+      if (!exam) {
+        return NextResponse.json({ error: "Exam not found." }, { status: 404 });
+      }
+
+      return NextResponse.json({ exam, careerExamEnabled });
+    }
+
+    const exams = await prisma.exam.findMany({
+      where: onlyActive === null ? undefined : { isActive: onlyActive },
       include: {
         _count: {
           select: {
@@ -96,29 +118,17 @@ export async function GET(request: NextRequest) {
           },
         },
       },
+      orderBy: [{ year: "desc" }, { round: "desc" }, { id: "desc" }],
     });
 
-    if (!exam) {
-      return NextResponse.json({ error: "해당 시험을 찾을 수 없습니다." }, { status: 404 });
-    }
-
-    return NextResponse.json({ exam, careerExamEnabled });
+    return NextResponse.json({ exams, careerExamEnabled });
+  } catch (error) {
+    console.error("GET /api/admin/exam error", error);
+    return NextResponse.json(
+      { error: toApiErrorMessage(error, "Failed to load exams.") },
+      { status: 500 }
+    );
   }
-
-  const exams = await prisma.exam.findMany({
-    where: onlyActive === null ? undefined : { isActive: onlyActive },
-    include: {
-      _count: {
-        select: {
-          answerKeys: true,
-          submissions: true,
-        },
-      },
-    },
-    orderBy: [{ year: "desc" }, { round: "desc" }, { id: "desc" }],
-  });
-
-  return NextResponse.json({ exams, careerExamEnabled });
 }
 
 export async function POST(request: NextRequest) {

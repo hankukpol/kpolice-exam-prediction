@@ -9,26 +9,18 @@ echo ============================================
 echo.
 echo Usage:
 echo   %~nx0
-echo   %~nx0 [migration_name] [commit_message]
-echo   %~nx0 --skip-migrate [commit_message]
-echo   %~nx0 --force-migrate [migration_name] [commit_message]
+echo   %~nx0 [commit_message]
+echo   %~nx0 --skip-db-check [commit_message]
 echo.
 
-set "SKIP_MIGRATE=0"
-set "FORCE_MIGRATE=0"
-set "MIGRATION_NAME="
+set "SKIP_DB_CHECK=0"
 set "COMMIT_MSG="
 
-if /I "%~1"=="--skip-migrate" (
-    set "SKIP_MIGRATE=1"
+if /I "%~1"=="--skip-db-check" (
+    set "SKIP_DB_CHECK=1"
     set "COMMIT_MSG=%~2"
-) else if /I "%~1"=="--force-migrate" (
-    set "FORCE_MIGRATE=1"
-    set "MIGRATION_NAME=%~2"
-    set "COMMIT_MSG=%~3"
 ) else (
-    set "MIGRATION_NAME=%~1"
-    set "COMMIT_MSG=%~2"
+    set "COMMIT_MSG=%~1"
 )
 
 where git >nul 2>&1
@@ -49,45 +41,25 @@ if errorlevel 1 (
     goto :fail
 )
 
-if "!SKIP_MIGRATE!"=="1" goto :migrate_skip
+if "!SKIP_DB_CHECK!"=="1" goto :db_check_skip
 
-set "MIGRATION_REQUIRED=0"
-if "!FORCE_MIGRATE!"=="1" set "MIGRATION_REQUIRED=1"
-if not "!MIGRATION_NAME!"=="" set "MIGRATION_REQUIRED=1"
-
-if "!MIGRATION_REQUIRED!"=="0" (
-    git status --porcelain -- prisma/schema.prisma prisma/migrations | findstr /R /C:".*" >nul
-    if not errorlevel 1 set "MIGRATION_REQUIRED=1"
-)
-
-if "!MIGRATION_REQUIRED!"=="0" goto :migrate_not_needed
-
-if "!MIGRATION_NAME!"=="" (
-    for /f %%t in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "NOW=%%t"
-    set "MIGRATION_NAME=auto_schema_!NOW!"
-)
-
-echo [1/5] Running DB migration... name=!MIGRATION_NAME!
-call npx prisma migrate dev --name "!MIGRATION_NAME!"
-if errorlevel 1 (
-    echo [ERROR] Migration failed.
-    goto :fail
-)
-
-echo [INFO] Generating Prisma Client...
-call npx prisma generate
-if errorlevel 1 (
-    echo [ERROR] Prisma generate failed.
-    goto :fail
+echo [1/5] Checking Prisma migration files...
+if exist "prisma\schema.prisma" (
+    git diff --name-only -- prisma\schema.prisma | findstr /R /C:"prisma/schema.prisma" >nul
+    if not errorlevel 1 (
+        git diff --name-only -- prisma\migrations | findstr /R /C:"prisma/migrations/" >nul
+        if errorlevel 1 (
+            echo [ERROR] prisma/schema.prisma changed but no migration file was found.
+            echo [ERROR] Create and verify the migration first, then run this deploy script again.
+            echo [ERROR] This script does not run prisma migrate dev to avoid touching DB during deploy.
+            goto :fail
+        )
+    )
 )
 goto :typecheck
 
-:migrate_skip
-echo [1/5] Skipping DB migration --skip-migrate
-goto :typecheck
-
-:migrate_not_needed
-echo [1/5] No schema changes. Skipping DB migration.
+:db_check_skip
+echo [1/5] Skipping Prisma migration file check --skip-db-check
 
 :typecheck
 echo [2/5] Production build check...
@@ -102,6 +74,11 @@ git add -A
 if errorlevel 1 (
     echo [ERROR] git add failed.
     goto :fail
+)
+
+git ls-files --error-unmatch AGENTS.md >nul 2>&1
+if errorlevel 1 (
+    git restore --staged -- AGENTS.md >nul 2>&1
 )
 
 git diff --cached --quiet

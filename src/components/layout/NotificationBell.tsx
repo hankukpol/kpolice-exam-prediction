@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import RescoreNotificationModal, {
   type RescoreNotificationItem,
 } from "@/components/notification/RescoreNotificationModal";
+import { readResponseJson } from "@/lib/read-response-json";
 
 interface NotificationResponse {
   unreadCount: number;
@@ -25,13 +26,13 @@ export default function NotificationBell() {
         method: "GET",
         cache: "no-store",
       });
-      if (!response.ok) {
+      const data = await readResponseJson<NotificationResponse>(response);
+      if (!response.ok || !data) {
         setUnreadCount(0);
         setNotifications([]);
         return;
       }
 
-      const data = (await response.json()) as NotificationResponse;
       setUnreadCount(data.unreadCount ?? 0);
       setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
     } catch {
@@ -82,7 +83,7 @@ export default function NotificationBell() {
         type="button"
         onClick={() => setOpen(true)}
         className="relative rounded-md p-2 text-white/85 transition hover:bg-white/10 hover:text-white"
-        title="정답키 변경 알림"
+        title="Rescore notifications"
       >
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
           <path

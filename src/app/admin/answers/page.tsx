@@ -6,6 +6,7 @@ import useConfirmModal from "@/hooks/useConfirmModal";
 import QuickOmrInput from "@/components/exam/QuickOmrInput";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { getResponseErrorMessage, readResponseJson } from "@/lib/read-response-json";
 
 const ADMIN_EXAM_API = "/api/admin/exam";
 const ADMIN_ANSWERS_API = "/api/admin/answers";
@@ -208,18 +209,18 @@ export default function AdminAnswersPage() {
 
   const loadExamOptions = useCallback(async () => {
     const response = await fetch(ADMIN_EXAM_API, { method: "GET", cache: "no-store" });
-    const data = (await response.json()) as {
+    const data = await readResponseJson<{
       exams?: ExamItem[];
       careerExamEnabled?: boolean;
       error?: string;
-    };
+    }>(response);
 
     if (!response.ok) {
-      throw new Error(data.error ?? "시험 목록을 불러오지 못했습니다.");
+      throw new Error(getResponseErrorMessage(response, "Failed to load exam options.", data));
     }
 
-    const examList = data.exams ?? [];
-    setCareerExamEnabled(data.careerExamEnabled ?? true);
+    const examList = data?.exams ?? [];
+    setCareerExamEnabled(data?.careerExamEnabled ?? true);
     setExams(examList);
     setSelectedExamId((current) => {
       if (current || examList.length === 0) return current;
@@ -240,10 +241,14 @@ export default function AdminAnswersPage() {
         method: "GET",
         cache: "no-store",
       });
-      const data = (await response.json()) as AnswersResponse & { error?: string };
+      const data = await readResponseJson<AnswersResponse & { error?: string }>(response);
 
       if (!response.ok) {
-        throw new Error(data.error ?? "정답 데이터를 불러오지 못했습니다.");
+        throw new Error(getResponseErrorMessage(response, "Failed to load answer keys.", data));
+      }
+
+      if (!data) {
+        throw new Error("Answer key response was empty.");
       }
 
       const nextMap = buildAnswerMap(data.answers ?? []);
@@ -270,11 +275,11 @@ export default function AdminAnswersPage() {
         method: "GET",
         cache: "no-store",
       });
-      const data = (await response.json()) as { logs?: AnswerLogRow[]; error?: string };
+      const data = await readResponseJson<{ logs?: AnswerLogRow[]; error?: string }>(response);
       if (!response.ok) {
-        throw new Error(data.error ?? "정답 변경 이력을 불러오지 못했습니다.");
+        throw new Error(getResponseErrorMessage(response, "Failed to load answer history.", data));
       }
-      setHistoryRows(data.logs ?? []);
+      setHistoryRows(data?.logs ?? []);
     } finally {
       setIsHistoryLoading(false);
     }

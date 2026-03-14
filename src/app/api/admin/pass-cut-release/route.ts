@@ -23,8 +23,11 @@ function parsePositiveInt(value: unknown): number | null {
 }
 
 function toUserErrorMessage(error: unknown, fallbackMessage: string): string {
-  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2022") {
-    return "DB schema mismatch detected. Run `npx prisma db push` and try again.";
+  if (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === "P2021" || error.code === "P2022")
+  ) {
+    return "The database schema is behind the deployed code. Do not reset any data. Apply only the pending migrations with `prisma migrate deploy`.";
   }
   return fallbackMessage;
 }

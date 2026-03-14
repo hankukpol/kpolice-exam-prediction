@@ -6,6 +6,7 @@ import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getResponseErrorMessage, readResponseJson } from "@/lib/read-response-json";
 
 const ADMIN_EXAM_API = "/api/admin/exam";
 
@@ -82,15 +83,15 @@ export default function AdminExamsPage() {
         method: "GET",
         cache: "no-store",
       });
-      const data = (await response.json()) as ExamsResponse & { error?: string };
+      const data = await readResponseJson<ExamsResponse & { error?: string }>(response);
       if (!response.ok) {
-        throw new Error(data.error ?? "시험 목록을 불러오지 못했습니다.");
+        throw new Error(getResponseErrorMessage(response, "Failed to load exams.", data));
       }
-      setExams(data.exams ?? []);
+      setExams(data?.exams ?? []);
     } catch (error) {
       setNotice({
         type: "error",
-        message: error instanceof Error ? error.message : "시험 목록 조회에 실패했습니다.",
+        message: error instanceof Error ? error.message : "Failed to load exams.",
       });
     } finally {
       setIsLoading(false);

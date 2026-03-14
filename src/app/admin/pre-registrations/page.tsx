@@ -5,6 +5,7 @@ import ConfirmModal from "@/components/admin/ConfirmModal";
 import useConfirmModal from "@/hooks/useConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { getResponseErrorMessage, readResponseJson } from "@/lib/read-response-json";
 
 type ExamTypeValue = "PUBLIC" | "CAREER";
 type GenderValue = "MALE" | "FEMALE";
@@ -171,23 +172,23 @@ export default function AdminPreRegistrationsPage() {
       fetch("/api/exams", { method: "GET", cache: "no-store" }),
     ]);
 
-    const examData = (await examResponse.json()) as { exams?: ExamOption[]; error?: string };
+    const examData = await readResponseJson<{ exams?: ExamOption[]; error?: string }>(examResponse);
     if (!examResponse.ok) {
-      throw new Error(examData.error ?? "시험 목록 조회에 실패했습니다.");
+      throw new Error(getResponseErrorMessage(examResponse, "Failed to load exam options.", examData));
     }
 
-    const metaData = (await examsMetaResponse.json()) as {
+    const metaData = await readResponseJson<{
       regions?: RegionOption[];
       careerExamEnabled?: boolean;
       error?: string;
-    };
+    }>(examsMetaResponse);
     if (!examsMetaResponse.ok) {
-      throw new Error(metaData.error ?? "지역 목록 조회에 실패했습니다.");
+      throw new Error(getResponseErrorMessage(examsMetaResponse, "Failed to load exam metadata.", metaData));
     }
 
-    setExamOptions(examData.exams ?? []);
-    setRegionOptions(metaData.regions ?? []);
-    setCareerExamEnabled(metaData.careerExamEnabled ?? true);
+    setExamOptions(examData?.exams ?? []);
+    setRegionOptions(metaData?.regions ?? []);
+    setCareerExamEnabled(metaData?.careerExamEnabled ?? true);
   }, []);
 
   const loadRows = useCallback(async () => {
@@ -195,17 +196,17 @@ export default function AdminPreRegistrationsPage() {
       method: "GET",
       cache: "no-store",
     });
-    const data = (await response.json()) as PreRegistrationsResponse & { error?: string };
+    const data = await readResponseJson<PreRegistrationsResponse & { error?: string }>(response);
     if (!response.ok) {
-      throw new Error(data.error ?? "사전등록 목록을 불러오지 못했습니다.");
+      throw new Error(getResponseErrorMessage(response, "Failed to load pre-registrations.", data));
     }
 
-    setRows(data.preRegistrations ?? []);
-    setPage(data.pagination?.page ?? 1);
-    setTotalPages(data.pagination?.totalPages ?? 1);
-    setTotalCount(data.pagination?.totalCount ?? 0);
-    setPublicCount(data.summary?.publicCount ?? 0);
-    setCareerCount(data.summary?.careerCount ?? 0);
+    setRows(data?.preRegistrations ?? []);
+    setPage(data?.pagination?.page ?? 1);
+    setTotalPages(data?.pagination?.totalPages ?? 1);
+    setTotalCount(data?.pagination?.totalCount ?? 0);
+    setPublicCount(data?.summary?.publicCount ?? 0);
+    setCareerCount(data?.summary?.careerCount ?? 0);
   }, [queryString]);
 
   function beginEdit(row: PreRegistrationRow) {
