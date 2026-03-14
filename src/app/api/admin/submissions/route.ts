@@ -26,6 +26,9 @@ function parseExamType(value: string | null): ExamType | null {
   return null;
 }
 
+function getGroupByCount(count: true | { _all?: number } | undefined): number {
+  return typeof count === "object" && count !== null ? count._all ?? 0 : 0;
+}
 export async function GET(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
@@ -66,8 +69,29 @@ export async function GET(request: NextRequest) {
         : {}),
     };
 
+    // 지역별 건수 집계용: regionId 필터 제외 (모든 지역 건수를 한 번에 보여주기 위해)
+    const regionCountsWhere = {
+      ...(examId ? { examId } : {}),
+      ...(userId ? { userId } : {}),
+      ...(examType ? { examType } : {}),
+      ...(suspicious === "true"
+        ? { isSuspicious: true }
+        : suspicious === "false"
+          ? { isSuspicious: false }
+          : {}),
+      ...(search
+        ? {
+            OR: [
+              { user: { name: { contains: search } } },
+              { user: { phone: { contains: search } } },
+              { examNumber: { contains: search } },
+            ],
+          }
+        : {}),
+    };
+
     const skip = (page - 1) * limit;
-    const [totalCount, submissions] = await prisma.$transaction([
+    const [totalCount, submissions, regionCounts] = await prisma.$transaction([
       prisma.submission.count({ where }),
       prisma.submission.findMany({
         where,
@@ -117,12 +141,22 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
+      prisma.submission.groupBy({
+        by: ["regionId"],
+        where: regionCountsWhere,
+        _count: { _all: true },
+        orderBy: { regionId: "asc" },
+      }),
     ]);
 
     const totalPages = Math.max(1, Math.ceil(totalCount / limit));
     const safePage = Math.min(page, totalPages);
 
     return NextResponse.json({
+      regionCounts: regionCounts.map((item) => ({
+        regionId: item.regionId,
+        count: getGroupByCount(item._count),
+      })),
       pagination: {
         page: safePage,
         limit,

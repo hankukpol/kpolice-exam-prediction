@@ -43,6 +43,11 @@ interface SubmissionRow {
   createdAt: string;
 }
 
+interface RegionCount {
+  regionId: number;
+  count: number;
+}
+
 interface SubmissionsResponse {
   pagination: {
     page: number;
@@ -50,6 +55,7 @@ interface SubmissionsResponse {
     totalCount: number;
     totalPages: number;
   };
+  regionCounts: RegionCount[];
   submissions: SubmissionRow[];
 }
 
@@ -134,6 +140,7 @@ export default function AdminSubmissionsPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
 
   const [submissions, setSubmissions] = useState<SubmissionRow[]>([]);
+  const [regionCounts, setRegionCounts] = useState<RegionCount[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -199,6 +206,7 @@ export default function AdminSubmissionsPage() {
     }
 
     setSubmissions(data.submissions ?? []);
+    setRegionCounts(data.regionCounts ?? []);
     setPage(data.pagination?.page ?? 1);
     setTotalPages(data.pagination?.totalPages ?? 1);
     setTotalCount(data.pagination?.totalCount ?? 0);
@@ -374,6 +382,32 @@ export default function AdminSubmissionsPage() {
           검색
         </Button>
       </section>
+
+      {regionCounts.length > 0 ? (
+        <section className="flex flex-wrap gap-2">
+          {regionCounts.map((rc) => {
+            const regionName = regionOptions.find((r) => r.id === rc.regionId)?.name ?? `지역 ${rc.regionId}`;
+            const isActive = selectedRegionId === rc.regionId;
+            return (
+              <button
+                key={rc.regionId}
+                type="button"
+                onClick={() => {
+                  setSelectedRegionId(isActive ? "" : rc.regionId);
+                  setPage(1);
+                }}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  isActive
+                    ? "border-blue-500 bg-blue-500 text-white"
+                    : "border-slate-300 bg-white text-slate-700 hover:border-blue-400 hover:text-blue-600"
+                }`}
+              >
+                {regionName} {rc.count.toLocaleString("ko-KR")}명
+              </button>
+            );
+          })}
+        </section>
+      ) : null}
 
       {notice ? (
         <p
