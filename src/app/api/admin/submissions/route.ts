@@ -1,6 +1,6 @@
-import { ExamType } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRoute } from "@/lib/admin-auth";
+import { buildAdminSubmissionWhere, parseAdminSubmissionExamType } from "@/lib/admin-submissions";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -20,15 +20,10 @@ function parseLimit(value: string | null): number {
   return Math.min(parsed, 50);
 }
 
-function parseExamType(value: string | null): ExamType | null {
-  if (value === ExamType.PUBLIC) return ExamType.PUBLIC;
-  if (value === ExamType.CAREER) return ExamType.CAREER;
-  return null;
-}
-
 function getGroupByCount(count: true | { _all?: number } | undefined): number {
   return typeof count === "object" && count !== null ? count._all ?? 0 : 0;
 }
+
 export async function GET(request: NextRequest) {
   const guard = await requireAdminRoute();
   if ("error" in guard) return guard.error;
@@ -40,7 +35,7 @@ export async function GET(request: NextRequest) {
     const examId = parsePositiveInt(searchParams.get("examId"));
     const regionId = parsePositiveInt(searchParams.get("regionId"));
     const userId = parsePositiveInt(searchParams.get("userId"));
-    const examType = parseExamType(searchParams.get("examType"));
+    const examType = parseAdminSubmissionExamType(searchParams.get("examType"));
     const search = searchParams.get("search")?.trim() ?? "";
     const suspicious = searchParams.get("suspicious");
 
@@ -48,47 +43,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "examType은 PUBLIC 또는 CAREER여야 합니다." }, { status: 400 });
     }
 
-    const where = {
-      ...(examId ? { examId } : {}),
-      ...(regionId ? { regionId } : {}),
-      ...(userId ? { userId } : {}),
-      ...(examType ? { examType } : {}),
-      ...(suspicious === "true"
-        ? { isSuspicious: true }
-        : suspicious === "false"
-          ? { isSuspicious: false }
-          : {}),
-      ...(search
-        ? {
-            OR: [
-              { user: { name: { contains: search } } },
-              { user: { phone: { contains: search } } },
-              { examNumber: { contains: search } },
-            ],
-          }
-        : {}),
-    };
+    const where = buildAdminSubmissionWhere({
+      examId,
+      regionId,
+      userId,
+      examType,
+      search,
+      suspicious,
+    });
 
-    // 지역별 건수 집계용: regionId 필터 제외 (모든 지역 건수를 한 번에 보여주기 위해)
-    const regionCountsWhere = {
-      ...(examId ? { examId } : {}),
-      ...(userId ? { userId } : {}),
-      ...(examType ? { examType } : {}),
-      ...(suspicious === "true"
-        ? { isSuspicious: true }
-        : suspicious === "false"
-          ? { isSuspicious: false }
-          : {}),
-      ...(search
-        ? {
-            OR: [
-              { user: { name: { contains: search } } },
-              { user: { phone: { contains: search } } },
-              { examNumber: { contains: search } },
-            ],
-          }
-        : {}),
-    };
+    const regionCountsWhere = buildAdminSubmissionWhere(
+      {
+        examId,
+        regionId,
+        userId,
+        examType,
+        search,
+        suspicious,
+      },
+      { excludeRegionId: true }
+    );
 
     const skip = (page - 1) * limit;
     const [totalCount, submissions, regionCounts] = await prisma.$transaction([
@@ -168,8 +142,8 @@ export async function GET(request: NextRequest) {
         examId: submission.examId,
         userId: submission.userId,
         userName: submission.user.name,
-        userPhone: submission.user.phone,         // 로그인 아이디
-        userContactPhone: submission.user.contactPhone, // 연락처
+        userPhone: submission.user.phone,
+        userContactPhone: submission.user.contactPhone,
         examName: submission.exam.name,
         examType: submission.examType,
         regionId: submission.regionId,

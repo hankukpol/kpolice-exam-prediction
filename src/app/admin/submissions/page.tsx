@@ -147,6 +147,7 @@ export default function AdminSubmissionsPage() {
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isExportingPredictionCsv, setIsExportingPredictionCsv] = useState(false);
 
   const [detail, setDetail] = useState<SubmissionDetailResponse | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
@@ -306,11 +307,56 @@ export default function AdminSubmissionsPage() {
     }
   }
 
+  async function handleExportPredictionCsv() {
+    setIsExportingPredictionCsv(true);
+    setNotice(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (selectedExamId) params.set("examId", String(selectedExamId));
+      if (selectedRegionId) params.set("regionId", String(selectedRegionId));
+      if (selectedExamType) params.set("examType", selectedExamType);
+      if (searchKeyword) params.set("search", searchKeyword);
+
+      const response = await fetch(`/api/admin/submissions/export?${params.toString()}`);
+      if (!response.ok) {
+        const data = await readResponseJson<{ error?: string }>(response);
+        throw new Error(getResponseErrorMessage(response, "합격예측 제출 명단 다운로드에 실패했습니다.", data));
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `합격예측제출명단_${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setNotice({
+        type: "error",
+        message:
+          error instanceof Error ? error.message : "합격예측 제출 명단 다운로드에 실패했습니다.",
+      });
+    } finally {
+      setIsExportingPredictionCsv(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-xl font-semibold text-slate-900">제출 현황</h1>
-        <p className="mt-1 text-sm text-slate-600">사용자 제출 기록을 조회하고 상세 답안을 확인합니다.</p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-900">제출 현황</h1>
+          <p className="mt-1 text-sm text-slate-600">사용자 제출 기록을 조회하고 상세 답안을 확인합니다.</p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void handleExportPredictionCsv()}
+          disabled={isExportingPredictionCsv}
+        >
+          {isExportingPredictionCsv ? "내보내는 중..." : "합격예측 제출 명단 CSV"}
+        </Button>
       </header>
 
       <section className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-6">
